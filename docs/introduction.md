@@ -59,59 +59,85 @@ PHPeek PM manages multiple processes within a single Docker container, making it
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────┐
-│         PHPeek PM (PID 1)              │
-│                                         │
-│  ┌──────────┐  ┌──────────┐           │
-│  │ Metrics  │  │   API    │           │
-│  │ :9090    │  │  :8080   │           │
-│  └──────────┘  └──────────┘           │
-│                                         │
-│  ┌─────────────────────────────────┐  │
-│  │     Process Manager             │  │
-│  │  • Startup ordering             │  │
-│  │  • Health monitoring            │  │
-│  │  • Graceful shutdown            │  │
-│  └─────────────────────────────────┘  │
-│                                         │
-│  ┌──────────┐ ┌──────────┐ ┌────────┐│
-│  │ PHP-FPM  │ │  Nginx   │ │Horizon ││
-│  │ (scale 2)│ │          │ │        ││
-│  └──────────┘ └──────────┘ └────────┘│
-│                                         │
-│  ┌──────────┐ ┌──────────┐           │
-│  │ Queue    │ │Scheduler │           │
-│  │(scale 3) │ │          │           │
-│  └──────────┘ └──────────┘           │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│         PHPeek PM (PID 1)                      │
+│                                                 │
+│  ┌──────────┐  ┌──────────┐  ┌─────────────┐ │
+│  │ Metrics  │  │   API    │  │  Heartbeat  │ │
+│  │ :9090    │  │  :8080   │  │  Monitor    │ │
+│  └──────────┘  └──────────┘  └──────┬──────┘ │
+│                                       │         │
+│                            External monitoring │
+│                            (healthchecks.io)   │
+│                                                 │
+│  ┌──────────────────────────────────────────┐ │
+│  │     Process Manager & Orchestration      │ │
+│  │  • DAG-based dependency resolution       │ │
+│  │  • Health monitoring with thresholds     │ │
+│  │  • Lifecycle hooks (pre/post start/stop) │ │
+│  │  • Graceful shutdown with timeouts       │ │
+│  └──────────────────────────────────────────┘ │
+│                                                 │
+│  ┌──────────────────────────────────────────┐ │
+│  │     Advanced Logging Pipeline            │ │
+│  │  Log → Level Detect → Multiline →        │ │
+│  │  JSON Parse → Redact → Filter → Output   │ │
+│  └──────────────────────────────────────────┘ │
+│                                                 │
+│  ┌──────────┐ ┌──────────┐ ┌────────┐        │
+│  │ PHP-FPM  │ │  Nginx   │ │Horizon │        │
+│  │ (scale 2)│ │          │ │        │        │
+│  └──────────┘ └──────────┘ └────────┘        │
+│                                                 │
+│  ┌──────────┐ ┌──────────────────────┐       │
+│  │ Queue    │ │   Cron Scheduler     │       │
+│  │(scale 3) │ │  • Standard 5-field  │       │
+│  │          │ │  • Task statistics   │       │
+│  │          │ │  • Heartbeat pings   │       │
+│  └──────────┘ └──────────────────────┘       │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Key Features
 
 **Process Management**
-- Multi-process orchestration with dependency resolution
+- Multi-process orchestration with DAG-based dependency resolution
 - Process scaling (run N instances of the same process)
 - Restart policies with exponential backoff
 - Lifecycle hooks (pre/post start/stop)
 
+**Scheduled Tasks**
+- Built-in cron scheduler with standard 5-field format
+- Per-task execution statistics and metrics
+- External heartbeat monitoring integration (healthchecks.io, Cronitor, etc.)
+- Graceful cancellation on shutdown
+
 **Health Monitoring**
 - TCP port checks
-- HTTP endpoint validation
+- HTTP endpoint validation with status code verification
 - Custom exec commands
-- Configurable failure/success thresholds
+- Configurable failure/success thresholds to prevent flapping
+
+**Advanced Logging**
+- Automatic log level detection (ERROR, WARN, INFO, DEBUG)
+- Multiline log reassembly (stack traces, exceptions)
+- JSON log parsing and structured field extraction
+- Sensitive data redaction (passwords, tokens, PII)
+- GDPR, PCI DSS, HIPAA, SOC 2 compliance support
 
 **Observability**
 - Prometheus metrics endpoint
-- Process lifecycle metrics
-- Health check duration tracking
+- Process lifecycle metrics (start, stop, restart, exit codes)
+- Health check duration and status tracking
 - Hook execution metrics
-- REST API for runtime inspection
+- Scheduled task metrics (last run, next run, duration, success/failure)
+- REST API for runtime inspection and control
 
 **Framework Integration**
 - Auto-detect Laravel, Symfony, WordPress
 - Framework-specific permission setup
 - Configuration validation
-- Laravel Artisan command support
+- Laravel Artisan command support (Horizon, queue workers, scheduler)
 
 ## Quick Example
 
