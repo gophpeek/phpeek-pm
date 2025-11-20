@@ -29,17 +29,18 @@ const (
 
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
-	name          string
-	config        *config.Process
-	logger        *slog.Logger
-	instances     []*Instance
-	state         ProcessState
-	healthMonitor *HealthMonitor
-	healthStatus  <-chan HealthStatus
-	restartPolicy RestartPolicy
-	ctx           context.Context
-	cancel        context.CancelFunc
-	mu            sync.RWMutex
+	name           string
+	config         *config.Process
+	logger         *slog.Logger
+	instances      []*Instance
+	state          ProcessState
+	healthMonitor  *HealthMonitor
+	healthStatus   <-chan HealthStatus
+	restartPolicy  RestartPolicy
+	deathNotifier  func(string) // Callback when all instances are dead
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.RWMutex
 }
 
 // Instance represents a single process instance
@@ -73,6 +74,13 @@ func NewSupervisor(name string, cfg *config.Process, logger *slog.Logger) *Super
 		state:         StateStopped,
 		restartPolicy: NewRestartPolicy(cfg.Restart, maxAttempts, backoff),
 	}
+}
+
+// SetDeathNotifier sets the callback for when all instances are dead
+func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deathNotifier = notifier
 }
 
 // Start starts all instances of the process
@@ -258,6 +266,9 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 			"exit_code", exitCode,
 			"restart_count", restartCount,
 		)
+
+		// Check if all instances are now dead
+		s.checkAllInstancesDead()
 	}
 }
 
@@ -492,4 +503,27 @@ func (s *Supervisor) GetInstances() []InstanceInfo {
 	}
 
 	return instances
+}
+
+// checkAllInstancesDead checks if all instances are dead and notifies manager
+func (s *Supervisor) checkAllInstancesDead() {
+	s.mu.RLock()
+	allDead := true
+	for _, inst := range s.instances {
+		inst.mu.RLock()
+		if inst.state == StateRunning {
+			allDead = false
+		}
+		inst.mu.RUnlock()
+		if !allDead {
+			break
+		}
+	}
+	notifier := s.deathNotifier
+	s.mu.RUnlock()
+
+	if allDead && len(s.instances) > 0 && notifier != nil {
+		s.logger.Debug("All instances dead, notifying manager")
+		notifier(s.name)
+	}
 }

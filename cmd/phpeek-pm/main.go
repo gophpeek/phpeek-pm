@@ -126,6 +126,9 @@ func main() {
 
 	slog.Info("All processes started successfully")
 
+	// Start monitoring for all processes dying
+	pm.MonitorProcessHealth(ctx)
+
 	// Start API server if enabled
 	var apiServer *api.Server
 	if cfg.Global.APIEnabled {
@@ -145,9 +148,16 @@ func main() {
 		)
 	}
 
-	// Wait for shutdown signal
-	sig := <-sigChan
-	slog.Info("Received shutdown signal", "signal", sig.String())
+	// Wait for either shutdown signal or all processes dying
+	var shutdownReason string
+	select {
+	case sig := <-sigChan:
+		shutdownReason = fmt.Sprintf("signal: %s", sig.String())
+		slog.Info("Received shutdown signal", "signal", sig.String())
+	case <-pm.AllDeadChannel():
+		shutdownReason = "all processes died"
+		slog.Warn("All managed processes have died")
+	}
 
 	// Initiate graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(
@@ -157,6 +167,7 @@ func main() {
 	defer shutdownCancel()
 
 	slog.Info("Initiating graceful shutdown",
+		"reason", shutdownReason,
 		"timeout", cfg.Global.ShutdownTimeout,
 	)
 

@@ -81,15 +81,16 @@ else
     echo "  ⚠ curl not available, skipping API test"
 fi
 
-# Test 9: Graceful shutdown
+# Test 9: Auto-exit when all processes die
 echo ""
-echo "✓ Test 9: Graceful Shutdown"
-kill -TERM $PHPEEK_PID
+echo "✓ Test 9: Auto-exit on Process Death"
+echo "  Waiting for managed processes to complete (sleep 5)..."
 
-# Wait for graceful shutdown (up to 15 seconds)
-for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+# Wait for auto-exit (should happen after ~5 seconds when sleep processes finish)
+# Give it up to 10 seconds total
+for i in 1 2 3 4 5 6 7 8 9 10; do
     if ! kill -0 $PHPEEK_PID 2>/dev/null; then
-        echo "  Process stopped gracefully after ${i} seconds"
+        echo "  PHPeek PM auto-exited after managed processes died (${i}s elapsed)"
         break
     fi
     sleep 1
@@ -97,9 +98,10 @@ done
 
 # Check if process stopped
 if kill -0 $PHPEEK_PID 2>/dev/null; then
-    echo "  ⚠ Process still running after 15s, forcing shutdown"
+    echo "  ✗ FAILED: PHPeek PM still running after 10s"
     kill -KILL $PHPEEK_PID 2>/dev/null || true
     wait $PHPEEK_PID 2>/dev/null || true
+    exit 1
 fi
 
 # Give it a moment to clean up
