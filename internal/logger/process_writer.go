@@ -109,10 +109,11 @@ func (pw *ProcessWriter) processLine(line string) {
 		if !complete {
 			return // Still buffering
 		}
-		// Buffer complete or flushed
-		if entry != "" {
-			pw.processEntry(entry)
+		// Buffer complete or flushed - always process if not empty
+		if entry == "" {
+			return // Complete but empty buffer
 		}
+		pw.processEntry(entry)
 		return
 	}
 
