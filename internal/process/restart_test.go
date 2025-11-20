@@ -250,10 +250,10 @@ func TestBackoffCapping(t *testing.T) {
 		restartCount int
 		wantCapped   bool
 	}{
-		{restartCount: 0, wantCapped: false},  // 1s
-		{restartCount: 5, wantCapped: false},  // 32s
-		{restartCount: 10, wantCapped: true},  // Would be 1024s, but capped at 300s
-		{restartCount: 20, wantCapped: true},  // Way over cap
+		{restartCount: 0, wantCapped: false}, // 1s
+		{restartCount: 5, wantCapped: false}, // 32s
+		{restartCount: 10, wantCapped: true}, // Would be 1024s, but capped at 300s
+		{restartCount: 20, wantCapped: true}, // Way over cap
 	}
 
 	for _, tt := range tests {

@@ -57,6 +57,7 @@ See `configs/examples/` for more examples:
 - `minimal.yaml` - Simple PHP-FPM setup
 - `laravel-full.yaml` - Complete Laravel stack with Horizon, Reverb, workers
 - `laravel-with-monitoring.yaml` - Full observability with metrics and API enabled
+- `scheduled-tasks.yaml` - Cron-like scheduled task execution
 
 ### Environment Variables
 
@@ -117,6 +118,201 @@ processes:
     scale: 3
     priority: 40
 ```
+
+## Scheduled Tasks
+
+PHPeek PM includes a built-in cron-like scheduler for running periodic tasks without requiring a separate cron daemon. Perfect for Laravel scheduled commands, backups, cleanups, and maintenance tasks.
+
+### Configuration
+
+Use standard 5-field cron expressions (minute, hour, day, month, weekday):
+
+```yaml
+processes:
+  backup-job:
+    enabled: true
+    command: ["php", "artisan", "backup:run"]
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    env:
+      BACKUP_DESTINATION: "s3"
+
+  cache-warmup:
+    enabled: true
+    command: ["php", "artisan", "cache:warmup"]
+    schedule: "*/15 * * * *"  # Every 15 minutes
+
+  report-generator:
+    enabled: true
+    command: ["php", "artisan", "reports:generate"]
+    schedule: "0 8 * * 1"  # Mondays at 8 AM
+```
+
+### Features
+
+- **Standard Cron Format**: Familiar 5-field syntax (minute hour day month weekday)
+- **Per-Task Statistics**: Track run count, success/failure rates, execution duration
+- **Heartbeat Integration**: External monitoring support (healthchecks.io, etc.)
+- **Structured Logging**: Task-specific logs with execution context
+- **Graceful Shutdown**: Running tasks are cancelled cleanly on shutdown
+
+### Environment Variables
+
+Scheduled tasks receive additional environment variables:
+
+```bash
+PHPEEK_PM_PROCESS_NAME=backup-job
+PHPEEK_PM_INSTANCE_ID=backup-job-run-42
+PHPEEK_PM_SCHEDULED=true
+PHPEEK_PM_SCHEDULE="0 2 * * *"
+PHPEEK_PM_START_TIME=1732141200
+```
+
+### Metrics
+
+Scheduled task metrics available via Prometheus:
+
+- `phpeek_pm_scheduled_task_last_run_timestamp` - Last execution time
+- `phpeek_pm_scheduled_task_next_run_timestamp` - Next scheduled time
+- `phpeek_pm_scheduled_task_last_exit_code` - Most recent exit code
+- `phpeek_pm_scheduled_task_duration_seconds` - Execution duration
+- `phpeek_pm_scheduled_task_total` - Total runs by status (success/failure)
+
+## External Monitoring (Heartbeat)
+
+Integrate with external monitoring services like [healthchecks.io](https://healthchecks.io), [Cronitor](https://cronitor.io), or [Better Uptime](https://betteruptime.com) for dead man's switch monitoring.
+
+### Configuration
+
+```yaml
+processes:
+  critical-backup:
+    enabled: true
+    command: ["php", "artisan", "backup:critical"]
+    schedule: "0 3 * * *"
+    heartbeat:
+      url: "https://hc-ping.com/your-uuid-here"
+      timeout: 10  # HTTP request timeout in seconds
+```
+
+### How It Works
+
+1. **Task Start**: Pings `/start` endpoint when task begins
+2. **Task Success**: Pings main URL when task completes with exit code 0
+3. **Task Failure**: Pings `/fail` endpoint with exit code when task fails
+
+### Supported Services
+
+Works with any service that supports HTTP ping URLs:
+
+- **healthchecks.io**: `https://hc-ping.com/uuid`
+- **Cronitor**: `https://cronitor.link/p/key/job-name`
+- **Better Uptime**: `https://betteruptime.com/api/v1/heartbeat/uuid`
+- **Custom endpoints**: Any URL accepting GET/POST requests
+
+## Advanced Logging
+
+PHPeek PM provides enterprise-grade log processing with automatic level detection, multiline handling, JSON parsing, and sensitive data redaction.
+
+### Features
+
+#### 1. Automatic Log Level Detection
+
+Automatically detects log levels from various formats:
+
+```
+[ERROR] Database connection failed      → ERROR
+2024-11-20 ERROR: Query timeout         → ERROR
+{"level":"warn","msg":"Slow query"}     → WARN
+php artisan: INFO - Cache cleared       → INFO
+```
+
+Supports: ERROR, WARN/WARNING, INFO, DEBUG, TRACE, FATAL, CRITICAL
+
+#### 2. Multiline Log Handling
+
+Automatically reassembles stack traces and multi-line error messages:
+
+```
+[ERROR] Exception in Controller
+    at App\Http\Controllers\UserController->store()
+    at Illuminate\Routing\Controller->callAction()
+    at Illuminate\Routing\ControllerDispatcher->dispatch()
+```
+
+**Configuration:**
+
+```yaml
+global:
+  log_multiline_enabled: true
+  log_multiline_pattern: '^\[|^\d{4}-|^{"'  # Regex for line starts
+  log_multiline_timeout: 500  # milliseconds
+  log_multiline_max_lines: 100
+```
+
+#### 3. JSON Log Parsing
+
+Parses JSON logs and extracts structured fields:
+
+```json
+{"level":"error","msg":"Query failed","query":"SELECT *","duration":5000}
+```
+
+Becomes:
+```
+ERROR [query_failed] Query failed (duration: 5000ms, query: SELECT *)
+```
+
+#### 4. Sensitive Data Redaction
+
+Automatically redacts sensitive information to prevent credential leaks:
+
+**Redacted Patterns:**
+- Passwords: `password`, `passwd`, `pwd`
+- API tokens: `token`, `api_key`, `secret`, `auth`
+- Connection strings: `mysql://`, `postgres://`, database URLs
+- Credit cards: Card number patterns
+- Email addresses: (optional, disabled by default)
+
+**Configuration:**
+
+```yaml
+global:
+  log_redaction_enabled: true
+  log_redaction_patterns:
+    - "password"
+    - "api_key"
+    - "secret"
+    - "token"
+  log_redaction_placeholder: "***REDACTED***"
+```
+
+**Example:**
+
+```
+Before: {"password":"secret123","api_key":"sk_live_abc"}
+After:  {"password":"***REDACTED***","api_key":"***REDACTED***"}
+```
+
+#### 5. Log Filtering
+
+Filter logs by level, pattern, or process:
+
+```yaml
+global:
+  log_filter_enabled: true
+  log_filter_level: "info"  # Only INFO and above
+  log_filter_patterns:
+    - "health_check"  # Exclude health check logs
+    - "metrics_export"  # Exclude metrics logs
+```
+
+### Compliance Support
+
+Advanced logging features support:
+- **GDPR**: Automatic PII redaction
+- **PCI DSS**: Credit card number masking
+- **HIPAA**: PHI data protection patterns
+- **SOC 2**: Audit trail with structured logs
 
 ## Docker Integration
 

@@ -1,0 +1,181 @@
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  health_check_interval: 10
+  restart_policy: never  # Scheduled tasks don't auto-restart
+  log_format: json
+  log_level: info
+  log_timestamps: true
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: /metrics
+  api_enabled: true
+  api_port: 8080
+
+processes:
+  # Database backup - runs daily at 2 AM
+  database-backup:
+    enabled: true
+    command: ["/usr/local/bin/backup-database.sh"]
+    schedule: "0 2 * * *"  # Standard cron format: min hour day month weekday
+    priority: 10
+    restart: never  # Scheduled tasks run to completion
+    env:
+      BACKUP_PATH: /backups
+      RETENTION_DAYS: "30"
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: backup
+        type: database
+    heartbeat:
+      success_url: https://hc-ping.com/your-uuid-here
+      failure_url: https://hc-ping.com/your-uuid-here/fail
+      timeout: 30       # Optional: HTTP timeout in seconds (default: 30)
+      retry_count: 3    # Optional: Number of retries (default: 3)
+      retry_delay: 5    # Optional: Delay between retries in seconds (default: 5)
+      method: POST      # Optional: HTTP method (default: POST)
+      headers:          # Optional: Custom headers for authentication
+        Authorization: Bearer your-token-here
+        X-Service: phpeek-pm
+
+  # Cache warming - runs every 15 minutes
+  cache-warmer:
+    enabled: true
+    command: ["php", "/var/www/artisan", "cache:warm"]
+    schedule: "*/15 * * * *"  # Every 15 minutes
+    priority: 20
+    restart: never
+    env:
+      APP_ENV: production
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: cache
+        type: warming
+
+  # Report generation - runs hourly during business hours (9 AM - 5 PM)
+  hourly-reports:
+    enabled: true
+    command: ["php", "/var/www/artisan", "reports:generate"]
+    schedule: "0 9-17 * * 1-5"  # Every hour from 9 AM to 5 PM, Monday to Friday
+    priority: 30
+    restart: never
+    env:
+      REPORT_TYPE: hourly
+      OUTPUT_DIR: /var/www/storage/reports
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: reports
+        type: hourly
+    heartbeat:
+      success_url: https://hc-ping.com/reports-uuid
+      failure_url: https://hc-ping.com/reports-uuid/fail
+      timeout: 60
+
+  # Log rotation - runs daily at midnight
+  log-rotation:
+    enabled: true
+    command: ["/usr/local/bin/rotate-logs.sh"]
+    schedule: "0 0 * * *"  # Daily at midnight
+    priority: 40
+    restart: never
+    env:
+      LOG_DIR: /var/log/app
+      COMPRESS: "true"
+      MAX_AGE_DAYS: "7"
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: maintenance
+        type: log-rotation
+
+  # Health check pinger - runs every 5 minutes
+  health-ping:
+    enabled: true
+    command: ["curl", "-f", "http://localhost/health"]
+    schedule: "*/5 * * * *"  # Every 5 minutes
+    priority: 50
+    restart: never
+    logging:
+      stdout: false  # Reduce noise for frequent tasks
+      stderr: true
+      labels:
+        service: monitoring
+        type: health-check
+    heartbeat:
+      failure_url: https://hc-ping.com/health-check-uuid/fail  # Only ping on failures
+      timeout: 10
+
+  # Data sync - runs every 30 minutes
+  data-sync:
+    enabled: true
+    command: ["php", "/var/www/artisan", "data:sync"]
+    schedule: "*/30 * * * *"  # Every 30 minutes
+    priority: 60
+    restart: never
+    env:
+      SYNC_SOURCE: remote-api
+      SYNC_BATCH_SIZE: "100"
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: sync
+        type: data
+    heartbeat:
+      success_url: https://hc-ping.com/sync-uuid
+      failure_url: https://hc-ping.com/sync-uuid/fail
+      timeout: 120
+      retry_count: 5
+      retry_delay: 10
+
+  # Weekly maintenance - runs every Sunday at 3 AM
+  weekly-maintenance:
+    enabled: true
+    command: ["/usr/local/bin/weekly-maintenance.sh"]
+    schedule: "0 3 * * 0"  # Sunday at 3 AM
+    priority: 70
+    restart: never
+    env:
+      MAINTENANCE_TYPE: full
+      OPTIMIZE_DATABASE: "true"
+      CLEAR_OLD_SESSIONS: "true"
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: maintenance
+        type: weekly
+    heartbeat:
+      success_url: https://hc-ping.com/weekly-uuid
+      failure_url: https://hc-ping.com/weekly-uuid/fail
+      timeout: 300
+
+# Note: Cron schedule format
+# ┌───────────── minute (0 - 59)
+# │ ┌───────────── hour (0 - 23)
+# │ │ ┌───────────── day of the month (1 - 31)
+# │ │ │ ┌───────────── month (1 - 12)
+# │ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday)
+# │ │ │ │ │
+# * * * * *
+#
+# Special characters:
+# * - any value
+# , - value list separator
+# - - range of values
+# / - step values
+#
+# Examples:
+# "0 0 * * *"      - Daily at midnight
+# "*/15 * * * *"   - Every 15 minutes
+# "0 2 * * 0"      - Every Sunday at 2 AM
+# "0 9-17 * * 1-5" - Every hour from 9 AM to 5 PM, Monday to Friday
+# "30 3 1 * *"     - At 3:30 AM on the first day of every month
