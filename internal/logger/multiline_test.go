@@ -120,7 +120,7 @@ func TestMultilineBuffer_StackTrace(t *testing.T) {
 	}
 
 	// Add first line (starts new entry)
-	complete, entry := mb.Add(lines[0])
+	complete, _ := mb.Add(lines[0])
 	if complete {
 		t.Error("first line should not be complete")
 	}
@@ -134,7 +134,7 @@ func TestMultilineBuffer_StackTrace(t *testing.T) {
 	}
 
 	// Manual flush
-	entry = mb.Flush()
+	entry := mb.Flush()
 	expected := strings.Join(lines, "\n")
 	if entry != expected {
 		t.Errorf("Flush() = %q, want %q", entry, expected)
