@@ -86,8 +86,7 @@ func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 
 	// Check if multiline buffer should be flushed due to timeout
 	if pw.multiline != nil && pw.multiline.ShouldFlush() {
-		entry := pw.multiline.Flush()
-		if entry != "" {
+		if entry := pw.multiline.Flush(); entry != "" {
 			pw.processEntry(entry)
 		}
 	}
@@ -205,8 +204,7 @@ func (pw *ProcessWriter) Flush() {
 
 	// Flush multiline buffer
 	if pw.multiline != nil && pw.multiline.BufferSize() > 0 {
-		entry := pw.multiline.Flush()
-		if entry != "" {
+		if entry := pw.multiline.Flush(); entry != "" {
 			pw.processEntry(entry)
 		}
 	}
