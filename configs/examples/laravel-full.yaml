@@ -1,5 +1,15 @@
 # Complete Laravel stack with all services
 # Production-ready configuration with Horizon, Reverb, and queue workers
+#
+# Health Check Modes:
+# - liveness: Restart process if health check fails
+# - readiness: Block dependent processes until health check passes
+# - both (default): Use for both liveness and readiness checks
+#
+# Depends_on with Readiness: When a process depends_on another, the manager
+# will wait for the dependency to pass its readiness checks before starting
+# the dependent process. This prevents race conditions like queue workers
+# starting before PHP-FPM is ready to accept connections.
 
 version: "1.0"
 
@@ -56,6 +66,7 @@ processes:
       period: 10
       timeout: 3
       failure_threshold: 3
+      mode: both  # Use for both liveness (restart on failure) and readiness (block dependents)
     shutdown:
       signal: SIGQUIT  # Graceful for PHP-FPM
       timeout: 30
@@ -73,7 +84,7 @@ processes:
     priority: 20
     restart: always
     depends_on:
-      - php-fpm
+      - php-fpm  # Will wait for php-fpm to pass readiness checks before starting
     health_check:
       type: http
       url: http://localhost/health
@@ -82,6 +93,7 @@ processes:
       timeout: 2
       failure_threshold: 3
       expected_status: 200
+      mode: both  # Readiness check ensures nginx is ready before starting dependent services
     shutdown:
       signal: SIGTERM
       timeout: 30
@@ -99,7 +111,7 @@ processes:
     priority: 30
     restart: always
     depends_on:
-      - php-fpm
+      - php-fpm  # Will wait for php-fpm readiness before starting
     health_check:
       type: exec
       command: ["php", "artisan", "horizon:status"]
@@ -107,6 +119,7 @@ processes:
       period: 30
       timeout: 5
       failure_threshold: 2
+      mode: liveness  # Only used for liveness (restart if unhealthy), not readiness
     shutdown:
       pre_stop_hook:
         name: horizon-terminate
@@ -186,3 +199,22 @@ processes:
         service: queue-worker
         queue: high
         tier: workers
+
+  # Laravel Scheduler (cron replacement)
+  scheduler:
+    enabled: true
+    command: ["php", "artisan", "schedule:run"]
+    schedule: "* * * * *"  # Run every minute (Laravel's scheduler handles task timing internally)
+    priority: 50
+    restart: never  # Scheduled tasks don't auto-restart
+    depends_on:
+      - php-fpm
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: scheduler
+        tier: cron
+    heartbeat:
+      failure_url: https://hc-ping.com/scheduler-uuid/fail  # Optional: Ping only on failures
+      timeout: 30

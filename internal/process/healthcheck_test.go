@@ -15,9 +15,9 @@ import (
 
 func TestNewHealthChecker(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  *config.HealthCheck
-		wantErr bool
+		name     string
+		config   *config.HealthCheck
+		wantErr  bool
 		wantType string
 	}{
 		{

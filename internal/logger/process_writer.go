@@ -3,18 +3,75 @@ package logger
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"log/slog"
+
+	"github.com/gophpeek/phpeek-pm/internal/config"
 )
 
 // ProcessWriter captures process output and logs it with structured metadata
+// Implements the full logging pipeline: Multiline → Redaction → JSON → Level → Filters
 type ProcessWriter struct {
 	Logger     *slog.Logger
 	InstanceID string
 	Stream     string // stdout or stderr
-	buffer     bytes.Buffer
+
+	// Advanced logging components
+	redactor      *Redactor
+	multiline     *MultilineBuffer
+	jsonParser    *JSONParser
+	levelDetector *LevelDetector
+	filters       *LogFilters
+
+	buffer bytes.Buffer
+}
+
+// NewProcessWriter creates a new ProcessWriter with advanced logging features
+func NewProcessWriter(logger *slog.Logger, instanceID, stream string, cfg *config.LoggingConfig) (*ProcessWriter, error) {
+	pw := &ProcessWriter{
+		Logger:     logger,
+		InstanceID: instanceID,
+		Stream:     stream,
+	}
+
+	// Initialize components only if config provided
+	if cfg == nil {
+		return pw, nil
+	}
+
+	// Initialize Redactor (COMPLIANCE CRITICAL)
+	var err error
+	pw.redactor, err = NewRedactor(cfg.Redaction)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create redactor: %w", err)
+	}
+
+	// Initialize MultilineBuffer
+	pw.multiline, err = NewMultilineBuffer(cfg.Multiline)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create multiline buffer: %w", err)
+	}
+
+	// Initialize JSONParser
+	pw.jsonParser = NewJSONParser(cfg.JSON)
+
+	// Initialize LevelDetector
+	pw.levelDetector, err = NewLevelDetector(cfg.LevelDetection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create level detector: %w", err)
+	}
+
+	// Initialize LogFilters
+	pw.filters, err = NewLogFilters(cfg.Filters, cfg.MinLevel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log filters: %w", err)
+	}
+
+	return pw, nil
 }
 
 // Write implements io.Writer
+// Processes incoming bytes through the full logging pipeline
 func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 	pw.buffer.Write(p)
 
@@ -24,12 +81,15 @@ func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		pw.processLine(line)
+	}
 
-		// Log with structured metadata
-		pw.Logger.Info(line,
-			"instance_id", pw.InstanceID,
-			"stream", pw.Stream,
-		)
+	// Check if multiline buffer should be flushed due to timeout
+	if pw.multiline != nil && pw.multiline.ShouldFlush() {
+		entry := pw.multiline.Flush()
+		if entry != "" {
+			pw.processEntry(entry)
+		}
 	}
 
 	// Keep incomplete line in buffer
@@ -39,4 +99,117 @@ func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 	pw.buffer = remaining
 
 	return len(p), nil
+}
+
+// processLine handles a single line from process output
+func (pw *ProcessWriter) processLine(line string) {
+	// Step 1: Multiline buffering
+	if pw.multiline != nil && pw.multiline.IsEnabled() {
+		complete, entry := pw.multiline.Add(line)
+		if !complete {
+			return // Still buffering
+		}
+		// Buffer complete or flushed
+		if entry != "" {
+			pw.processEntry(entry)
+		}
+		return
+	}
+
+	// No multiline buffering, process line directly
+	pw.processEntry(line)
+}
+
+// processEntry handles a complete log entry (single line or multiline)
+// Applies: Redaction → JSON → Level → Filters → Log
+func (pw *ProcessWriter) processEntry(entry string) {
+	// Step 2: Redaction (ALWAYS FIRST for compliance)
+	if pw.redactor != nil && pw.redactor.IsEnabled() {
+		entry = pw.redactor.Redact(entry)
+	}
+
+	// Step 3: JSON parsing
+	var message string
+	var level slog.Level
+	var attrs []slog.Attr
+
+	if pw.jsonParser != nil && pw.jsonParser.IsEnabled() {
+		isJSON, data := pw.jsonParser.Parse(entry)
+		if isJSON {
+			// Extract message, level, and attributes from JSON
+			message, level, attrs = pw.jsonParser.ToLogAttrs(data)
+
+			// If no message extracted, use original entry
+			if message == "" {
+				message = entry
+			}
+		} else {
+			// Not JSON, treat as plain text
+			message = entry
+			level = slog.LevelInfo
+		}
+	} else {
+		// JSON parsing disabled
+		message = entry
+		level = slog.LevelInfo
+	}
+
+	// Step 4: Level detection (if level not set by JSON)
+	if pw.levelDetector != nil && pw.levelDetector.IsEnabled() && level == slog.LevelInfo {
+		level = pw.levelDetector.Detect(entry)
+	}
+
+	// Step 5: Filter check
+	if pw.filters != nil {
+		if !pw.filters.ShouldLog(entry, level) {
+			return // Drop log
+		}
+	}
+
+	// Step 6: Log with structured metadata
+	// Add instance_id and stream as base attributes
+	baseAttrs := []any{
+		"instance_id", pw.InstanceID,
+		"stream", pw.Stream,
+	}
+
+	// Add JSON-extracted attributes
+	for _, attr := range attrs {
+		baseAttrs = append(baseAttrs, attr.Key, attr.Value)
+	}
+
+	// Log at appropriate level
+	switch level {
+	case slog.LevelDebug:
+		pw.Logger.Debug(message, baseAttrs...)
+	case slog.LevelInfo:
+		pw.Logger.Info(message, baseAttrs...)
+	case slog.LevelWarn:
+		pw.Logger.Warn(message, baseAttrs...)
+	case slog.LevelError:
+		pw.Logger.Error(message, baseAttrs...)
+	default:
+		pw.Logger.Info(message, baseAttrs...)
+	}
+}
+
+// Flush flushes any remaining buffered output
+// CRITICAL: Must be called when process exits to avoid losing buffered output
+func (pw *ProcessWriter) Flush() {
+	// Flush incomplete line buffer
+	if pw.buffer.Len() > 0 {
+		line := pw.buffer.String()
+		pw.buffer.Reset()
+		if line != "" {
+			pw.processLine(line)
+		}
+	}
+
+	// Flush multiline buffer
+	if pw.multiline != nil && pw.multiline.BufferSize() > 0 {
+		entry := pw.multiline.Flush()
+		if entry != "" {
+			pw.processEntry(entry)
+		}
+	}
 }

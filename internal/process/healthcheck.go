@@ -203,10 +203,11 @@ func (hm *HealthMonitor) performCheck(ctx context.Context) HealthStatus {
 				)
 				hm.currentlyHealthy = false
 			}
-			return HealthStatus{Healthy: false, Error: err}
+			return HealthStatus{Healthy: false, LastCheckSucceeded: false, Error: err}
 		}
-		// Still considered healthy until threshold reached
-		return HealthStatus{Healthy: true, Error: nil}
+		// Still considered healthy until threshold reached (for liveness)
+		// But LastCheckSucceeded=false indicates this check failed (for readiness)
+		return HealthStatus{Healthy: true, LastCheckSucceeded: false, Error: nil}
 	}
 
 	// Health check succeeded
@@ -225,22 +226,24 @@ func (hm *HealthMonitor) performCheck(ctx context.Context) HealthStatus {
 				"success_threshold", successThreshold,
 			)
 			hm.currentlyHealthy = true
-			return HealthStatus{Healthy: true, Error: nil}
+			return HealthStatus{Healthy: true, LastCheckSucceeded: true, Error: nil}
 		}
 		// Still unhealthy, waiting for more successes
+		// But the check DID succeed, so LastCheckSucceeded=true
 		hm.logger.Debug("Health check succeeded but waiting for threshold",
 			"consecutive_successes", hm.consecutiveSuccess,
 			"success_threshold", successThreshold,
 		)
-		return HealthStatus{Healthy: false, Error: nil}
+		return HealthStatus{Healthy: false, LastCheckSucceeded: true, Error: nil}
 	}
 
 	// Already healthy and check succeeded
-	return HealthStatus{Healthy: true, Error: nil}
+	return HealthStatus{Healthy: true, LastCheckSucceeded: true, Error: nil}
 }
 
 // HealthStatus represents the result of a health check
 type HealthStatus struct {
-	Healthy bool
-	Error   error
+	Healthy            bool  // Whether process should be considered healthy (for liveness/restart decisions)
+	LastCheckSucceeded bool  // Whether the most recent health check actually succeeded (for readiness)
+	Error              error // Error from the health check, if any
 }
