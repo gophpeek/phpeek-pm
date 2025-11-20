@@ -425,7 +425,7 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 
 						// Kill the unhealthy instance
 						if instance.cmd.Process != nil {
-							instance.cmd.Process.Kill()
+							_ = instance.cmd.Process.Kill()
 						}
 
 						// The monitorInstance goroutine will handle the restart

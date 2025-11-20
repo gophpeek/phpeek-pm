@@ -68,7 +68,10 @@ func loadYAML(path string, cfg *Config) error {
 func applyEnvOverrides(cfg *Config) {
 	// Global settings
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_SHUTDOWN_TIMEOUT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.Global.ShutdownTimeout)
+		var timeout int
+		if _, err := fmt.Sscanf(v, "%d", &timeout); err == nil {
+			cfg.Global.ShutdownTimeout = timeout
+		}
 	}
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_LOG_LEVEL"); v != "" {
 		cfg.Global.LogLevel = v
@@ -77,13 +80,19 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Global.LogFormat = v
 	}
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_METRICS_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.Global.MetricsPort)
+		var port int
+		if _, err := fmt.Sscanf(v, "%d", &port); err == nil {
+			cfg.Global.MetricsPort = port
+		}
 	}
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_METRICS_ENABLED"); v != "" {
 		cfg.Global.MetricsEnabled = v == "true"
 	}
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_API_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &cfg.Global.APIPort)
+		var port int
+		if _, err := fmt.Sscanf(v, "%d", &port); err == nil {
+			cfg.Global.APIPort = port
+		}
 	}
 	if v := os.Getenv("PHPEEK_PM_GLOBAL_API_ENABLED"); v != "" {
 		cfg.Global.APIEnabled = v == "true"
@@ -100,7 +109,10 @@ func applyEnvOverrides(cfg *Config) {
 			proc.Enabled = v == "true"
 		}
 		if v := os.Getenv(envPrefix + "SCALE"); v != "" {
-			fmt.Sscanf(v, "%d", &proc.Scale)
+			var scale int
+			if _, err := fmt.Sscanf(v, "%d", &scale); err == nil {
+				proc.Scale = scale
+			}
 		}
 		if v := os.Getenv(envPrefix + "RESTART"); v != "" {
 			proc.Restart = v

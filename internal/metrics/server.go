@@ -41,7 +41,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Health endpoint for the metrics server itself
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	s.server = &http.Server{

@@ -97,9 +97,9 @@ func (pm *PermissionManager) createDir(path string, perm os.FileMode) error {
 func (pm *PermissionManager) chownRecursive(path string, uid, gid int) {
 	// Note: This will fail silently if not running as root
 	// That's acceptable - in dev environments permissions may not matter
-	filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(path, func(name string, info os.FileInfo, err error) error {
 		if err == nil {
-			os.Chown(name, uid, gid)
+			_ = os.Chown(name, uid, gid)
 		}
 		return nil
 	})
