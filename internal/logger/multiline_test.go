@@ -290,9 +290,9 @@ func TestMultilineBuffer_MultipleEntries(t *testing.T) {
 
 			// Last line of last entry needs manual flush
 			if i == len(entries)-1 && j == len(entryLines)-1 {
-				entry = mb.Flush()
-				if entry != "" {
-					results = append(results, entry)
+				finalEntry := mb.Flush()
+				if finalEntry != "" {
+					results = append(results, finalEntry)
 				}
 			}
 		}

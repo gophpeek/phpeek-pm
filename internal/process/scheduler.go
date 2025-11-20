@@ -253,7 +253,7 @@ func (s *Scheduler) envVars(instanceID string, startTime time.Time) []string {
 	envs = append(envs,
 		fmt.Sprintf("PHPEEK_PM_PROCESS_NAME=%s", s.name),
 		fmt.Sprintf("PHPEEK_PM_INSTANCE_ID=%s", instanceID),
-		fmt.Sprintf("PHPEEK_PM_SCHEDULED=true"),
+		"PHPEEK_PM_SCHEDULED=true",
 		fmt.Sprintf("PHPEEK_PM_SCHEDULE=%s", s.config.Schedule),
 		fmt.Sprintf("PHPEEK_PM_START_TIME=%d", startTime.Unix()),
 	)
