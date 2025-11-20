@@ -104,8 +104,7 @@ func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 func (pw *ProcessWriter) processLine(line string) {
 	// Step 1: Multiline buffering
 	if pw.multiline != nil && pw.multiline.IsEnabled() {
-		complete, entry := pw.multiline.Add(line)
-		if complete && entry != "" {
+		if complete, entry := pw.multiline.Add(line); complete && entry != "" {
 			// Buffer complete and has content, process it
 			pw.processEntry(entry)
 		}
