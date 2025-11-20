@@ -82,11 +82,11 @@ func (mb *MultilineBuffer) Add(line string) (complete bool, entry string) {
 
 	// If this is a new entry and we have buffered lines, flush the buffer
 	if isStart && len(mb.lines) > 0 {
-		entry = mb.flush()
+		flushed := mb.flush()
 		// Start new buffer with current line
 		mb.lines = []string{line}
 		mb.startTime = time.Now()
-		return true, entry
+		return true, flushed
 	}
 
 	// Add line to buffer
@@ -99,8 +99,7 @@ func (mb *MultilineBuffer) Add(line string) (complete bool, entry string) {
 
 	// Check if buffer exceeded max lines (force flush)
 	if len(mb.lines) >= mb.maxLines {
-		entry = mb.flush()
-		return true, entry
+		return true, mb.flush()
 	}
 
 	// Buffer not complete yet
