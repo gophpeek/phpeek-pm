@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        go: ['1.23']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: make test
+
+      - name: Run race detector
+        run: go test -race -short ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          files: ./coverage.out
+          flags: unittests
+          name: codecov-${{ matrix.os }}
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build all platforms
+        run: make build-all
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: build/phpeek-pm-*
+          retention-days: 7
+
+  integration-test:
+    name: Integration Test (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    needs: [build]
+    strategy:
+      matrix:
+        distro: [alpine, debian, ubuntu]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: build/
+
+      - name: Make binaries executable
+        run: chmod +x build/phpeek-pm-*
+
+      - name: Run integration tests - ${{ matrix.distro }}
+        run: |
+          docker build \
+            -f tests/integration/Dockerfile.${{ matrix.distro }} \
+            -t phpeek-pm-test-${{ matrix.distro }} \
+            .
+
+          docker run --rm \
+            --name phpeek-pm-test-${{ matrix.distro }} \
+            phpeek-pm-test-${{ matrix.distro }}
+
+      - name: Test with real workload
+        run: |
+          docker run -d \
+            --name phpeek-pm-workload-${{ matrix.distro }} \
+            -p 9090:9090 \
+            -p 8080:8080 \
+            phpeek-pm-test-${{ matrix.distro }}
+
+          # Wait for startup
+          sleep 5
+
+          # Test metrics endpoint
+          curl -f http://localhost:9090/metrics || exit 1
+
+          # Test API endpoint
+          curl -f http://localhost:8080/api/v1/health || exit 1
+
+          # Cleanup
+          docker stop phpeek-pm-workload-${{ matrix.distro }}

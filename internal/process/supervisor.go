@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/hooks"
 	"github.com/gophpeek/phpeek-pm/internal/logger"
+	"github.com/gophpeek/phpeek-pm/internal/metrics"
 )
 
 // ProcessState represents the state of a process
@@ -27,32 +29,49 @@ const (
 
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
-	name      string
-	config    *config.Process
-	logger    *slog.Logger
-	instances []*Instance
-	state     ProcessState
-	mu        sync.RWMutex
+	name          string
+	config        *config.Process
+	logger        *slog.Logger
+	instances     []*Instance
+	state         ProcessState
+	healthMonitor *HealthMonitor
+	healthStatus  <-chan HealthStatus
+	restartPolicy RestartPolicy
+	ctx           context.Context
+	cancel        context.CancelFunc
+	mu            sync.RWMutex
 }
 
 // Instance represents a single process instance
 type Instance struct {
-	id      string
-	cmd     *exec.Cmd
-	state   ProcessState
-	pid     int
-	started time.Time
-	mu      sync.RWMutex
+	id           string
+	cmd          *exec.Cmd
+	state        ProcessState
+	pid          int
+	started      time.Time
+	restartCount int
+	mu           sync.RWMutex
 }
 
 // NewSupervisor creates a new process supervisor
 func NewSupervisor(name string, cfg *config.Process, logger *slog.Logger) *Supervisor {
+	// Determine backoff duration from config or use default
+	backoff := 5 * time.Second
+	if cfg.Restart != "" {
+		// Use global restart backoff if available
+		backoff = 5 * time.Second // TODO: Get from global config
+	}
+
+	// Determine max attempts from config or use default
+	maxAttempts := 3 // TODO: Get from global config
+
 	return &Supervisor{
-		name:      name,
-		config:    cfg,
-		logger:    logger.With("process", name),
-		instances: make([]*Instance, 0, cfg.Scale),
-		state:     StateStopped,
+		name:          name,
+		config:        cfg,
+		logger:        logger.With("process", name),
+		instances:     make([]*Instance, 0, cfg.Scale),
+		state:         StateStopped,
+		restartPolicy: NewRestartPolicy(cfg.Restart, maxAttempts, backoff),
 	}
 }
 
@@ -61,15 +80,19 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Create context for this supervisor's lifetime
+	s.ctx, s.cancel = context.WithCancel(ctx)
+
 	s.state = StateStarting
 
 	// Start instances based on scale
 	for i := 0; i < s.config.Scale; i++ {
 		instanceID := fmt.Sprintf("%s-%d", s.name, i)
 
-		instance, err := s.startInstance(ctx, instanceID)
+		instance, err := s.startInstance(s.ctx, instanceID)
 		if err != nil {
 			s.state = StateFailed
+			s.cancel()
 			return fmt.Errorf("failed to start instance %s: %w", instanceID, err)
 		}
 
@@ -77,6 +100,23 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	}
 
 	s.state = StateRunning
+
+	// Start health monitoring if configured
+	if s.config.HealthCheck != nil {
+		monitor, err := NewHealthMonitor(s.name, s.config.HealthCheck, s.logger)
+		if err != nil {
+			s.logger.Warn("Failed to create health monitor",
+				"error", err,
+			)
+		} else {
+			s.healthMonitor = monitor
+			s.healthStatus = monitor.Start(s.ctx)
+
+			// Monitor health status in background
+			go s.handleHealthStatus(s.ctx)
+		}
+	}
+
 	return nil
 }
 
@@ -110,18 +150,22 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
 
+	startTime := time.Now()
 	instance := &Instance{
 		id:      instanceID,
 		cmd:     cmd,
 		state:   StateRunning,
 		pid:     cmd.Process.Pid,
-		started: time.Now(),
+		started: startTime,
 	}
 
 	s.logger.Info("Process instance started",
 		"instance_id", instanceID,
 		"pid", instance.pid,
 	)
+
+	// Record metrics
+	metrics.RecordProcessStart(s.name, instanceID, float64(startTime.Unix()))
 
 	// Monitor process in background
 	go s.monitorInstance(instance)
@@ -136,23 +180,85 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 	instance.mu.Lock()
 	exitCode := instance.cmd.ProcessState.ExitCode()
 	instance.state = StateStopped
+	restartCount := instance.restartCount
 	instance.mu.Unlock()
+
+	// Record process stop metrics
+	metrics.RecordProcessStop(s.name, instance.id, exitCode)
 
 	if err != nil {
 		s.logger.Error("Process instance exited with error",
 			"instance_id", instance.id,
 			"exit_code", exitCode,
+			"restart_count", restartCount,
 			"error", err,
 		)
 	} else {
 		s.logger.Info("Process instance exited",
 			"instance_id", instance.id,
 			"exit_code", exitCode,
+			"restart_count", restartCount,
 		)
 	}
 
-	// TODO: Handle restart policy in Phase 2
-	// For now, we just log the exit
+	// Check if we should restart
+	if s.restartPolicy.ShouldRestart(exitCode, restartCount) {
+		backoff := s.restartPolicy.BackoffDuration(restartCount)
+
+		// Determine restart reason
+		restartReason := "crash"
+		if exitCode == 0 {
+			restartReason = "normal_exit"
+		}
+
+		s.logger.Info("Restarting process instance",
+			"instance_id", instance.id,
+			"backoff", backoff,
+			"attempt", restartCount+1,
+			"reason", restartReason,
+		)
+
+		// Record restart metric
+		metrics.RecordProcessRestart(s.name, restartReason)
+
+		// Wait for backoff period
+		select {
+		case <-time.After(backoff):
+		case <-s.ctx.Done():
+			return
+		}
+
+		// Attempt restart
+		newInstance, err := s.startInstance(s.ctx, instance.id)
+		if err != nil {
+			s.logger.Error("Failed to restart process instance",
+				"instance_id", instance.id,
+				"error", err,
+			)
+			return
+		}
+
+		// Update restart count
+		newInstance.mu.Lock()
+		newInstance.restartCount = restartCount + 1
+		newInstance.mu.Unlock()
+
+		// Replace old instance with new one
+		s.mu.Lock()
+		for i, inst := range s.instances {
+			if inst.id == instance.id {
+				s.instances[i] = newInstance
+				break
+			}
+		}
+		s.mu.Unlock()
+	} else {
+		s.logger.Warn("Process instance will not be restarted",
+			"instance_id", instance.id,
+			"exit_code", exitCode,
+			"restart_count", restartCount,
+		)
+	}
 }
 
 // Stop gracefully stops all process instances
@@ -209,6 +315,23 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		"instance_id", instance.id,
 		"pid", instance.pid,
 	)
+
+	// Execute per-process pre-stop hook if configured
+	if s.config.Shutdown != nil && s.config.Shutdown.PreStopHook != nil {
+		s.logger.Info("Executing pre-stop hook",
+			"instance_id", instance.id,
+			"hook", s.config.Shutdown.PreStopHook.Name,
+		)
+
+		hookExecutor := hooks.NewExecutor(s.logger)
+		if err := hookExecutor.ExecuteWithType(ctx, s.config.Shutdown.PreStopHook, "pre_stop"); err != nil {
+			s.logger.Warn("Pre-stop hook failed",
+				"instance_id", instance.id,
+				"error", err,
+			)
+			// Continue with shutdown even if hook fails
+		}
+	}
 
 	// Get shutdown signal (default SIGTERM)
 	sig := syscall.SIGTERM
@@ -273,6 +396,51 @@ func (s *Supervisor) envVars(instanceID string) []string {
 	return envs
 }
 
+// handleHealthStatus monitors health check results and handles failures
+func (s *Supervisor) handleHealthStatus(ctx context.Context) {
+	for {
+		select {
+		case status, ok := <-s.healthStatus:
+			if !ok {
+				return
+			}
+
+			if !status.Healthy {
+				s.logger.Error("Process unhealthy, triggering restart",
+					"error", status.Error,
+				)
+
+				// Record health check restart
+				metrics.RecordProcessRestart(s.name, "health_check")
+
+				// Restart all instances that are currently running
+				s.mu.Lock()
+				for _, instance := range s.instances {
+					instance.mu.Lock()
+					if instance.state == StateRunning {
+						s.logger.Info("Health check failure - restarting instance",
+							"instance_id", instance.id,
+							"pid", instance.pid,
+						)
+
+						// Kill the unhealthy instance
+						if instance.cmd.Process != nil {
+							instance.cmd.Process.Kill()
+						}
+
+						// The monitorInstance goroutine will handle the restart
+						// based on the restart policy
+					}
+					instance.mu.Unlock()
+				}
+				s.mu.Unlock()
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // parseSignal converts signal name to syscall.Signal
 func parseSignal(name string) syscall.Signal {
 	switch name {
@@ -287,4 +455,41 @@ func parseSignal(name string) syscall.Signal {
 	default:
 		return syscall.SIGTERM
 	}
+}
+
+// GetState returns the current supervisor state
+func (s *Supervisor) GetState() ProcessState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state
+}
+
+// InstanceInfo represents exported instance information
+type InstanceInfo struct {
+	ID           string
+	State        string
+	PID          int
+	StartedAt    int64
+	RestartCount int
+}
+
+// GetInstances returns information about all instances
+func (s *Supervisor) GetInstances() []InstanceInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	instances := make([]InstanceInfo, 0, len(s.instances))
+	for _, inst := range s.instances {
+		inst.mu.RLock()
+		instances = append(instances, InstanceInfo{
+			ID:           inst.id,
+			State:        string(inst.state),
+			PID:          inst.pid,
+			StartedAt:    inst.started.Unix(),
+			RestartCount: inst.restartCount,
+		})
+		inst.mu.RUnlock()
+	}
+
+	return instances
 }

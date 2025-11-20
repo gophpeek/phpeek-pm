@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/dag"
+	"github.com/gophpeek/phpeek-pm/internal/hooks"
+	"github.com/gophpeek/phpeek-pm/internal/metrics"
 )
 
 // Manager manages multiple processes
@@ -16,15 +20,20 @@ type Manager struct {
 	processes  map[string]*Supervisor
 	mu         sync.RWMutex
 	shutdownCh chan struct{}
+	startTime  time.Time
 }
 
 // NewManager creates a new process manager
 func NewManager(cfg *config.Config, logger *slog.Logger) *Manager {
+	startTime := time.Now()
+	metrics.SetManagerStartTime(float64(startTime.Unix()))
+
 	return &Manager{
 		config:     cfg,
 		logger:     logger,
 		processes:  make(map[string]*Supervisor),
 		shutdownCh: make(chan struct{}),
+		startTime:  startTime,
 	}
 }
 
@@ -32,6 +41,18 @@ func NewManager(cfg *config.Config, logger *slog.Logger) *Manager {
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Execute pre-start hooks
+	if len(m.config.Hooks.PreStart) > 0 {
+		m.logger.Info("Executing pre-start hooks", "count", len(m.config.Hooks.PreStart))
+		executor := hooks.NewExecutor(m.logger)
+		for _, hook := range m.config.Hooks.PreStart {
+			if err := executor.ExecuteWithType(ctx, &hook, "pre_start"); err != nil {
+				return fmt.Errorf("pre-start hook %s failed: %w", hook.Name, err)
+			}
+		}
+		m.logger.Info("Pre-start hooks completed successfully")
+	}
 
 	// Get startup order (topological sort by priority and dependencies)
 	startupOrder, err := m.getStartupOrder()
@@ -43,6 +64,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		"count", len(startupOrder),
 		"order", startupOrder,
 	)
+
+	// Record manager process count
+	metrics.SetManagerProcessCount(len(startupOrder))
 
 	// Start processes in order
 	for _, name := range startupOrder {
@@ -57,6 +81,9 @@ func (m *Manager) Start(ctx context.Context) error {
 			"scale", procCfg.Scale,
 		)
 
+		// Record desired scale
+		metrics.SetDesiredScale(name, procCfg.Scale)
+
 		// Create supervisor for this process
 		sup := NewSupervisor(name, procCfg, m.logger)
 		m.processes[name] = sup
@@ -69,6 +96,19 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.logger.Info("Process started successfully", "name", name)
 	}
 
+	// Execute post-start hooks
+	if len(m.config.Hooks.PostStart) > 0 {
+		m.logger.Info("Executing post-start hooks", "count", len(m.config.Hooks.PostStart))
+		executor := hooks.NewExecutor(m.logger)
+		for _, hook := range m.config.Hooks.PostStart {
+			if err := executor.ExecuteWithType(ctx, &hook, "post_start"); err != nil {
+				// Post-start failures are warnings, not fatal
+				m.logger.Warn("Post-start hook failed", "hook", hook.Name, "error", err)
+			}
+		}
+		m.logger.Info("Post-start hooks completed successfully")
+	}
+
 	return nil
 }
 
@@ -78,6 +118,17 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	close(m.shutdownCh)
+
+	// Execute pre-stop hooks
+	if len(m.config.Hooks.PreStop) > 0 {
+		m.logger.Info("Executing pre-stop hooks", "count", len(m.config.Hooks.PreStop))
+		executor := hooks.NewExecutor(m.logger)
+		for _, hook := range m.config.Hooks.PreStop {
+			if err := executor.ExecuteWithType(ctx, &hook, "pre_stop"); err != nil {
+				m.logger.Warn("Pre-stop hook failed", "hook", hook.Name, "error", err)
+			}
+		}
+	}
 
 	m.logger.Info("Shutting down processes", "count", len(m.processes))
 
@@ -122,6 +173,17 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	// Execute post-stop hooks
+	if len(m.config.Hooks.PostStop) > 0 {
+		m.logger.Info("Executing post-stop hooks", "count", len(m.config.Hooks.PostStop))
+		executor := hooks.NewExecutor(m.logger)
+		for _, hook := range m.config.Hooks.PostStop {
+			if err := executor.ExecuteWithType(ctx, &hook, "post_stop"); err != nil {
+				m.logger.Warn("Post-stop hook failed", "hook", hook.Name, "error", err)
+			}
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("shutdown completed with %d errors: %v", len(errs), errs)
 	}
@@ -131,38 +193,13 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 // getStartupOrder returns processes in startup order (topological sort)
 func (m *Manager) getStartupOrder() ([]string, error) {
-	// Simple priority-based ordering for Phase 1
-	// TODO: Implement proper topological sort with dependencies in Phase 2
-	type procPriority struct {
-		name     string
-		priority int
+	// Use DAG-based topological sort with dependency resolution
+	graph, err := dag.NewGraph(m.config.Processes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build dependency graph: %w", err)
 	}
 
-	var procs []procPriority
-	for name, cfg := range m.config.Processes {
-		if cfg.Enabled {
-			procs = append(procs, procPriority{
-				name:     name,
-				priority: cfg.Priority,
-			})
-		}
-	}
-
-	// Sort by priority (lower priority starts first)
-	for i := 0; i < len(procs); i++ {
-		for j := i + 1; j < len(procs); j++ {
-			if procs[i].priority > procs[j].priority {
-				procs[i], procs[j] = procs[j], procs[i]
-			}
-		}
-	}
-
-	result := make([]string, len(procs))
-	for i, p := range procs {
-		result[i] = p.name
-	}
-
-	return result, nil
+	return graph.TopologicalSort()
 }
 
 // getShutdownOrder returns processes in shutdown order (reverse of startup)
@@ -176,4 +213,52 @@ func (m *Manager) getShutdownOrder() []string {
 	}
 
 	return shutdownOrder
+}
+
+// ProcessInfo represents process status information
+type ProcessInfo struct {
+	Name      string                 `json:"name"`
+	State     string                 `json:"state"`
+	Scale     int                    `json:"scale"`
+	Instances []ProcessInstanceInfo  `json:"instances"`
+}
+
+// ProcessInstanceInfo represents instance status
+type ProcessInstanceInfo struct {
+	ID           string `json:"id"`
+	State        string `json:"state"`
+	PID          int    `json:"pid"`
+	StartedAt    int64  `json:"started_at"`
+	RestartCount int    `json:"restart_count"`
+}
+
+// ListProcesses returns status of all processes
+func (m *Manager) ListProcesses() []ProcessInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	processes := make([]ProcessInfo, 0, len(m.processes))
+
+	for name, sup := range m.processes {
+		info := ProcessInfo{
+			Name:      name,
+			State:     string(sup.GetState()),
+			Scale:     len(sup.GetInstances()),
+			Instances: make([]ProcessInstanceInfo, 0),
+		}
+
+		for _, inst := range sup.GetInstances() {
+			info.Instances = append(info.Instances, ProcessInstanceInfo{
+				ID:           inst.ID,
+				State:        string(inst.State),
+				PID:          inst.PID,
+				StartedAt:    inst.StartedAt,
+				RestartCount: inst.RestartCount,
+			})
+		}
+
+		processes = append(processes, info)
+	}
+
+	return processes
 }

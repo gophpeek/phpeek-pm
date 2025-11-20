@@ -1,0 +1,162 @@
+version: "1.0"
+
+# Global configuration with observability enabled
+global:
+  shutdown_timeout: 30
+  log_level: info
+  log_format: json
+
+  # Prometheus metrics (Phase 4)
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: /metrics
+
+  # Management API (Phase 5)
+  api_enabled: true
+  api_port: 8080
+  api_auth: "your-secure-token-here"  # Bearer token for API authentication
+
+# Global lifecycle hooks
+hooks:
+  pre-start:
+    - name: check-dependencies
+      command: ["php", "artisan", "check:dependencies"]
+      timeout: 30
+      continue_on_error: true
+
+  post-start:
+    - name: warmup-cache
+      command: ["php", "artisan", "cache:warmup"]
+      timeout: 60
+      continue_on_error: true
+
+  pre-stop:
+    - name: drain-connections
+      command: ["sleep", "5"]
+      timeout: 10
+
+processes:
+  # PHP-FPM - Application runtime
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
+    scale: 2  # Run 2 PHP-FPM instances for high availability
+
+    env:
+      PHP_FPM_PM: "dynamic"
+      PHP_FPM_PM_MAX_CHILDREN: "50"
+
+    health_check:
+      type: tcp
+      address: "127.0.0.1:9000"
+      initial_delay: 5
+      period: 10
+      timeout: 3
+      failure_threshold: 3
+      success_threshold: 2
+
+    shutdown:
+      signal: SIGQUIT
+      timeout: 30
+
+  # Nginx - Web server
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    priority: 20
+    restart: always
+    scale: 1
+    depends_on:
+      - php-fpm
+
+    health_check:
+      type: http
+      url: "http://127.0.0.1:80/health"
+      expected_status: 200
+      initial_delay: 3
+      period: 10
+      timeout: 2
+      failure_threshold: 3
+      success_threshold: 1
+
+    shutdown:
+      signal: SIGTERM
+      timeout: 30
+
+  # Laravel Horizon - Queue manager
+  horizon:
+    enabled: true
+    command: ["php", "artisan", "horizon"]
+    priority: 30
+    restart: always
+    scale: 1
+    depends_on:
+      - php-fpm
+
+    env:
+      HORIZON_BALANCE: "auto"
+      HORIZON_MAX_PROCESSES: "10"
+
+    health_check:
+      type: exec
+      command: ["php", "artisan", "horizon:status"]
+      initial_delay: 10
+      period: 30
+      timeout: 5
+      failure_threshold: 2
+      success_threshold: 1
+
+    shutdown:
+      pre_stop_hook:
+        name: terminate-horizon
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+      signal: SIGTERM
+      timeout: 120
+
+  # Queue Worker - Default queue
+  queue-default:
+    enabled: true
+    command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
+    priority: 40
+    restart: always
+    scale: 3  # Run 3 workers for default queue
+    depends_on:
+      - php-fpm
+
+    env:
+      QUEUE_CONNECTION: "redis"
+
+    shutdown:
+      signal: SIGTERM
+      timeout: 60
+
+  # Queue Worker - High priority queue
+  queue-high:
+    enabled: true
+    command: ["php", "artisan", "queue:work", "--queue=high", "--tries=3", "--max-time=1800"]
+    priority: 41
+    restart: always
+    scale: 2  # Run 2 workers for high priority
+    depends_on:
+      - php-fpm
+
+    shutdown:
+      signal: SIGTERM
+      timeout: 60
+
+  # Scheduler - Laravel task scheduler
+  scheduler:
+    enabled: true
+    command: ["php", "artisan", "schedule:work"]
+    priority: 50
+    restart: always
+    scale: 1
+    depends_on:
+      - php-fpm
+
+    shutdown:
+      signal: SIGTERM
+      timeout: 30

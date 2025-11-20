@@ -4,15 +4,18 @@
 
 ## Features
 
-- **PID 1 Process Manager**: Proper signal handling and zombie process reaping
-- **Multi-Process Orchestration**: Manage PHP-FPM, Nginx, Horizon, Reverb, and workers
-- **Structured Logging**: JSON output with per-process segmentation
-- **Lifecycle Hooks**: Pre/post start/stop customization for Laravel optimization
-- **Dynamic Scaling**: Runtime adjustment of worker counts (coming in Phase 5)
-- **Health Monitoring**: TCP, HTTP, and exec-based health checks (coming in Phase 3)
-- **Prometheus Metrics**: Process health and resource usage (coming in Phase 4)
-- **Management API**: REST API for process control (coming in Phase 5)
-- **Graceful Shutdown**: Configurable timeouts and proper cleanup
+- ✅ **PID 1 Process Manager**: Proper signal handling and zombie process reaping
+- ✅ **Multi-Process Orchestration**: Manage PHP-FPM, Nginx, Horizon, Reverb, and workers
+- ✅ **Dependency Management**: DAG-based process startup ordering with topological sort
+- ✅ **Structured Logging**: JSON output with per-process segmentation
+- ✅ **Lifecycle Hooks**: Pre/post start/stop customization for Laravel optimization
+- ✅ **Health Monitoring**: TCP, HTTP, and exec-based health checks with success thresholds
+- ✅ **Restart Policies**: Always, on-failure, never with exponential backoff
+- ✅ **Prometheus Metrics**: Comprehensive process health, restarts, and hook metrics
+- ✅ **Management API**: REST API for process control and monitoring
+- ✅ **Graceful Shutdown**: Configurable timeouts and proper cleanup
+- ✅ **Framework Detection**: Auto-detect Laravel, Symfony, WordPress, or generic PHP
+- ✅ **Container Ready**: Zero-bash initialization, handles all setup in Go
 
 ## Quick Start
 
@@ -53,6 +56,7 @@ processes:
 See `configs/examples/` for more examples:
 - `minimal.yaml` - Simple PHP-FPM setup
 - `laravel-full.yaml` - Complete Laravel stack with Horizon, Reverb, workers
+- `laravel-with-monitoring.yaml` - Full observability with metrics and API enabled
 
 ### Environment Variables
 
@@ -157,14 +161,70 @@ Produces binaries for:
 - macOS AMD64
 - macOS ARM64
 
+## Observability
+
+### Prometheus Metrics
+
+PHPeek PM exports comprehensive metrics on port 9090 (configurable):
+
+```yaml
+global:
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: /metrics
+```
+
+**Available metrics:**
+- Process lifecycle (up/down, restarts, exit codes)
+- Health check status and duration
+- Hook execution time and success rate
+- Scale drift (actual vs desired instances)
+- Manager uptime and process count
+
+See [docs/observability/metrics.md](docs/observability/metrics.md) for complete metric documentation.
+
+### Management API
+
+REST API for runtime process control on port 8080 (configurable):
+
+```yaml
+global:
+  api_enabled: true
+  api_port: 8080
+  api_auth: "your-secure-token"  # Optional Bearer token
+```
+
+**Endpoints:**
+- `GET /api/v1/health` - API health check
+- `GET /api/v1/processes` - List all processes with status
+- `POST /api/v1/processes/{name}/restart` - Restart process
+- `POST /api/v1/processes/{name}/stop` - Stop process
+- `POST /api/v1/processes/{name}/start` - Start process
+- `POST /api/v1/processes/{name}/scale` - Scale process instances
+
+See [docs/observability/api.md](docs/observability/api.md) for complete API documentation.
+
+## Documentation
+
+**Getting Started**
+- [Introduction](docs/introduction.md) - Overview and architecture
+- [Installation](docs/getting-started/installation.md) - Download and install
+- [Quick Start](docs/getting-started/quickstart.md) - 5-minute tutorial
+- [Docker Integration](docs/getting-started/docker-integration.md) - Use as PID 1
+
+**Observability**
+- [Prometheus Metrics](docs/observability/metrics.md) - Complete metrics reference
+- [Management API](docs/observability/api.md) - REST API documentation
+
 ## Roadmap
 
-- [x] **Phase 1** (Week 1): Core foundation with single process support
-- [ ] **Phase 2** (Week 2): Multi-process orchestration with dependencies
-- [ ] **Phase 3** (Week 3): Health checks and lifecycle hooks
-- [ ] **Phase 4** (Week 4): Dynamic scaling and Prometheus metrics
-- [ ] **Phase 5** (Week 5): Management API for runtime control
-- [ ] **Phase 6** (Week 6): Testing, documentation, production readiness
+- [x] **Phase 1**: Core foundation with single process support
+- [x] **Phase 1.5**: Container integration with framework detection
+- [x] **Phase 2**: Multi-process orchestration with DAG dependencies
+- [x] **Phase 3**: Health checks with success thresholds and lifecycle hooks
+- [x] **Phase 4**: Prometheus metrics with comprehensive observability
+- [x] **Phase 5**: Management API for runtime control
+- [ ] **Phase 6**: Advanced scaling, resource limits, production hardening
 
 ## Contributing
 

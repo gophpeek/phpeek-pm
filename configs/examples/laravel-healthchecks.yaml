@@ -1,0 +1,124 @@
+version: "1.0"
+
+# Example configuration demonstrating Phase 2 features:
+# - DAG-based dependency resolution
+# - Health checks (TCP, HTTP, exec)
+# - Restart policies
+
+global:
+  shutdown_timeout: 60
+  log_format: json
+  log_level: info
+  max_restart_attempts: 3
+  restart_backoff: 5
+
+processes:
+  # PHP-FPM: Core application runtime
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
+    scale: 2
+    health_check:
+      type: tcp
+      address: "127.0.0.1:9000"
+      initial_delay: 5
+      period: 10
+      timeout: 3
+      failure_threshold: 3
+
+  # Redis: Cache and session storage
+  redis:
+    enabled: true
+    command: ["redis-server", "--port", "6379"]
+    priority: 15
+    restart: always
+    health_check:
+      type: tcp
+      address: "127.0.0.1:6379"
+      initial_delay: 3
+      period: 10
+      timeout: 3
+      failure_threshold: 3
+
+  # Nginx: Web server (depends on PHP-FPM)
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    priority: 20
+    depends_on: [php-fpm]
+    restart: always
+    health_check:
+      type: http
+      url: "http://127.0.0.1:80/health"
+      expected_status: 200
+      initial_delay: 5
+      period: 15
+      timeout: 5
+      failure_threshold: 3
+    shutdown:
+      signal: SIGQUIT
+      timeout: 30
+      graceful: true
+
+  # Laravel Horizon: Queue manager (depends on PHP-FPM and Redis)
+  horizon:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "horizon"]
+    priority: 30
+    depends_on: [php-fpm, redis]
+    restart: on-failure
+    health_check:
+      type: exec
+      command: ["php", "/var/www/html/artisan", "horizon:status"]
+      initial_delay: 10
+      period: 30
+      timeout: 5
+      failure_threshold: 2
+    shutdown:
+      pre_stop_hook:
+        command: ["php", "/var/www/html/artisan", "horizon:terminate"]
+        timeout: 60
+
+  # Queue Workers: Background job processing (depends on PHP-FPM and Redis)
+  queue-default:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
+    priority: 40
+    depends_on: [php-fpm, redis]
+    restart: always
+    scale: 3
+    shutdown:
+      signal: SIGTERM
+      timeout: 60
+
+  # Queue Worker: High priority jobs
+  queue-high:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "queue:work", "--queue=high", "--tries=3", "--max-time=3600"]
+    priority: 40
+    depends_on: [php-fpm, redis]
+    restart: always
+    scale: 2
+    shutdown:
+      signal: SIGTERM
+      timeout: 60
+
+  # Laravel Reverb: WebSocket server (depends on PHP-FPM and Redis)
+  reverb:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "reverb:start"]
+    priority: 50
+    depends_on: [php-fpm, redis]
+    restart: always
+    health_check:
+      type: tcp
+      address: "127.0.0.1:8080"
+      initial_delay: 5
+      period: 15
+      timeout: 3
+      failure_threshold: 3
+    shutdown:
+      signal: SIGTERM
+      timeout: 30

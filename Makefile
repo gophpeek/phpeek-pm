@@ -49,6 +49,34 @@ test:
 	go test -v -race -coverprofile=coverage.out ./...
 	@echo "✅ Tests complete"
 
+# Run all tests (unit + integration)
+test-all:
+	@echo "🧪 Running complete test suite..."
+	@chmod +x tests/run-all-tests.sh
+	@./tests/run-all-tests.sh
+
+# Run integration tests
+test-integration:
+	@echo "🧪 Running integration tests..."
+	@for distro in alpine debian ubuntu; do \
+		echo "Testing on $$distro..."; \
+		docker build -f tests/integration/Dockerfile.$$distro -t phpeek-pm-test-$$distro . && \
+		docker run --rm phpeek-pm-test-$$distro || exit 1; \
+	done
+	@echo "✅ All integration tests passed"
+
+# Run benchmarks
+bench:
+	@echo "⚡ Running benchmarks..."
+	go test -bench=. -benchmem ./...
+
+# Check test coverage
+coverage:
+	@echo "📊 Generating coverage report..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "✅ Coverage report: coverage.html"
+
 # Install dependencies
 deps:
 	@echo "📦 Installing dependencies..."

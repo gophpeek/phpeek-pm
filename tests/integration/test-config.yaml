@@ -1,0 +1,32 @@
+version: "1.0"
+
+global:
+  shutdown_timeout: 10
+  log_level: info
+  log_format: json
+
+  # Enable observability for testing
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: /metrics
+
+  api_enabled: true
+  api_port: 8080
+
+processes:
+  # Simple sleep process for testing
+  sleeper:
+    enabled: true
+    command: ["sleep", "30"]
+    priority: 10
+    restart: never
+    scale: 2
+
+    health_check:
+      type: exec
+      command: ["echo", "healthy"]
+      initial_delay: 1
+      period: 5
+      timeout: 2
+      failure_threshold: 2
+      success_threshold: 1
