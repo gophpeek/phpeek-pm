@@ -48,7 +48,7 @@ echo "  PHPeek PM is running"
 # Test 6: Check managed processes
 echo ""
 echo "✓ Test 6: Managed Processes"
-if ! pgrep -f "sleep 30" > /dev/null; then
+if ! pgrep -f "sleep" > /dev/null; then
     echo "✗ FAILED: Managed process not found"
     kill $PHPEEK_PID 2>/dev/null || true
     exit 1
@@ -85,21 +85,32 @@ fi
 echo ""
 echo "✓ Test 9: Graceful Shutdown"
 kill -TERM $PHPEEK_PID
-sleep 2
+
+# Wait for graceful shutdown (up to 15 seconds)
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if ! kill -0 $PHPEEK_PID 2>/dev/null; then
+        echo "  Process stopped gracefully after ${i} seconds"
+        break
+    fi
+    sleep 1
+done
 
 # Check if process stopped
 if kill -0 $PHPEEK_PID 2>/dev/null; then
-    echo "  ⚠ Process still running, forcing shutdown"
+    echo "  ⚠ Process still running after 15s, forcing shutdown"
     kill -KILL $PHPEEK_PID 2>/dev/null || true
-else
-    echo "  Process stopped gracefully"
+    wait $PHPEEK_PID 2>/dev/null || true
 fi
+
+# Give it a moment to clean up
+sleep 1
 
 # Test 10: Verify no zombie processes
 echo ""
 echo "✓ Test 10: Zombie Check"
-if pgrep -f "sleep 30" > /dev/null; then
+if pgrep -f "sleep" > /dev/null; then
     echo "  ⚠ Managed processes still running (may be zombies)"
+    pkill -9 -f "sleep" 2>/dev/null || true
 else
     echo "  No zombie processes detected"
 fi

@@ -14,10 +14,10 @@ global:
   api_port: 8080
 
 processes:
-  # Simple sleep process for testing
+  # Simple sleep process for testing (short duration for tests)
   sleeper:
     enabled: true
-    command: ["sleep", "30"]
+    command: ["sleep", "5"]
     priority: 10
     restart: never
     scale: 2
