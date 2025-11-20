@@ -58,27 +58,27 @@ echo "  Managed processes are running"
 # Test 7: Metrics endpoint (if available)
 echo ""
 echo "✓ Test 7: Metrics Endpoint"
-if command -v wget > /dev/null 2>&1; then
-    if wget -q -O- http://localhost:9090/metrics | grep -q "phpeek_pm"; then
+if command -v curl > /dev/null 2>&1; then
+    if curl -s --max-time 2 http://localhost:9090/metrics | grep -q "phpeek_pm"; then
         echo "  Metrics endpoint is responding"
     else
         echo "  ⚠ Metrics endpoint not responding (non-fatal)"
     fi
 else
-    echo "  ⚠ wget not available, skipping metrics test"
+    echo "  ⚠ curl not available, skipping metrics test"
 fi
 
 # Test 8: API endpoint (if available)
 echo ""
 echo "✓ Test 8: API Endpoint"
-if command -v wget > /dev/null 2>&1; then
-    if wget -q -O- http://localhost:8080/api/v1/health | grep -q "healthy"; then
+if command -v curl > /dev/null 2>&1; then
+    if curl -s --max-time 2 http://localhost:8080/api/v1/health | grep -q "healthy"; then
         echo "  API endpoint is responding"
     else
         echo "  ⚠ API endpoint not responding (non-fatal)"
     fi
 else
-    echo "  ⚠ wget not available, skipping API test"
+    echo "  ⚠ curl not available, skipping API test"
 fi
 
 # Test 9: Graceful shutdown
