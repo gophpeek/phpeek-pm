@@ -48,7 +48,7 @@ echo "  PHPeek PM is running"
 # Test 6: Check managed processes
 echo ""
 echo "✓ Test 6: Managed Processes"
-if ! pgrep -f "sleep" > /dev/null; then
+if ! ps aux | grep -v grep | grep "sleep" > /dev/null; then
     echo "✗ FAILED: Managed process not found"
     kill $PHPEEK_PID 2>/dev/null || true
     exit 1
@@ -110,9 +110,9 @@ sleep 1
 # Test 10: Verify no zombie processes
 echo ""
 echo "✓ Test 10: Zombie Check"
-if pgrep -f "sleep" > /dev/null; then
+if ps aux | grep -v grep | grep "sleep" > /dev/null; then
     echo "  ⚠ Managed processes still running (may be zombies)"
-    pkill -9 -f "sleep" 2>/dev/null || true
+    killall -9 sleep 2>/dev/null || true
 else
     echo "  No zombie processes detected"
 fi
