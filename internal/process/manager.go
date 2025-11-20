@@ -13,16 +13,17 @@ import (
 	"github.com/gophpeek/phpeek-pm/internal/metrics"
 )
 
-// Manager manages multiple processes
+// Manager manages multiple processes (both long-running and scheduled)
 type Manager struct {
-	config           *config.Config
-	logger           *slog.Logger
-	processes        map[string]*Supervisor
-	mu               sync.RWMutex
-	shutdownCh       chan struct{}
-	allDeadCh        chan struct{}
-	processDeathCh   chan string
-	startTime        time.Time
+	config         *config.Config
+	logger         *slog.Logger
+	processes      map[string]*Supervisor // Long-running processes
+	schedulers     map[string]*Scheduler  // Scheduled (cron) tasks
+	mu             sync.RWMutex
+	shutdownCh     chan struct{}
+	allDeadCh      chan struct{}
+	processDeathCh chan string
+	startTime      time.Time
 }
 
 // NewManager creates a new process manager
@@ -34,6 +35,7 @@ func NewManager(cfg *config.Config, logger *slog.Logger) *Manager {
 		config:         cfg,
 		logger:         logger,
 		processes:      make(map[string]*Supervisor),
+		schedulers:     make(map[string]*Scheduler),
 		shutdownCh:     make(chan struct{}),
 		allDeadCh:      make(chan struct{}),
 		processDeathCh: make(chan string, 10),
@@ -79,26 +81,80 @@ func (m *Manager) Start(ctx context.Context) error {
 			continue
 		}
 
-		m.logger.Info("Starting process",
-			"name", name,
-			"command", procCfg.Command,
-			"scale", procCfg.Scale,
-		)
+		// Check if this is a scheduled task or a long-running process
+		if procCfg.Schedule != "" {
+			// Scheduled task - create scheduler
+			m.logger.Info("Starting scheduled task",
+				"name", name,
+				"command", procCfg.Command,
+				"schedule", procCfg.Schedule,
+			)
 
-		// Record desired scale
-		metrics.SetDesiredScale(name, procCfg.Scale)
+			scheduler, err := NewScheduler(name, procCfg, m.logger)
+			if err != nil {
+				return fmt.Errorf("failed to create scheduler for %s: %w", name, err)
+			}
 
-		// Create supervisor for this process
-		sup := NewSupervisor(name, procCfg, m.logger)
-		sup.SetDeathNotifier(m.NotifyProcessDeath)
-		m.processes[name] = sup
+			m.schedulers[name] = scheduler
 
-		// Start the process
-		if err := sup.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start process %s: %w", name, err)
+			// Start the scheduler
+			if err := scheduler.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start scheduler %s: %w", name, err)
+			}
+
+			m.logger.Info("Scheduled task started successfully", "name", name)
+		} else {
+			// Long-running process - create supervisor
+			m.logger.Info("Starting process",
+				"name", name,
+				"command", procCfg.Command,
+				"scale", procCfg.Scale,
+			)
+
+			// Record desired scale
+			metrics.SetDesiredScale(name, procCfg.Scale)
+
+			// Create supervisor for this process
+			sup := NewSupervisor(name, procCfg, &m.config.Global, m.logger)
+			sup.SetDeathNotifier(m.NotifyProcessDeath)
+			m.processes[name] = sup
+
+			// Start the process
+			if err := sup.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start process %s: %w", name, err)
+			}
+
+			m.logger.Info("Process started successfully", "name", name)
+
+			// Wait for process to become ready if it has readiness checks
+			if procCfg.HealthCheck != nil &&
+				(procCfg.HealthCheck.Mode == "readiness" || procCfg.HealthCheck.Mode == "both") {
+
+				// Calculate reasonable timeout based on health check config
+				initialDelay := time.Duration(procCfg.HealthCheck.InitialDelay) * time.Second
+				period := time.Duration(procCfg.HealthCheck.Period) * time.Second
+				threshold := time.Duration(procCfg.HealthCheck.FailureThreshold)
+
+				// Timeout = initial_delay + (period * threshold * 2) + buffer
+				// The *2 gives extra time for retries, +30s is a safety buffer
+				readinessTimeout := initialDelay + (period * threshold * 2) + (30 * time.Second)
+
+				m.logger.Info("Waiting for process readiness",
+					"name", name,
+					"timeout", readinessTimeout,
+				)
+
+				if err := sup.WaitForReady(ctx, readinessTimeout); err != nil {
+					m.logger.Error("Process failed to become ready",
+						"name", name,
+						"error", err,
+					)
+					return fmt.Errorf("process %s failed readiness check: %w", name, err)
+				}
+
+				m.logger.Info("Process is ready", "name", name)
+			}
 		}
-
-		m.logger.Info("Process started successfully", "name", name)
 	}
 
 	// Execute post-start hooks
@@ -135,7 +191,12 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	m.logger.Info("Shutting down processes", "count", len(m.processes))
+	totalCount := len(m.processes) + len(m.schedulers)
+	m.logger.Info("Shutting down processes and schedulers",
+		"processes", len(m.processes),
+		"schedulers", len(m.schedulers),
+		"total", totalCount,
+	)
 
 	// Get shutdown order (reverse of startup order)
 	shutdownOrder := m.getShutdownOrder()
@@ -143,30 +204,50 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(shutdownOrder))
 
-	// Shutdown processes in reverse order
+	// Shutdown processes and schedulers in reverse order
 	for _, name := range shutdownOrder {
-		sup, ok := m.processes[name]
-		if !ok {
+		// Check if it's a scheduler first
+		if scheduler, ok := m.schedulers[name]; ok {
+			wg.Add(1)
+			go func(name string, sch *Scheduler) {
+				defer wg.Done()
+
+				m.logger.Info("Stopping scheduler", "name", name)
+
+				if err := sch.Stop(ctx); err != nil {
+					m.logger.Error("Failed to stop scheduler",
+						"name", name,
+						"error", err,
+					)
+					errChan <- fmt.Errorf("scheduler %s: %w", name, err)
+					return
+				}
+
+				m.logger.Info("Scheduler stopped successfully", "name", name)
+			}(name, scheduler)
 			continue
 		}
 
-		wg.Add(1)
-		go func(name string, sup *Supervisor) {
-			defer wg.Done()
+		// Otherwise, it's a process
+		if sup, ok := m.processes[name]; ok {
+			wg.Add(1)
+			go func(name string, sup *Supervisor) {
+				defer wg.Done()
 
-			m.logger.Info("Stopping process", "name", name)
+				m.logger.Info("Stopping process", "name", name)
 
-			if err := sup.Stop(ctx); err != nil {
-				m.logger.Error("Failed to stop process",
-					"name", name,
-					"error", err,
-				)
-				errChan <- fmt.Errorf("process %s: %w", name, err)
-				return
-			}
+				if err := sup.Stop(ctx); err != nil {
+					m.logger.Error("Failed to stop process",
+						"name", name,
+						"error", err,
+					)
+					errChan <- fmt.Errorf("process %s: %w", name, err)
+					return
+				}
 
-			m.logger.Info("Process stopped successfully", "name", name)
-		}(name, sup)
+				m.logger.Info("Process stopped successfully", "name", name)
+			}(name, sup)
+		}
 	}
 
 	wg.Wait()
@@ -222,10 +303,13 @@ func (m *Manager) getShutdownOrder() []string {
 
 // ProcessInfo represents process status information
 type ProcessInfo struct {
-	Name      string                 `json:"name"`
-	State     string                 `json:"state"`
-	Scale     int                    `json:"scale"`
-	Instances []ProcessInstanceInfo  `json:"instances"`
+	Name      string                `json:"name"`
+	Type      string                `json:"type"` // "process" or "scheduler"
+	State     string                `json:"state"`
+	Scale     int                   `json:"scale,omitempty"`
+	Schedule  string                `json:"schedule,omitempty"`
+	Instances []ProcessInstanceInfo `json:"instances,omitempty"`
+	Stats     *SchedulerStats       `json:"stats,omitempty"`
 }
 
 // ProcessInstanceInfo represents instance status
@@ -237,16 +321,18 @@ type ProcessInstanceInfo struct {
 	RestartCount int    `json:"restart_count"`
 }
 
-// ListProcesses returns status of all processes
+// ListProcesses returns status of all processes and schedulers
 func (m *Manager) ListProcesses() []ProcessInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	processes := make([]ProcessInfo, 0, len(m.processes))
+	allProcesses := make([]ProcessInfo, 0, len(m.processes)+len(m.schedulers))
 
+	// Add long-running processes
 	for name, sup := range m.processes {
 		info := ProcessInfo{
 			Name:      name,
+			Type:      "process",
 			State:     string(sup.GetState()),
 			Scale:     len(sup.GetInstances()),
 			Instances: make([]ProcessInstanceInfo, 0),
@@ -262,10 +348,24 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 			})
 		}
 
-		processes = append(processes, info)
+		allProcesses = append(allProcesses, info)
 	}
 
-	return processes
+	// Add scheduled tasks
+	for name, scheduler := range m.schedulers {
+		stats := scheduler.GetStats()
+		info := ProcessInfo{
+			Name:     name,
+			Type:     "scheduler",
+			State:    "scheduled",
+			Schedule: stats.Schedule,
+			Stats:    &stats,
+		}
+
+		allProcesses = append(allProcesses, info)
+	}
+
+	return allProcesses
 }
 
 // AllDeadChannel returns a channel that closes when all processes are dead

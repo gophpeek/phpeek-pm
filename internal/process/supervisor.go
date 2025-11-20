@@ -29,18 +29,21 @@ const (
 
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
-	name           string
-	config         *config.Process
-	logger         *slog.Logger
-	instances      []*Instance
-	state          ProcessState
-	healthMonitor  *HealthMonitor
-	healthStatus   <-chan HealthStatus
-	restartPolicy  RestartPolicy
-	deathNotifier  func(string) // Callback when all instances are dead
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.RWMutex
+	name             string
+	config           *config.Process
+	globalConfig     *config.GlobalConfig
+	logger           *slog.Logger
+	instances        []*Instance
+	state            ProcessState
+	healthMonitor    *HealthMonitor
+	healthStatus     <-chan HealthStatus
+	lastHealthStatus *HealthStatus // Last received health status
+	ready            bool          // Whether process has passed readiness checks
+	restartPolicy    RestartPolicy
+	deathNotifier    func(string) // Callback when all instances are dead
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.RWMutex
 }
 
 // Instance represents a single process instance
@@ -51,24 +54,21 @@ type Instance struct {
 	pid          int
 	started      time.Time
 	restartCount int
+	stdoutWriter *logger.ProcessWriter
+	stderrWriter *logger.ProcessWriter
 	mu           sync.RWMutex
 }
 
 // NewSupervisor creates a new process supervisor
-func NewSupervisor(name string, cfg *config.Process, logger *slog.Logger) *Supervisor {
-	// Determine backoff duration from config or use default
-	backoff := 5 * time.Second
-	if cfg.Restart != "" {
-		// Use global restart backoff if available
-		backoff = 5 * time.Second // TODO: Get from global config
-	}
-
-	// Determine max attempts from config or use default
-	maxAttempts := 3 // TODO: Get from global config
+func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalConfig, logger *slog.Logger) *Supervisor {
+	// Get restart backoff and max attempts from global config
+	backoff := time.Duration(globalCfg.RestartBackoff) * time.Second
+	maxAttempts := globalCfg.MaxRestartAttempts
 
 	return &Supervisor{
 		name:          name,
 		config:        cfg,
+		globalConfig:  globalCfg,
 		logger:        logger.With("process", name),
 		instances:     make([]*Instance, 0, cfg.Scale),
 		state:         StateStopped,
@@ -142,16 +142,17 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 	cmd.Env = append(os.Environ(), s.envVars(instanceID)...)
 
 	// Setup stdout/stderr capture with structured logging
-	cmd.Stdout = &logger.ProcessWriter{
-		Logger:     s.logger,
-		InstanceID: instanceID,
-		Stream:     "stdout",
+	stdoutWriter, err := logger.NewProcessWriter(s.logger, instanceID, "stdout", s.config.Logging)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout writer: %w", err)
 	}
-	cmd.Stderr = &logger.ProcessWriter{
-		Logger:     s.logger,
-		InstanceID: instanceID,
-		Stream:     "stderr",
+	cmd.Stdout = stdoutWriter
+
+	stderrWriter, err := logger.NewProcessWriter(s.logger, instanceID, "stderr", s.config.Logging)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr writer: %w", err)
 	}
+	cmd.Stderr = stderrWriter
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -160,11 +161,13 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 
 	startTime := time.Now()
 	instance := &Instance{
-		id:      instanceID,
-		cmd:     cmd,
-		state:   StateRunning,
-		pid:     cmd.Process.Pid,
-		started: startTime,
+		id:           instanceID,
+		cmd:          cmd,
+		state:        StateRunning,
+		pid:          cmd.Process.Pid,
+		started:      startTime,
+		stdoutWriter: stdoutWriter,
+		stderrWriter: stderrWriter,
 	}
 
 	s.logger.Info("Process instance started",
@@ -184,6 +187,15 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 // monitorInstance monitors a process instance and handles restarts
 func (s *Supervisor) monitorInstance(instance *Instance) {
 	err := instance.cmd.Wait()
+
+	// CRITICAL: Flush any remaining buffered output before marking as stopped
+	// This prevents data loss from incomplete line buffers or multiline buffers
+	if instance.stdoutWriter != nil {
+		instance.stdoutWriter.Flush()
+	}
+	if instance.stderrWriter != nil {
+		instance.stderrWriter.Flush()
+	}
 
 	instance.mu.Lock()
 	exitCode := instance.cmd.ProcessState.ExitCode()
@@ -312,6 +324,84 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	return nil
 }
 
+// IsReady returns whether the process has passed its readiness checks
+func (s *Supervisor) IsReady() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ready
+}
+
+// WaitForReady blocks until the process becomes ready (passes health checks)
+// or the context times out. This is used for readiness checks during startup.
+func (s *Supervisor) WaitForReady(ctx context.Context, timeout time.Duration) error {
+	s.mu.RLock()
+	hc := s.config.HealthCheck
+	s.mu.RUnlock()
+
+	// If no health check configured, consider immediately ready
+	if hc == nil {
+		s.logger.Debug("No health check configured, considering process ready immediately")
+		return nil
+	}
+
+	// If health check is not in readiness mode, consider immediately ready
+	if hc.Mode != "readiness" && hc.Mode != "both" {
+		s.logger.Debug("Health check not configured for readiness, considering process ready immediately",
+			"mode", hc.Mode,
+		)
+		return nil
+	}
+
+	s.logger.Info("Waiting for process to become ready",
+		"timeout", timeout,
+		"initial_delay", hc.InitialDelay,
+	)
+
+	// Create timeout context
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Poll for readiness status
+	ticker := time.NewTicker(500 * time.Millisecond) // Check every 500ms
+	defer ticker.Stop()
+
+	for {
+		// Check if process is ready
+		s.mu.RLock()
+		isReady := s.ready
+		lastStatus := s.lastHealthStatus
+		s.mu.RUnlock()
+
+		if isReady {
+			s.logger.Info("Process is now ready")
+			return nil
+		}
+
+		// Log current status for debugging
+		if lastStatus != nil && !lastStatus.Healthy {
+			s.logger.Debug("Process not yet ready, waiting for health check to pass",
+				"error", lastStatus.Error,
+			)
+		}
+
+		// Wait for next check or timeout
+		select {
+		case <-ticker.C:
+			// Continue checking
+			continue
+		case <-waitCtx.Done():
+			s.mu.RLock()
+			finalStatus := s.lastHealthStatus
+			s.mu.RUnlock()
+
+			if finalStatus != nil && finalStatus.Error != nil {
+				return fmt.Errorf("timeout waiting for process to become ready after %v: last error: %w", timeout, finalStatus.Error)
+			}
+			return fmt.Errorf("timeout waiting for process to become ready after %v", timeout)
+		}
+	}
+}
+
 // stopInstance stops a single process instance
 func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error {
 	instance.mu.Lock()
@@ -415,6 +505,20 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 			if !ok {
 				return
 			}
+
+			// Store the latest health status
+			s.mu.Lock()
+			s.lastHealthStatus = &status
+			// Mark as ready if health check ACTUALLY succeeds and in readiness mode
+			// Use LastCheckSucceeded to distinguish actual success from "not failed threshold yet"
+			if status.LastCheckSucceeded && s.config.HealthCheck != nil &&
+				(s.config.HealthCheck.Mode == "readiness" || s.config.HealthCheck.Mode == "both") {
+				if !s.ready {
+					s.logger.Info("Process passed readiness check")
+					s.ready = true
+				}
+			}
+			s.mu.Unlock()
 
 			if !status.Healthy {
 				s.logger.Error("Process unhealthy, triggering restart",
