@@ -165,8 +165,7 @@ func TestMultilineBuffer_LaravelStackTrace(t *testing.T) {
 	// Add all lines
 	var lastEntry string
 	for _, line := range lines {
-		complete, entry := mb.Add(line)
-		if complete && entry != "" {
+		if complete, entry := mb.Add(line); complete && entry != "" {
 			lastEntry = entry
 		}
 	}
@@ -281,10 +280,8 @@ func TestMultilineBuffer_MultipleEntries(t *testing.T) {
 
 	for i, entryLines := range entries {
 		for j, line := range entryLines {
-			complete, entry := mb.Add(line)
-
 			// On new entry start (except first line of first entry), previous entry flushes
-			if complete && entry != "" {
+			if complete, entry := mb.Add(line); complete && entry != "" {
 				results = append(results, entry)
 			}
 
