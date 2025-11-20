@@ -1,0 +1,188 @@
+# Complete Laravel stack with all services
+# Production-ready configuration with Horizon, Reverb, and queue workers
+
+version: "1.0"
+
+global:
+  shutdown_timeout: 60
+  log_format: json
+  log_level: info
+  metrics_enabled: true
+  metrics_port: 9090
+  api_enabled: false
+  api_port: 8080
+
+# Lifecycle hooks for Laravel optimization
+hooks:
+  pre-start:
+    - name: config-cache
+      command: ["php", "artisan", "config:cache"]
+      timeout: 60
+      retry: 2
+      continue_on_error: false
+
+    - name: route-cache
+      command: ["php", "artisan", "route:cache"]
+      timeout: 60
+      continue_on_error: false
+
+    - name: view-cache
+      command: ["php", "artisan", "view:cache"]
+      timeout: 120
+      continue_on_error: false
+
+    - name: migrate
+      command: ["php", "artisan", "migrate", "--force"]
+      timeout: 300
+      retry: 1
+      continue_on_error: false
+
+    - name: storage-link
+      command: ["php", "artisan", "storage:link"]
+      timeout: 30
+      continue_on_error: true  # May already exist
+
+processes:
+  # PHP-FPM process
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
+    health_check:
+      type: tcp
+      address: 127.0.0.1:9000
+      initial_delay: 5
+      period: 10
+      timeout: 3
+      failure_threshold: 3
+    shutdown:
+      signal: SIGQUIT  # Graceful for PHP-FPM
+      timeout: 30
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: php-fpm
+        tier: backend
+
+  # Nginx web server
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    priority: 20
+    restart: always
+    depends_on:
+      - php-fpm
+    health_check:
+      type: http
+      url: http://localhost/health
+      initial_delay: 3
+      period: 10
+      timeout: 2
+      failure_threshold: 3
+      expected_status: 200
+    shutdown:
+      signal: SIGTERM
+      timeout: 30
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: nginx
+        tier: frontend
+
+  # Laravel Horizon (queue dashboard + worker management)
+  horizon:
+    enabled: true
+    command: ["php", "artisan", "horizon"]
+    priority: 30
+    restart: always
+    depends_on:
+      - php-fpm
+    health_check:
+      type: exec
+      command: ["php", "artisan", "horizon:status"]
+      initial_delay: 10
+      period: 30
+      timeout: 5
+      failure_threshold: 2
+    shutdown:
+      pre_stop_hook:
+        name: horizon-terminate
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+      signal: SIGTERM
+      timeout: 120  # Allow jobs to finish
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: horizon
+        tier: workers
+
+  # Laravel Reverb (WebSocket server)
+  reverb:
+    enabled: false  # Enable if using real-time features
+    command: ["php", "artisan", "reverb:start"]
+    priority: 30
+    restart: always
+    depends_on:
+      - php-fpm
+    health_check:
+      type: tcp
+      address: 127.0.0.1:8080
+      initial_delay: 5
+      period: 15
+      timeout: 3
+    shutdown:
+      pre_stop_hook:
+        name: reverb-restart
+        command: ["php", "artisan", "reverb:restart"]
+        timeout: 30
+      signal: SIGTERM
+      timeout: 60
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: reverb
+        tier: realtime
+
+  # Queue workers (default queue)
+  queue-default:
+    enabled: true
+    command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
+    scale: 2  # Number of worker instances
+    priority: 40
+    restart: on-failure
+    depends_on:
+      - php-fpm
+    shutdown:
+      signal: SIGTERM  # Laravel handles gracefully
+      timeout: 60  # Allow current job to finish
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: queue-worker
+        queue: default
+        tier: workers
+
+  # High priority queue workers
+  queue-high:
+    enabled: false  # Enable if using priority queues
+    command: ["php", "artisan", "queue:work", "--queue=high", "--tries=5", "--max-time=300"]
+    scale: 1
+    priority: 35  # Start before default workers
+    restart: always
+    shutdown:
+      signal: SIGTERM
+      timeout: 60
+    logging:
+      stdout: true
+      stderr: true
+      labels:
+        service: queue-worker
+        queue: high
+        tier: workers

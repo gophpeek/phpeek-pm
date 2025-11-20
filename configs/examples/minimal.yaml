@@ -1,0 +1,17 @@
+# Minimal PHPeek PM configuration
+# For development and testing
+
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  log_format: json
+  log_level: info
+
+processes:
+  # PHP-FPM process
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
