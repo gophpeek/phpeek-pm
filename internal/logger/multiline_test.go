@@ -127,7 +127,7 @@ func TestMultilineBuffer_StackTrace(t *testing.T) {
 
 	// Add stack trace lines
 	for i := 1; i < len(lines); i++ {
-		complete, entry = mb.Add(lines[i])
+		complete, _ = mb.Add(lines[i])
 		if complete {
 			t.Errorf("stack trace line %d should not trigger flush", i)
 		}
