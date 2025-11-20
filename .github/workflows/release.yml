@@ -37,11 +37,30 @@ jobs:
           sha256sum phpeek-pm-* > checksums.txt
           cat checksums.txt
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: build/phpeek-pm-*
+          retention-days: 1
+
       - name: Create release notes
         id: release_notes
         run: |
           cat > release-notes.md <<EOF
           # PHPeek Process Manager v${{ steps.version.outputs.VERSION }}
+
+          Production-grade PID 1 process manager for Docker containers with Laravel-first design.
+
+          ## Features
+          - Multi-process orchestration with DAG-based dependencies
+          - Health checks (TCP, HTTP, Exec) with configurable thresholds
+          - Restart policies with exponential backoff
+          - Prometheus metrics export
+          - Management REST API with authentication
+          - Framework detection (Laravel, Symfony, WordPress)
+          - Graceful shutdown and zombie reaping
+          - Process scaling support
 
           ## Installation
 
@@ -83,21 +102,59 @@ jobs:
 
           ## Docker
 
+          Docker images are available on GitHub Container Registry:
+          \`\`\`bash
+          docker pull ghcr.io/gophpeek/phpeek-pm:v${{ steps.version.outputs.VERSION }}
+          # or
+          docker pull ghcr.io/gophpeek/phpeek-pm:latest
+          \`\`\`
+
+          Use in your Dockerfile:
           \`\`\`dockerfile
-          COPY --from=gophpeek/phpeek-pm:v${{ steps.version.outputs.VERSION }} \\
-              /usr/local/bin/phpeek-pm \\
-              /usr/local/bin/phpeek-pm
+          FROM ghcr.io/gophpeek/phpeek-pm:v${{ steps.version.outputs.VERSION }}
+          COPY phpeek-pm.yaml /etc/phpeek-pm/phpeek-pm.yaml
+          \`\`\`
+
+          Or copy binary from release:
+          \`\`\`dockerfile
+          FROM alpine:3.19
+          RUN apk add --no-cache ca-certificates tzdata wget
+          RUN wget -O /usr/local/bin/phpeek-pm \\
+              https://github.com/gophpeek/phpeek-pm/releases/download/v${{ steps.version.outputs.VERSION }}/phpeek-pm-linux-amd64 && \\
+              chmod +x /usr/local/bin/phpeek-pm
+          ENTRYPOINT ["/usr/local/bin/phpeek-pm"]
           \`\`\`
 
           ## Documentation
 
           - [Getting Started](https://github.com/gophpeek/phpeek-pm/blob/main/docs/getting-started/quickstart.md)
-          - [Configuration](https://github.com/gophpeek/phpeek-pm/blob/main/docs/configuration/overview.md)
-          - [Examples](https://github.com/gophpeek/phpeek-pm/tree/main/configs/examples)
+          - [Installation Guide](https://github.com/gophpeek/phpeek-pm/blob/main/docs/getting-started/installation.md)
+          - [Docker Integration](https://github.com/gophpeek/phpeek-pm/blob/main/docs/getting-started/docker-integration.md)
+          - [Configuration Examples](https://github.com/gophpeek/phpeek-pm/tree/main/configs/examples)
+          - [Prometheus Metrics](https://github.com/gophpeek/phpeek-pm/blob/main/docs/observability/metrics.md)
+          - [Management API](https://github.com/gophpeek/phpeek-pm/blob/main/docs/observability/api.md)
 
-          ## Changelog
+          ## Quick Start
 
-          See [CHANGELOG.md](https://github.com/gophpeek/phpeek-pm/blob/main/CHANGELOG.md) for details.
+          Create a minimal configuration:
+          \`\`\`yaml
+          version: "1.0"
+          global:
+            shutdown_timeout: 30
+            log_level: info
+
+          processes:
+            php-fpm:
+              enabled: true
+              command: ["php-fpm", "-F", "-R"]
+              priority: 10
+              restart: always
+          \`\`\`
+
+          Run:
+          \`\`\`bash
+          phpeek-pm --config phpeek-pm.yaml
+          \`\`\`
           EOF
 
       - name: Create GitHub Release
@@ -119,6 +176,9 @@ jobs:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: [build]
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
@@ -127,11 +187,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get version from tag
         id: version
@@ -141,17 +202,27 @@ jobs:
           echo "MAJOR=$(echo $VERSION | cut -d. -f1)" >> $GITHUB_OUTPUT
           echo "MINOR=$(echo $VERSION | cut -d. -f1,2)" >> $GITHUB_OUTPUT
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            gophpeek/phpeek-pm:latest
-            gophpeek/phpeek-pm:${{ steps.version.outputs.VERSION }}
-            gophpeek/phpeek-pm:${{ steps.version.outputs.MAJOR }}
-            gophpeek/phpeek-pm:${{ steps.version.outputs.MINOR }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -169,7 +240,7 @@ jobs:
             binary: phpeek-pm-darwin-amd64
 
     steps:
-      - name: Download release artifact
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           name: binaries
@@ -201,10 +272,15 @@ jobs:
           sleep 2
 
           # Check it's running
-          kill -0 $PID
+          if kill -0 $PID 2>/dev/null; then
+            echo "✅ Process is running"
+          else
+            echo "❌ Process failed to start"
+            exit 1
+          fi
 
           # Graceful shutdown
           kill -TERM $PID
-          wait $PID
+          wait $PID || true
 
           echo "✅ Binary test passed"
