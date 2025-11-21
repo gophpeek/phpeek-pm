@@ -195,6 +195,13 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 	// Set environment variables
 	cmd.Env = append(os.Environ(), s.envVars(instanceID)...)
 
+	// CRITICAL: Put subprocess in its own process group
+	// This prevents Ctrl+C (SIGINT) from propagating to child processes
+	// Without this, Ctrl+C kills children → manager thinks crash → restarts
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // Create new process group for this process
+	}
+
 	// Setup stdout/stderr capture with structured logging
 	cmd.Stdout = &logger.ProcessWriter{
 		Logger:     s.logger,
@@ -443,8 +450,23 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 	}
 
 	// Send shutdown signal
-	if err := instance.cmd.Process.Signal(sig); err != nil {
-		return fmt.Errorf("failed to send signal: %w", err)
+	// Since we use Setpgid, we need to send signal to the process group
+	// This ensures all children of the process also receive the signal
+	pgid, err := syscall.Getpgid(instance.pid)
+	if err != nil {
+		// Fallback to single process signal if we can't get pgid
+		s.logger.Warn("Failed to get process group, sending signal to process only",
+			"instance_id", instance.id,
+			"error", err,
+		)
+		if err := instance.cmd.Process.Signal(sig); err != nil {
+			return fmt.Errorf("failed to send signal: %w", err)
+		}
+	} else {
+		// Send signal to entire process group (negative PID)
+		if err := syscall.Kill(-pgid, sig); err != nil {
+			return fmt.Errorf("failed to send signal to process group: %w", err)
+		}
 	}
 
 	// Wait for graceful shutdown with timeout

@@ -323,7 +323,26 @@ kill $DAEMON_PID
 
 ## Testing Graceful Shutdown
 
-### Test Signal Handling
+### Test Ctrl+C (SIGINT)
+```bash
+./build/phpeek-pm serve -c configs/examples/minimal.yaml
+
+# Press Ctrl+C
+```
+
+**Expected:**
+```
+INFO Received shutdown signal signal=interrupt
+INFO Initiating graceful shutdown timeout=30
+INFO Stopping process name=php-fpm
+INFO Process stopped gracefully instance_id=php-fpm-0
+INFO Shutdown completed duration_seconds=1.234
+INFO PHPeek PM shutdown complete
+```
+
+**Should NOT restart processes after Ctrl+C!**
+
+### Test SIGTERM (Docker stop)
 ```bash
 # Terminal 1
 ./build/phpeek-pm serve -c configs/examples/minimal.yaml
@@ -333,15 +352,7 @@ pkill -TERM phpeek-pm
 # Or: kill -TERM $(pgrep phpeek-pm)
 ```
 
-**Expected in Terminal 1:**
-```
-INFO Received shutdown signal signal=terminated
-INFO Initiating graceful shutdown timeout=30
-INFO Stopping process name=php-fpm
-INFO Process stopped gracefully instance_id=php-fpm-0
-INFO Shutdown completed duration_seconds=1.234
-INFO PHPeek PM shutdown complete
-```
+**Expected:** Same graceful shutdown as Ctrl+C
 
 ---
 
