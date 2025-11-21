@@ -6,11 +6,11 @@ import "fmt"
 type Profile string
 
 const (
-	ProfileDev    Profile = "dev"     // Development: minimal resources, fast startup
-	ProfileLight  Profile = "light"   // Light: small apps, low traffic (1-10 req/s)
-	ProfileMedium Profile = "medium"  // Medium: standard production (10-50 req/s)
-	ProfileHeavy  Profile = "heavy"   // Heavy: high traffic, many workers (50-200 req/s)
-	ProfileBursty Profile = "bursty"  // Bursty: handle traffic spikes with dynamic scaling
+	ProfileDev    Profile = "dev"    // Development: minimal resources, fast startup
+	ProfileLight  Profile = "light"  // Light: small apps, low traffic (1-10 req/s)
+	ProfileMedium Profile = "medium" // Medium: standard production (10-50 req/s)
+	ProfileHeavy  Profile = "heavy"  // Heavy: high traffic, many workers (50-200 req/s)
+	ProfileBursty Profile = "bursty" // Bursty: handle traffic spikes with dynamic scaling
 )
 
 // ProfileConfig defines the characteristics of each application profile
@@ -45,17 +45,17 @@ var Profiles = map[Profile]ProfileConfig{
 	ProfileDev: {
 		Name:                "Development",
 		Description:         "Minimal resources for local development (2 workers, fast startup)",
-		ProcessManagerType:  "static",     // Simple for debugging
-		AvgMemoryPerWorker:  32,           // Runtime ~25MB + request ~4MB + overhead ~3MB (app code in OPcache)
-		OPcacheMemoryMB:     64,           // Compiled opcodes for small Laravel app
+		ProcessManagerType:  "static", // Simple for debugging
+		AvgMemoryPerWorker:  32,       // Runtime ~25MB + request ~4MB + overhead ~3MB (app code in OPcache)
+		OPcacheMemoryMB:     64,       // Compiled opcodes for small Laravel app
 		MinWorkers:          2,
 		MaxWorkers:          2,
 		SpareMinRatio:       0,
 		SpareMaxRatio:       0,
 		StartServersRatio:   1.0,
-		MaxRequestsPerChild: 100,          // Restart frequently to catch leaks
-		MaxMemoryUsage:      0.5,          // Use only 50% to leave room for IDE, etc
-		ReservedMemoryMB:    64,           // Minimal system overhead
+		MaxRequestsPerChild: 100, // Restart frequently to catch leaks
+		MaxMemoryUsage:      0.5, // Use only 50% to leave room for IDE, etc
+		ReservedMemoryMB:    64,  // Minimal system overhead
 	},
 
 	// Light: Small applications, low traffic, cost-optimized
@@ -63,16 +63,16 @@ var Profiles = map[Profile]ProfileConfig{
 		Name:                "Light Production",
 		Description:         "Small apps, low traffic 1-10 req/s (~36MB per worker)",
 		ProcessManagerType:  "dynamic",
-		AvgMemoryPerWorker:  36,           // Runtime ~25MB + request ~6MB + overhead ~5MB (app code in OPcache)
-		OPcacheMemoryMB:     96,           // Compiled opcodes for small Laravel app with some packages
+		AvgMemoryPerWorker:  36, // Runtime ~25MB + request ~6MB + overhead ~5MB (app code in OPcache)
+		OPcacheMemoryMB:     96, // Compiled opcodes for small Laravel app with some packages
 		MinWorkers:          2,
-		MaxWorkers:          0,            // Auto-calculate
+		MaxWorkers:          0, // Auto-calculate
 		SpareMinRatio:       0.25,
 		SpareMaxRatio:       0.5,
 		StartServersRatio:   0.25,
 		MaxRequestsPerChild: 500,
 		MaxMemoryUsage:      0.7,
-		ReservedMemoryMB:    128,          // Nginx + system
+		ReservedMemoryMB:    128, // Nginx + system
 	},
 
 	// Medium: Standard production workloads, balanced performance
@@ -80,16 +80,16 @@ var Profiles = map[Profile]ProfileConfig{
 		Name:                "Medium Production",
 		Description:         "Standard production 10-50 req/s (~42MB per worker)",
 		ProcessManagerType:  "dynamic",
-		AvgMemoryPerWorker:  42,           // Runtime ~28MB + request ~6MB + overhead ~8MB (app code in OPcache)
-		OPcacheMemoryMB:     128,          // Compiled opcodes for standard Laravel with packages
+		AvgMemoryPerWorker:  42,  // Runtime ~28MB + request ~6MB + overhead ~8MB (app code in OPcache)
+		OPcacheMemoryMB:     128, // Compiled opcodes for standard Laravel with packages
 		MinWorkers:          4,
-		MaxWorkers:          0,            // Auto-calculate based on resources
+		MaxWorkers:          0, // Auto-calculate based on resources
 		SpareMinRatio:       0.25,
 		SpareMaxRatio:       0.5,
 		StartServersRatio:   0.33,
 		MaxRequestsPerChild: 1000,
 		MaxMemoryUsage:      0.75,
-		ReservedMemoryMB:    192,          // Nginx + Redis/MySQL clients + system
+		ReservedMemoryMB:    192, // Nginx + Redis/MySQL clients + system
 	},
 
 	// Heavy: High traffic, large apps with many dependencies
@@ -97,16 +97,16 @@ var Profiles = map[Profile]ProfileConfig{
 		Name:                "Heavy Production",
 		Description:         "High traffic 50-200 req/s, large apps (~52MB per worker)",
 		ProcessManagerType:  "dynamic",
-		AvgMemoryPerWorker:  52,           // Runtime ~32MB + request ~8MB + overhead ~12MB (app code in OPcache)
-		OPcacheMemoryMB:     256,          // Compiled opcodes for large Laravel with many packages
+		AvgMemoryPerWorker:  52,  // Runtime ~32MB + request ~8MB + overhead ~12MB (app code in OPcache)
+		OPcacheMemoryMB:     256, // Compiled opcodes for large Laravel with many packages
 		MinWorkers:          8,
-		MaxWorkers:          0,            // Auto-calculate
+		MaxWorkers:          0, // Auto-calculate
 		SpareMinRatio:       0.2,
 		SpareMaxRatio:       0.4,
 		StartServersRatio:   0.5,
 		MaxRequestsPerChild: 2000,
 		MaxMemoryUsage:      0.8,
-		ReservedMemoryMB:    384,          // More headroom for connections, cache
+		ReservedMemoryMB:    384, // More headroom for connections, cache
 	},
 
 	// Bursty: Handle traffic spikes with aggressive spare server settings
@@ -114,13 +114,13 @@ var Profiles = map[Profile]ProfileConfig{
 		Name:                "Bursty Traffic",
 		Description:         "Handle traffic spikes with dynamic scaling (~44MB per worker)",
 		ProcessManagerType:  "dynamic",
-		AvgMemoryPerWorker:  44,           // Runtime ~30MB + request ~6MB + overhead ~8MB (app code in OPcache)
-		OPcacheMemoryMB:     128,          // Compiled opcodes for standard Laravel (same as medium)
+		AvgMemoryPerWorker:  44,  // Runtime ~30MB + request ~6MB + overhead ~8MB (app code in OPcache)
+		OPcacheMemoryMB:     128, // Compiled opcodes for standard Laravel (same as medium)
 		MinWorkers:          4,
-		MaxWorkers:          0,            // Auto-calculate
-		SpareMinRatio:       0.4,          // Keep more workers ready
-		SpareMaxRatio:       0.7,          // Higher ceiling for spikes
-		StartServersRatio:   0.5,          // Start with more workers
+		MaxWorkers:          0,   // Auto-calculate
+		SpareMinRatio:       0.4, // Keep more workers ready
+		SpareMaxRatio:       0.7, // Higher ceiling for spikes
+		StartServersRatio:   0.5, // Start with more workers
 		MaxRequestsPerChild: 1000,
 		MaxMemoryUsage:      0.75,
 		ReservedMemoryMB:    192,

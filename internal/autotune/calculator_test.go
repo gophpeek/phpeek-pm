@@ -317,8 +317,8 @@ func TestCalculator_SafetyValidations(t *testing.T) {
 		wantError bool
 	}{
 		{"Sufficient resources", ProfileMedium, 2048, 4, false},
-		{"Minimal resources", ProfileLight, 768, 1, false},  // 768*0.7=537, 537-224=313, 313/64=4 workers
-		{"Dev tiny", ProfileDev, 384, 1, false},             // 384*0.5=192, 192-128=64, 64/48=1 worker (min 2 enforced)
+		{"Minimal resources", ProfileLight, 768, 1, false}, // 768*0.7=537, 537-224=313, 313/64=4 workers
+		{"Dev tiny", ProfileDev, 384, 1, false},            // 384*0.5=192, 192-128=64, 64/48=1 worker (min 2 enforced)
 		{"Insufficient memory", ProfileMedium, 100, 4, true},
 		{"Too small", ProfileHeavy, 256, 1, true},
 	}

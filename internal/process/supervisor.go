@@ -29,18 +29,18 @@ const (
 
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
-	name           string
-	config         *config.Process
-	logger         *slog.Logger
-	instances      []*Instance
-	state          ProcessState
-	healthMonitor  *HealthMonitor
-	healthStatus   <-chan HealthStatus
-	restartPolicy  RestartPolicy
-	deathNotifier  func(string) // Callback when all instances are dead
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.RWMutex
+	name          string
+	config        *config.Process
+	logger        *slog.Logger
+	instances     []*Instance
+	state         ProcessState
+	healthMonitor *HealthMonitor
+	healthStatus  <-chan HealthStatus
+	restartPolicy RestartPolicy
+	deathNotifier func(string) // Callback when all instances are dead
+	ctx           context.Context
+	cancel        context.CancelFunc
+	mu            sync.RWMutex
 }
 
 // Instance represents a single process instance

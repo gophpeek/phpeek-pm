@@ -15,14 +15,14 @@ import (
 
 // Manager manages multiple processes
 type Manager struct {
-	config           *config.Config
-	logger           *slog.Logger
-	processes        map[string]*Supervisor
-	mu               sync.RWMutex
-	shutdownCh       chan struct{}
-	allDeadCh        chan struct{}
-	processDeathCh   chan string
-	startTime        time.Time
+	config         *config.Config
+	logger         *slog.Logger
+	processes      map[string]*Supervisor
+	mu             sync.RWMutex
+	shutdownCh     chan struct{}
+	allDeadCh      chan struct{}
+	processDeathCh chan string
+	startTime      time.Time
 }
 
 // NewManager creates a new process manager
@@ -232,10 +232,10 @@ func (m *Manager) getShutdownOrder() []string {
 
 // ProcessInfo represents process status information
 type ProcessInfo struct {
-	Name      string                 `json:"name"`
-	State     string                 `json:"state"`
-	Scale     int                    `json:"scale"`
-	Instances []ProcessInstanceInfo  `json:"instances"`
+	Name      string                `json:"name"`
+	State     string                `json:"state"`
+	Scale     int                   `json:"scale"`
+	Instances []ProcessInstanceInfo `json:"instances"`
 }
 
 // ProcessInstanceInfo represents instance status
