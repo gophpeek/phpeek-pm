@@ -1,7 +1,7 @@
 ---
 title: "Quick Start"
 description: "Run your first multi-process container with PHPeek PM in 5 minutes"
-weight: 2
+weight: 4
 ---
 
 # Quick Start

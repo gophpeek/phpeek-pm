@@ -1,0 +1,401 @@
+---
+title: "Process Configuration"
+description: "Configure process commands, dependencies, scaling, restart policies, and resource limits"
+weight: 13
+---
+
+# Process Configuration
+
+Complete reference for configuring individual processes managed by PHPeek PM.
+
+## Basic Process Structure
+
+```yaml
+processes:
+  process-name:
+    enabled: true
+    command: ["executable", "arg1", "arg2"]
+    priority: 10
+    restart: always
+    scale: 1
+    working_dir: /var/www/html
+    env:
+      KEY: value
+```
+
+## Core Settings
+
+### enabled
+
+**Type:** `boolean`
+**Default:** `true`
+**Description:** Whether to start this process.
+
+```yaml
+processes:
+  nginx:
+    enabled: true  # Start this process
+```
+
+**Use cases:**
+- Temporarily disable processes without removing configuration
+- Environment-specific processes (dev vs production)
+- Feature flags for optional services
+
+### command
+
+**Type:** `array` of strings
+**Required:** Yes
+**Description:** Command and arguments to execute.
+
+```yaml
+processes:
+  php-fpm:
+    command: ["php-fpm", "-F", "-R"]  # Foreground mode, pool config, restart on-demand
+```
+
+**Important:**
+- ✅ Use array format for proper argument parsing
+- ✅ Run processes in foreground mode (no daemonizing)
+- ❌ Don't use shell syntax like `["sh", "-c", "nginx -g 'daemon off;'"]`
+
+**Common Commands:**
+```yaml
+# PHP-FPM
+command: ["php-fpm", "-F", "-R"]
+
+# Nginx
+command: ["nginx", "-g", "daemon off;"]
+
+# Laravel Queue
+command: ["php", "artisan", "queue:work", "--tries=3"]
+
+# Laravel Horizon
+command: ["php", "artisan", "horizon"]
+
+# Laravel Reverb
+command: ["php", "artisan", "reverb:start"]
+```
+
+### priority
+
+**Type:** `integer`
+**Default:** `99`
+**Description:** Startup order (lower = starts first, higher = starts last).
+
+```yaml
+processes:
+  php-fpm:
+    priority: 10  # Start first
+
+  nginx:
+    priority: 20  # Start after PHP-FPM
+
+  queue:
+    priority: 30  # Start after Nginx
+```
+
+**Recommended Ranges:**
+- **1-10:** Core infrastructure (PHP-FPM, databases)
+- **11-20:** Web servers (Nginx, Apache)
+- **21-30:** Application services (Horizon, queues)
+- **31-40:** Optional services (workers, scheduled tasks)
+
+### restart
+
+**Type:** `string`
+**Options:** `always`, `on-failure`, `never`
+**Default:** `always`
+**Description:** Restart policy when process exits.
+
+```yaml
+processes:
+  php-fpm:
+    restart: always  # Always restart on exit
+
+  migration:
+    restart: never  # One-time execution
+
+  queue:
+    restart: on-failure  # Only restart on non-zero exit
+```
+
+**Policy Guide:**
+- `always` - Long-running services (PHP-FPM, Nginx, Horizon)
+- `on-failure` - Services that should recover from errors but respect clean exits
+- `never` - One-time tasks (migrations, seed data)
+
+### scale
+
+**Type:** `integer`
+**Default:** `1`
+**Description:** Number of identical instances to run.
+
+```yaml
+processes:
+  queue-default:
+    command: ["php", "artisan", "queue:work"]
+    scale: 3  # Run 3 queue workers
+```
+
+**When to scale:**
+- Queue workers (3-10 instances)
+- Background processors
+- Parallel job execution
+
+**Automatic naming:**
+- `queue-default-1`
+- `queue-default-2`
+- `queue-default-3`
+
+## Advanced Settings
+
+### depends_on
+
+**Type:** `array` of strings
+**Default:** `[]`
+**Description:** Process dependencies for startup ordering.
+
+```yaml
+processes:
+  php-fpm:
+    priority: 10
+
+  nginx:
+    priority: 20
+    depends_on: [php-fpm]  # Wait for PHP-FPM to be healthy
+
+  horizon:
+    priority: 30
+    depends_on: [php-fpm, nginx]  # Wait for both
+```
+
+**Behavior:**
+- Processes wait for dependencies to be **healthy** (if health check configured)
+- Creates a dependency graph (DAG) for proper ordering
+- Prevents startup failures from missing dependencies
+
+### working_dir
+
+**Type:** `string`
+**Default:** `/var/www/html` or current directory
+**Description:** Working directory for process execution.
+
+```yaml
+processes:
+  app:
+    command: ["./my-app"]
+    working_dir: /opt/application
+```
+
+### env
+
+**Type:** `object`
+**Default:** `{}`
+**Description:** Environment variables for the process.
+
+```yaml
+processes:
+  queue:
+    command: ["php", "artisan", "queue:work"]
+    env:
+      QUEUE_CONNECTION: redis
+      QUEUE_NAME: default
+      REDIS_HOST: localhost
+```
+
+**Inheritance:**
+- Process env vars override global environment
+- System env vars are inherited by default
+
+### schedule
+
+**Type:** `string` (cron expression)
+**Default:** None
+**Description:** Run process on a schedule (cron-like).
+
+```yaml
+processes:
+  backup:
+    command: ["php", "artisan", "backup:run"]
+    schedule: "0 2 * * *"  # Daily at 2 AM
+```
+
+**Cron Format:** `minute hour day month weekday`
+
+```
+"*/15 * * * *"  # Every 15 minutes
+"0 * * * *"     # Every hour
+"0 2 * * *"     # Daily at 2 AM
+"0 2 * * 1"     # Mondays at 2 AM
+"0 0 1 * *"     # First day of month
+```
+
+See [Scheduled Tasks](../features/scheduled-tasks) for complete guide.
+
+## Shutdown Configuration
+
+### shutdown.timeout
+
+**Type:** `integer` (seconds)
+**Default:** Inherits from `global.shutdown_timeout`
+**Description:** Process-specific shutdown timeout.
+
+```yaml
+processes:
+  horizon:
+    command: ["php", "artisan", "horizon"]
+    shutdown:
+      timeout: 120  # Allow 2 minutes for graceful shutdown
+```
+
+### shutdown.pre_stop_hook
+
+**Type:** `object`
+**Description:** Command to run before stopping the process.
+
+```yaml
+processes:
+  horizon:
+    command: ["php", "artisan", "horizon"]
+    shutdown:
+      pre_stop_hook:
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+```
+
+**Use cases:**
+- Laravel Horizon graceful termination
+- Database connection cleanup
+- File upload completion
+- Cache flush operations
+
+See [Lifecycle Hooks](lifecycle-hooks) for pre/post start hooks.
+
+## Health Check Configuration
+
+```yaml
+processes:
+  nginx:
+    command: ["nginx", "-g", "daemon off;"]
+    health_check:
+      type: http
+      address: "http://127.0.0.1:80/health"
+      interval: 10
+      timeout: 5
+      retries: 3
+      success_threshold: 2
+```
+
+**Health Check Types:**
+- `tcp` - TCP port connection
+- `http` - HTTP endpoint check
+- `exec` - Execute command
+
+See [Health Checks Configuration](health-checks) for complete reference.
+
+## Heartbeat Monitoring
+
+```yaml
+processes:
+  critical-backup:
+    command: ["php", "artisan", "backup:critical"]
+    schedule: "0 3 * * *"
+    heartbeat:
+      url: "https://hc-ping.com/your-uuid-here"
+      timeout: 10
+```
+
+**Supported Services:**
+- healthchecks.io
+- Cronitor
+- Better Uptime
+- Custom endpoints
+
+See [Heartbeat Monitoring](../features/heartbeat-monitoring) for complete guide.
+
+## Complete Example
+
+```yaml
+processes:
+  # Core Infrastructure
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
+    health_check:
+      type: tcp
+      address: "127.0.0.1:9000"
+      interval: 10
+
+  # Web Server
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    priority: 20
+    restart: always
+    depends_on: [php-fpm]
+    health_check:
+      type: http
+      address: "http://127.0.0.1:80/health"
+
+  # Application Services
+  horizon:
+    enabled: true
+    command: ["php", "artisan", "horizon"]
+    priority: 30
+    restart: on-failure
+    working_dir: /var/www/html
+    shutdown:
+      timeout: 120
+      pre_stop_hook:
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+
+  # Queue Workers
+  queue-default:
+    enabled: true
+    command: ["php", "artisan", "queue:work", "--tries=3"]
+    scale: 3
+    priority: 40
+    restart: always
+    env:
+      QUEUE_CONNECTION: redis
+      QUEUE_NAME: default
+
+  # Scheduled Tasks
+  daily-backup:
+    enabled: true
+    command: ["php", "artisan", "backup:run"]
+    schedule: "0 2 * * *"
+    restart: never
+    heartbeat:
+      url: "https://hc-ping.com/backup-job-uuid"
+```
+
+## Environment Variable Overrides
+
+Override process settings via environment variables:
+
+```bash
+# Enable/disable process
+PHPEEK_PM_PROCESS_NGINX_ENABLED=false
+
+# Change scale
+PHPEEK_PM_PROCESS_QUEUE_DEFAULT_SCALE=5
+
+# Override command (JSON array)
+PHPEEK_PM_PROCESS_APP_COMMAND='["./my-app","--port=8080"]'
+```
+
+**Pattern:** `PHPEEK_PM_PROCESS_<NAME>_<SETTING>=<value>`
+
+See [Environment Variables](environment-variables) for complete reference.
+
+## See Also
+
+- [Health Checks](health-checks) - Configure health monitoring
+- [Lifecycle Hooks](lifecycle-hooks) - Pre/post start/stop hooks
+- [Environment Variables](environment-variables) - ENV var reference
+- [Examples](../examples/laravel-complete) - Real-world configurations

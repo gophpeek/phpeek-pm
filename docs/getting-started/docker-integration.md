@@ -1,7 +1,7 @@
 ---
 title: "Docker Integration"
 description: "Use PHPeek PM as PID 1 in Docker containers for proper signal handling"
-weight: 3
+weight: 5
 ---
 
 # Docker Integration

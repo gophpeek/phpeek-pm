@@ -1,7 +1,7 @@
 ---
 title: "Prometheus Metrics"
 description: "Monitor PHPeek PM processes with comprehensive Prometheus metrics and alerting"
-weight: 10
+weight: 40
 ---
 
 # Prometheus Metrics

@@ -1,7 +1,7 @@
 ---
 title: "Management API"
 description: "Control and inspect PHPeek PM processes via REST API at runtime"
-weight: 20
+weight: 41
 ---
 
 # Management API

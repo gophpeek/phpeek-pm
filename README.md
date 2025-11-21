@@ -6,6 +6,7 @@
 
 - ✅ **PID 1 Process Manager**: Proper signal handling and zombie process reaping
 - ✅ **Multi-Process Orchestration**: Manage PHP-FPM, Nginx, Horizon, Reverb, and workers
+- ✅ **PHP-FPM Auto-Tuning**: Intelligent worker calculation based on container limits
 - ✅ **Dependency Management**: DAG-based process startup ordering with topological sort
 - ✅ **Structured Logging**: JSON output with per-process segmentation
 - ✅ **Lifecycle Hooks**: Pre/post start/stop customization for Laravel optimization
@@ -72,6 +73,70 @@ PHPEEK_PM_GLOBAL_SHUTDOWN_TIMEOUT=60
 PHPEEK_PM_PROCESS_NGINX_ENABLED=true
 PHPEEK_PM_PROCESS_QUEUE_DEFAULT_SCALE=5
 ```
+
+## PHP-FPM Auto-Tuning
+
+PHPeek PM automatically calculates optimal PHP-FPM worker settings based on container resource limits (memory/CPU) detected via cgroups v1/v2.
+
+### Quick Start
+
+```bash
+# Via CLI flag
+./build/phpeek-pm --php-fpm-profile=medium
+
+# Via environment variable (recommended for Docker)
+docker run -e PHP_FPM_AUTOTUNE_PROFILE=medium myapp:latest
+```
+
+### Application Profiles
+
+| Profile | Use Case | Memory/Worker* | Traffic Load |
+|---------|----------|----------------|--------------|
+| `dev` | Development | ~32MB + 64MB OPcache | N/A |
+| `light` | Small apps | ~36MB + 96MB OPcache | 1-10 req/s |
+| `medium` | Standard prod | ~42MB + 128MB OPcache | 10-50 req/s |
+| `heavy` | High traffic | ~52MB + 256MB OPcache | 50-200 req/s |
+| `bursty` | Traffic spikes | ~44MB + 128MB OPcache | Variable |
+
+*OPcache is shared memory (not per-worker), reducing RAM usage significantly
+
+### How It Works
+
+1. Detects container limits from cgroup v1/v2 (memory + CPU quota)
+2. Calculates optimal `pm.max_children` based on available memory
+3. Sets `pm.start_servers`, `pm.min_spare_servers`, `pm.max_spare_servers` ratios
+4. Exports environment variables for PHP-FPM pool configuration
+
+### PHP-FPM Integration
+
+In your `www.conf`:
+
+```ini
+[www]
+pm = ${PHP_FPM_PM}
+pm.max_children = ${PHP_FPM_MAX_CHILDREN}
+pm.start_servers = ${PHP_FPM_START_SERVERS}
+pm.min_spare_servers = ${PHP_FPM_MIN_SPARE}
+pm.max_spare_servers = ${PHP_FPM_MAX_SPARE}
+pm.max_requests = ${PHP_FPM_MAX_REQUESTS}
+```
+
+### Docker Compose Example
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    environment:
+      - PHP_FPM_AUTOTUNE_PROFILE=medium
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+```
+
+See [docs/PHP-FPM-AUTOTUNE.md](docs/PHP-FPM-AUTOTUNE.md) for complete guide including safety features, calculation algorithm, and troubleshooting.
 
 ## Laravel Integration
 
@@ -407,6 +472,9 @@ See [docs/observability/api.md](docs/observability/api.md) for complete API docu
 - [Installation](docs/getting-started/installation.md) - Download and install
 - [Quick Start](docs/getting-started/quickstart.md) - 5-minute tutorial
 - [Docker Integration](docs/getting-started/docker-integration.md) - Use as PID 1
+
+**Configuration**
+- [PHP-FPM Auto-Tuning](docs/PHP-FPM-AUTOTUNE.md) - Intelligent worker calculation guide
 
 **Observability**
 - [Prometheus Metrics](docs/observability/metrics.md) - Complete metrics reference

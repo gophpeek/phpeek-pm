@@ -1,7 +1,7 @@
 ---
 title: "Installation"
 description: "Download and install PHPeek PM for your platform in minutes"
-weight: 1
+weight: 3
 ---
 
 # Installation
