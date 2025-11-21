@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -26,13 +27,14 @@ const version = "1.0.0"
 func main() {
 	// Parse command-line flags
 	var (
-		showVersion    = flag.Bool("version", false, "Show version information and exit")
-		versionShort   = flag.Bool("v", false, "Show version information and exit (shorthand)")
-		configPath     = flag.String("config", "", "Path to configuration file (default: PHPEEK_PM_CONFIG env var or /etc/phpeek-pm/phpeek-pm.yaml)")
-		configShort    = flag.String("c", "", "Path to configuration file (shorthand)")
-		validateConfig = flag.Bool("validate-config", false, "Validate configuration file and exit")
-		dryRun         = flag.Bool("dry-run", false, "Validate configuration and setup without starting processes")
-		phpFPMProfile  = flag.String("php-fpm-profile", "", "Auto-tune PHP-FPM workers based on container limits (dev|light|medium|heavy|bursty)")
+		showVersion       = flag.Bool("version", false, "Show version information and exit")
+		versionShort      = flag.Bool("v", false, "Show version information and exit (shorthand)")
+		configPath        = flag.String("config", "", "Path to configuration file (default: PHPEEK_PM_CONFIG env var or /etc/phpeek-pm/phpeek-pm.yaml)")
+		configShort       = flag.String("c", "", "Path to configuration file (shorthand)")
+		validateConfig    = flag.Bool("validate-config", false, "Validate configuration file and exit")
+		dryRun            = flag.Bool("dry-run", false, "Validate configuration and setup without starting processes")
+		phpFPMProfile     = flag.String("php-fpm-profile", "", "Auto-tune PHP-FPM workers based on container limits (dev|light|medium|heavy|bursty)")
+		memoryThreshold   = flag.Float64("autotune-memory-threshold", 0, "Override memory threshold for auto-tuning (0.5=50%, 1.0=100%, 1.3=130% oversubscription)")
 	)
 
 	flag.Usage = func() {
@@ -42,17 +44,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
-		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_CONFIG                Path to configuration file\n")
-		fmt.Fprintf(os.Stderr, "  WORKDIR                         Working directory (default: /var/www/html)\n")
-		fmt.Fprintf(os.Stderr, "  PHP_FPM_AUTOTUNE_PROFILE        Auto-tune PHP-FPM (dev|light|medium|heavy|bursty)\n")
-		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_GLOBAL_*              Override global config options\n")
-		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_PROCESS_*_*           Override process-specific config options\n")
+		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_CONFIG                     Path to configuration file\n")
+		fmt.Fprintf(os.Stderr, "  WORKDIR                              Working directory (default: /var/www/html)\n")
+		fmt.Fprintf(os.Stderr, "  PHP_FPM_AUTOTUNE_PROFILE             Auto-tune PHP-FPM (dev|light|medium|heavy|bursty)\n")
+		fmt.Fprintf(os.Stderr, "  PHP_FPM_AUTOTUNE_MEMORY_THRESHOLD    Memory threshold (0.5-2.0, e.g., 0.8=80%%, 1.3=130%%)\n")
+		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_GLOBAL_*                   Override global config options\n")
+		fmt.Fprintf(os.Stderr, "  PHPEEK_PM_PROCESS_*_*                Override process-specific config options\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  %s --version                         # Show version\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --config app.yaml                 # Use specific config\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --validate-config                 # Validate config only\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --dry-run                         # Validate without starting\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s --php-fpm-profile=medium          # Auto-tune PHP-FPM workers\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --version                                      # Show version\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --config app.yaml                              # Use specific config\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --validate-config                              # Validate config only\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --dry-run                                      # Validate without starting\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --php-fpm-profile=medium                       # Auto-tune PHP-FPM workers\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --autotune-memory-threshold=0.6                # Conservative (60%% memory)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --php-fpm-profile=heavy --autotune-memory-threshold=1.3  # Oversubscribe (expert)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nPHP-FPM Auto-Tuning Profiles (OPcache reduces worker memory):\n")
 		fmt.Fprintf(os.Stderr, "  dev     - Development: 2 workers, ~32MB per worker + 64MB OPcache\n")
 		fmt.Fprintf(os.Stderr, "  light   - Light production: 1-10 req/s, ~36MB per worker + 96MB OPcache\n")
@@ -139,7 +144,30 @@ func main() {
 			os.Exit(1)
 		}
 
-		calc, err := autotune.NewCalculator(profile, autotuneLog)
+		// Determine memory threshold: CLI flag > ENV var > global config > profile default (0.0)
+		threshold := *memoryThreshold
+		thresholdSource := "profile default"
+
+		if threshold == 0 {
+			// Try ENV variable
+			if envThreshold := os.Getenv("PHP_FPM_AUTOTUNE_MEMORY_THRESHOLD"); envThreshold != "" {
+				if parsed, err := strconv.ParseFloat(envThreshold, 64); err == nil {
+					threshold = parsed
+					thresholdSource = "ENV variable"
+				} else {
+					fmt.Fprintf(os.Stderr, "⚠️  Invalid PHP_FPM_AUTOTUNE_MEMORY_THRESHOLD: %v (ignoring)\n", err)
+				}
+			}
+		} else {
+			thresholdSource = "CLI flag"
+		}
+
+		if threshold == 0 && cfg.Global.AutotuneMemoryThreshold > 0 {
+			threshold = cfg.Global.AutotuneMemoryThreshold
+			thresholdSource = "global config"
+		}
+
+		calc, err := autotune.NewCalculator(profile, threshold, autotuneLog)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "❌ Failed to initialize auto-tuner: %v\n", err)
 			os.Exit(1)
@@ -163,6 +191,12 @@ func main() {
 		}
 
 		fmt.Fprintf(os.Stderr, "🎯 PHP-FPM auto-tuned (%s profile via %s):\n", profile, source)
+
+		// Show memory threshold if overridden
+		if threshold > 0 {
+			fmt.Fprintf(os.Stderr, "   Memory threshold: %.1f%% (via %s)\n", threshold*100, thresholdSource)
+		}
+
 		fmt.Fprintf(os.Stderr, "   pm = %s\n", phpfpmCfg.ProcessManager)
 		fmt.Fprintf(os.Stderr, "   pm.max_children = %d\n", phpfpmCfg.MaxChildren)
 		if phpfpmCfg.ProcessManager == "dynamic" {
@@ -171,8 +205,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "   pm.max_spare_servers = %d\n", phpfpmCfg.MaxSpare)
 		}
 		fmt.Fprintf(os.Stderr, "   pm.max_requests = %d\n", phpfpmCfg.MaxRequests)
-		fmt.Fprintf(os.Stderr, "   Memory: %dMB allocated / %dMB total\n",
-			phpfpmCfg.MemoryAllocated, phpfpmCfg.MemoryTotal)
+		fmt.Fprintf(os.Stderr, "   Memory: %dMB allocated / %dMB total (%.1f%% used)\n",
+			phpfpmCfg.MemoryAllocated+phpfpmCfg.MemoryOPcache+phpfpmCfg.MemoryReserved,
+			phpfpmCfg.MemoryTotal,
+			float64(phpfpmCfg.MemoryAllocated+phpfpmCfg.MemoryOPcache+phpfpmCfg.MemoryReserved)/float64(phpfpmCfg.MemoryTotal)*100)
 
 		if len(phpfpmCfg.Warnings) > 0 {
 			fmt.Fprintf(os.Stderr, "   ⚠️  Warnings: %d (see logs for details)\n", len(phpfpmCfg.Warnings))

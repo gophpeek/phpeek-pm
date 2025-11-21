@@ -10,20 +10,21 @@ type Config struct {
 
 // GlobalConfig contains global settings for the process manager
 type GlobalConfig struct {
-	ShutdownTimeout     int    `yaml:"shutdown_timeout" json:"shutdown_timeout"`           // seconds
-	HealthCheckInterval int    `yaml:"health_check_interval" json:"health_check_interval"` // seconds
-	RestartPolicy       string `yaml:"restart_policy" json:"restart_policy"`               // always | on-failure | never
-	MaxRestartAttempts  int    `yaml:"max_restart_attempts" json:"max_restart_attempts"`
-	RestartBackoff      int    `yaml:"restart_backoff" json:"restart_backoff"` // seconds
-	LogFormat           string `yaml:"log_format" json:"log_format"`           // json | text
-	LogLevel            string `yaml:"log_level" json:"log_level"`             // debug | info | warn | error
-	LogTimestamps       bool   `yaml:"log_timestamps" json:"log_timestamps"`
-	MetricsEnabled      bool   `yaml:"metrics_enabled" json:"metrics_enabled"`
-	MetricsPort         int    `yaml:"metrics_port" json:"metrics_port"`
-	MetricsPath         string `yaml:"metrics_path" json:"metrics_path"`
-	APIEnabled          bool   `yaml:"api_enabled" json:"api_enabled"`
-	APIPort             int    `yaml:"api_port" json:"api_port"`
-	APIAuth             string `yaml:"api_auth" json:"api_auth"` // Bearer token
+	ShutdownTimeout          int     `yaml:"shutdown_timeout" json:"shutdown_timeout"`                       // seconds
+	HealthCheckInterval      int     `yaml:"health_check_interval" json:"health_check_interval"`             // seconds
+	RestartPolicy            string  `yaml:"restart_policy" json:"restart_policy"`                           // always | on-failure | never
+	MaxRestartAttempts       int     `yaml:"max_restart_attempts" json:"max_restart_attempts"`               //
+	RestartBackoff           int     `yaml:"restart_backoff" json:"restart_backoff"`                         // seconds
+	AutotuneMemoryThreshold  float64 `yaml:"autotune_memory_threshold" json:"autotune_memory_threshold"`     // 0.0-2.0, overrides profile MaxMemoryUsage
+	LogFormat                string  `yaml:"log_format" json:"log_format"`                                   // json | text
+	LogLevel                 string  `yaml:"log_level" json:"log_level"`                                     // debug | info | warn | error
+	LogTimestamps            bool    `yaml:"log_timestamps" json:"log_timestamps"`                           //
+	MetricsEnabled           bool    `yaml:"metrics_enabled" json:"metrics_enabled"`                         //
+	MetricsPort              int     `yaml:"metrics_port" json:"metrics_port"`                               //
+	MetricsPath              string  `yaml:"metrics_path" json:"metrics_path"`                               //
+	APIEnabled               bool    `yaml:"api_enabled" json:"api_enabled"`                                 //
+	APIPort                  int     `yaml:"api_port" json:"api_port"`                                       //
+	APIAuth                  string  `yaml:"api_auth" json:"api_auth"`                                       // Bearer token
 }
 
 // HooksConfig contains lifecycle hooks

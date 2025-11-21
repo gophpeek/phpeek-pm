@@ -28,13 +28,14 @@ type PHPFPMConfig struct {
 
 // Calculator computes optimal PHP-FPM settings based on profile and resources
 type Calculator struct {
-	resources *ContainerResources
-	profile   ProfileConfig
-	logger    *slog.Logger
+	resources        *ContainerResources
+	profile          ProfileConfig
+	memoryThreshold  float64 // Override for profile.MaxMemoryUsage (0.0 = use profile default)
+	logger           *slog.Logger
 }
 
 // NewCalculator creates a new calculator with detected resources and profile
-func NewCalculator(profile Profile, logger *slog.Logger) (*Calculator, error) {
+func NewCalculator(profile Profile, memoryThreshold float64, logger *slog.Logger) (*Calculator, error) {
 	profileConfig, err := profile.GetConfig()
 	if err != nil {
 		return nil, err
@@ -46,9 +47,10 @@ func NewCalculator(profile Profile, logger *slog.Logger) (*Calculator, error) {
 	}
 
 	return &Calculator{
-		resources: resources,
-		profile:   profileConfig,
-		logger:    logger,
+		resources:       resources,
+		profile:         profileConfig,
+		memoryThreshold: memoryThreshold,
+		logger:          logger,
 	}, nil
 }
 
@@ -85,11 +87,42 @@ func (c *Calculator) Calculate() (*PHPFPMConfig, error) {
 			c.resources.MemoryLimitMB, minRequired, c.profile.ReservedMemoryMB, c.profile.OPcacheMemoryMB, c.profile.AvgMemoryPerWorker)
 	}
 
+	// Determine memory threshold (allow override of profile default)
+	threshold := c.profile.MaxMemoryUsage
+	thresholdSource := "profile"
+	if c.memoryThreshold > 0 {
+		threshold = c.memoryThreshold
+		thresholdSource = "override"
+
+		// WARNING: Oversubscription (>1.0) is dangerous but allowed for experts
+		if threshold > 1.0 {
+			cfg.Warnings = append(cfg.Warnings,
+				fmt.Sprintf("DANGER: Memory threshold %.1f%% (>100%%) allows OVERSUBSCRIPTION - risk of OOM kills!", threshold*100))
+			cfg.Warnings = append(cfg.Warnings,
+				"This is an expert setting. Ensure you understand the risks.")
+		}
+
+		// WARNING: Very low threshold might be too conservative
+		if threshold < 0.3 {
+			cfg.Warnings = append(cfg.Warnings,
+				fmt.Sprintf("WARNING: Memory threshold %.1f%% is very conservative - may waste resources", threshold*100))
+		}
+	}
+
 	// Calculate available memory for PHP-FPM workers
-	// Formula: (Total × Safety%) - Reserved - OPcache (shared) = Worker Memory Pool
-	availableMemory := int(float64(c.resources.MemoryLimitMB) * c.profile.MaxMemoryUsage)
+	// Formula: (Total × Threshold%) - Reserved - OPcache (shared) = Worker Memory Pool
+	availableMemory := int(float64(c.resources.MemoryLimitMB) * threshold)
 	totalReserved := c.profile.ReservedMemoryMB + c.profile.OPcacheMemoryMB
 	workerMemory := availableMemory - totalReserved
+
+	c.logger.Debug("Memory calculation",
+		"threshold", fmt.Sprintf("%.1f%%", threshold*100),
+		"threshold_source", thresholdSource,
+		"total_memory", c.resources.MemoryLimitMB,
+		"available_after_threshold", availableMemory,
+		"reserved", totalReserved,
+		"worker_pool", workerMemory,
+	)
 
 	if workerMemory < c.profile.AvgMemoryPerWorker {
 		return nil, fmt.Errorf("insufficient memory for workers: %dMB available after reserving %dMB (system: %dMB + OPcache: %dMB), need at least %dMB per worker",

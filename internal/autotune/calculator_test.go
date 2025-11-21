@@ -22,9 +22,10 @@ func mockResources(memoryMB, cpus int) *ContainerResources {
 func mockCalculator(profile Profile, memoryMB, cpus int) *Calculator {
 	profileConfig, _ := profile.GetConfig()
 	return &Calculator{
-		resources: mockResources(memoryMB, cpus),
-		profile:   profileConfig,
-		logger:    slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+		resources:       mockResources(memoryMB, cpus),
+		profile:         profileConfig,
+		memoryThreshold: 0, // Use profile default
+		logger:          slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 }
 
@@ -271,9 +272,10 @@ func TestCalculator_NoContainerLimits(t *testing.T) {
 	}
 
 	calc := &Calculator{
-		resources: resources,
-		profile:   profileConfig,
-		logger:    slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+		resources:       resources,
+		profile:         profileConfig,
+		memoryThreshold: 0, // Use profile default
+		logger:          slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 
 	cfg, err := calc.Calculate()
@@ -306,6 +308,106 @@ func TestCalculator_NoContainerLimits(t *testing.T) {
 	}
 
 	t.Logf("Auto-tuning on host: %d workers with warnings", cfg.MaxChildren)
+}
+
+func TestCalculator_MemoryThresholdOverride(t *testing.T) {
+	// Test with conservative threshold (60%)
+	profileConfig, _ := ProfileMedium.GetConfig()
+	calc := &Calculator{
+		resources:       mockResources(2048, 4),
+		profile:         profileConfig,
+		memoryThreshold: 0.6, // 60% instead of profile default (75%)
+		logger:          slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+	}
+
+	cfg, err := calc.Calculate()
+	if err != nil {
+		t.Fatalf("Calculate() failed: %v", err)
+	}
+
+	// With 60% threshold: 2048 * 0.6 = 1228MB
+	// Reserved: 320MB → Worker pool: 908MB
+	// Workers: 908 / 42MB = 21 workers
+	// CPU limit: 4 * 4 = 16 workers (LIMITED)
+	expectedWorkers := 16
+
+	if cfg.MaxChildren != expectedWorkers {
+		t.Errorf("Expected %d workers with 60%% threshold, got %d", expectedWorkers, cfg.MaxChildren)
+	}
+
+	t.Logf("Conservative threshold (60%%): %d workers", cfg.MaxChildren)
+}
+
+func TestCalculator_MemoryThresholdOversubscription(t *testing.T) {
+	// Test with oversubscription (130% - DANGEROUS!)
+	profileConfig, _ := ProfileMedium.GetConfig()
+	calc := &Calculator{
+		resources:       mockResources(2048, 4),
+		profile:         profileConfig,
+		memoryThreshold: 1.3, // 130% - allows oversubscription!
+		logger:          slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+	}
+
+	cfg, err := calc.Calculate()
+	if err != nil {
+		t.Fatalf("Calculate() failed: %v", err)
+	}
+
+	// With 130% threshold: 2048 * 1.3 = 2662MB (MORE than container has!)
+	// Reserved: 320MB → Worker pool: 2342MB
+	// Workers: 2342 / 42MB = 55 workers
+	// CPU limit: 4 * 4 = 16 workers (LIMITED)
+	expectedWorkers := 16
+
+	if cfg.MaxChildren != expectedWorkers {
+		t.Errorf("Expected %d workers with oversubscription, got %d", expectedWorkers, cfg.MaxChildren)
+	}
+
+	// Should have warning about oversubscription
+	foundWarning := false
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "OVERSUBSCRIPTION") || strings.Contains(w, ">100%") {
+			foundWarning = true
+			t.Logf("Oversubscription warning: %s", w)
+		}
+	}
+
+	if !foundWarning {
+		t.Error("Expected warning about oversubscription (>100%), but not found")
+	}
+
+	t.Logf("Oversubscription threshold (130%%): %d workers with DANGER warning", cfg.MaxChildren)
+}
+
+func TestCalculator_MemoryThresholdLow(t *testing.T) {
+	// Test with very low threshold (20% - wasteful)
+	profileConfig, _ := ProfileMedium.GetConfig()
+	calc := &Calculator{
+		resources:       mockResources(2048, 4),
+		profile:         profileConfig,
+		memoryThreshold: 0.2, // 20% - very conservative
+		logger:          slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+	}
+
+	cfg, err := calc.Calculate()
+	if err != nil {
+		t.Fatalf("Calculate() failed: %v", err)
+	}
+
+	// Should have warning about being too conservative
+	foundWarning := false
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "very conservative") {
+			foundWarning = true
+			t.Logf("Conservative warning: %s", w)
+		}
+	}
+
+	if !foundWarning {
+		t.Error("Expected warning about very conservative threshold (<30%), but not found")
+	}
+
+	t.Logf("Low threshold (20%%): %d workers with conservation warning", cfg.MaxChildren)
 }
 
 func TestCalculator_SafetyValidations(t *testing.T) {
