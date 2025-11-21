@@ -175,28 +175,48 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 
 // handleRestart restarts a process
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request, processName string) {
-	// Note: Full restart implementation would require adding Restart() method to Manager
-	// For now, return a placeholder response
-	s.respondJSON(w, http.StatusAccepted, map[string]string{
-		"message": "restart initiated",
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := s.manager.RestartProcess(ctx, processName); err != nil {
+		s.respondError(w, http.StatusInternalServerError, fmt.Sprintf("restart failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "restarted",
 		"process": processName,
 	})
 }
 
 // handleStop stops a process
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request, processName string) {
-	// Note: Full stop implementation would require adding Stop() method to Manager
-	s.respondJSON(w, http.StatusAccepted, map[string]string{
-		"message": "stop initiated",
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := s.manager.StopProcess(ctx, processName); err != nil {
+		s.respondError(w, http.StatusInternalServerError, fmt.Sprintf("stop failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "stopped",
 		"process": processName,
 	})
 }
 
 // handleStart starts a process
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request, processName string) {
-	// Note: Full start implementation would require adding Start() method to Manager
-	s.respondJSON(w, http.StatusAccepted, map[string]string{
-		"message": "start initiated",
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := s.manager.StartProcess(ctx, processName); err != nil {
+		s.respondError(w, http.StatusInternalServerError, fmt.Sprintf("start failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "started",
 		"process": processName,
 	})
 }
@@ -205,7 +225,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request, processName
 func (s *Server) handleScale(w http.ResponseWriter, r *http.Request, processName string) {
 	// Parse scale request
 	var req struct {
-		Scale int `json:"scale"`
+		Desired int `json:"desired"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -213,16 +233,23 @@ func (s *Server) handleScale(w http.ResponseWriter, r *http.Request, processName
 		return
 	}
 
-	if req.Scale < 0 {
-		s.respondError(w, http.StatusBadRequest, "scale must be >= 0")
+	if req.Desired < 1 {
+		s.respondError(w, http.StatusBadRequest, "desired scale must be >= 1")
 		return
 	}
 
-	// Note: Full scale implementation would require adding Scale() method to Manager
-	s.respondJSON(w, http.StatusAccepted, map[string]interface{}{
-		"message": "scale initiated",
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := s.manager.ScaleProcess(ctx, processName, req.Desired); err != nil {
+		s.respondError(w, http.StatusInternalServerError, fmt.Sprintf("scale failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "scaled",
 		"process": processName,
-		"scale":   req.Scale,
+		"desired": req.Desired,
 	})
 }
 

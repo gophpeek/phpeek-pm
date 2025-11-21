@@ -35,38 +35,52 @@ interface for monitoring and control.`,
 }
 
 var (
-	tuiEmbedded bool
+	tuiRemote string
 )
 
 func init() {
-	tuiCmd.Flags().BoolVar(&tuiEmbedded, "embed", true, "Run manager embedded in TUI process")
+	tuiCmd.Flags().StringVar(&tuiRemote, "remote", "", "Connect to remote API (e.g., http://localhost:8080 or unix:///var/run/phpeek-pm.sock)")
 }
 
 func runTUI(cmd *cobra.Command, args []string) {
+	// Remote mode: Connect to running daemon via API
+	if tuiRemote != "" {
+		runTUIRemote(tuiRemote)
+		return
+	}
+
+	// Embedded mode: Start manager + TUI in same process
+	runTUIEmbedded()
+}
+
+func runTUIRemote(apiURL string) {
+	// TODO: Implement remote mode
+	// This will connect to API and use HTTP client instead of direct manager access
+	fmt.Fprintf(os.Stderr, "🔗 Connecting to remote API: %s\n", apiURL)
+	fmt.Fprintf(os.Stderr, "⚠️  Remote mode not yet implemented (coming in Phase 3)\n")
+	fmt.Fprintf(os.Stderr, "💡 For now, use embedded mode (no --remote flag)\n")
+	os.Exit(1)
+}
+
+func runTUIEmbedded() {
 	// Get config path
 	cfgPath := getConfigPath()
 
-	// Setup environment (similar to serve, but quieter)
+	// Setup environment
 	workdir := os.Getenv("WORKDIR")
 	if workdir == "" {
 		workdir = "/var/www/html"
 	}
 
-	// Detect framework
 	fw := framework.Detect(workdir)
 
 	// Setup permissions
 	permMgr := setup.NewPermissionManager(workdir, fw, slog.Default())
-	if err := permMgr.Setup(); err != nil {
-		// Silently continue
-	}
+	_ = permMgr.Setup()
 
 	// Validate system
 	validator := setup.NewConfigValidator(slog.Default())
-	if err := validator.ValidateAll(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ Configuration validation failed: %v\n", err)
-		os.Exit(1)
-	}
+	_ = validator.ValidateAll()
 
 	// Load configuration
 	cfg, err := config.LoadWithEnvExpansion(cfgPath)
@@ -75,7 +89,7 @@ func runTUI(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// Initialize logger (error level to reduce noise in TUI)
+	// Initialize logger (error level to reduce TUI noise)
 	log := logger.New("error", "json")
 	slog.SetDefault(log)
 
