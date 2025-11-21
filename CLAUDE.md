@@ -35,9 +35,120 @@ go mod tidy             # Clean up go.mod/go.sum
 
 ### Running
 ```bash
+# Show version and help
+./build/phpeek-pm --version                    # Show version
+./build/phpeek-pm -v                           # Show version (shorthand)
+./build/phpeek-pm --help                       # Show help and all flags
+
+# Run with config
 ./build/phpeek-pm                              # Uses phpeek-pm.yaml or /etc/phpeek-pm/phpeek-pm.yaml
 ./build/phpeek-pm --config configs/examples/minimal.yaml
+./build/phpeek-pm -c configs/examples/minimal.yaml  # Shorthand
 PHPEEK_PM_CONFIG=custom.yaml ./build/phpeek-pm
+
+# PHP-FPM auto-tuning
+./build/phpeek-pm --php-fpm-profile=medium                    # Via CLI flag
+PHP_FPM_AUTOTUNE_PROFILE=medium ./build/phpeek-pm             # Via ENV var
+docker run -e PHP_FPM_AUTOTUNE_PROFILE=medium myapp:latest    # Docker
+
+# Validation modes
+./build/phpeek-pm --validate-config            # Validate config and show summary
+./build/phpeek-pm --validate-config -c app.yaml  # Validate specific config
+./build/phpeek-pm --dry-run                    # Full validation without starting
+./build/phpeek-pm --dry-run -c app.yaml        # Dry run with specific config
+```
+
+### CLI Flags
+- `--version`, `-v` - Display version information and exit
+- `--help`, `-h` - Display usage information and exit (auto-generated)
+- `--config PATH`, `-c PATH` - Path to configuration file (overrides PHPEEK_PM_CONFIG env var)
+- `--validate-config` - Validate configuration file and show summary, then exit
+- `--dry-run` - Validate configuration and system setup without starting processes
+- `--php-fpm-profile PROFILE` - Auto-tune PHP-FPM workers based on container limits (dev|light|medium|heavy|bursty)
+
+### PHP-FPM Auto-Tuning
+
+PHPeek PM can automatically calculate optimal PHP-FPM worker settings based on container resource limits (memory/CPU) detected via cgroups v1/v2.
+
+**Application Profiles:**
+
+| Profile | Use Case | Avg Memory/Worker | Traffic Load | PM Mode |
+|---------|----------|-------------------|--------------|---------|
+| `dev` | Development | 64MB | N/A | static (2 workers) |
+| `light` | Small apps, low traffic | 128MB | 1-10 req/s | dynamic |
+| `medium` | Standard production | 256MB | 10-50 req/s | dynamic |
+| `heavy` | High traffic apps | 512MB | 50-200 req/s | dynamic |
+| `bursty` | Traffic spike handling | 256MB | Variable spikes | dynamic (high spare) |
+
+**Safety Features:**
+- Never uses >80% of available memory (profile-dependent)
+- Reserves memory for Nginx, system, and other services
+- Enforces CPU limits (max 4 workers per core)
+- Validates all calculations before applying
+- Enforces profile minimums and safe PM relationships
+
+**Usage:**
+```bash
+# CLI flag (explicit)
+./build/phpeek-pm --php-fpm-profile=medium
+
+# Environment variable (recommended for containers)
+PHP_FPM_AUTOTUNE_PROFILE=medium ./build/phpeek-pm
+
+# Docker / Docker Compose (set via environment)
+docker run -e PHP_FPM_AUTOTUNE_PROFILE=medium myapp:latest
+
+# CLI flag overrides ENV var
+PHP_FPM_AUTOTUNE_PROFILE=light ./build/phpeek-pm --php-fpm-profile=heavy
+# Uses: heavy (CLI takes priority)
+
+# Test autotune without starting (dry-run)
+./build/phpeek-pm --php-fpm-profile=medium --dry-run
+```
+
+**Priority:** CLI flag `--php-fpm-profile` > ENV var `PHP_FPM_AUTOTUNE_PROFILE`
+
+**How It Works:**
+1. Detects container limits from cgroup v1/v2 (memory + CPU quota)
+2. Calculates optimal `pm.max_children` based on available memory
+3. Sets `pm.start_servers`, `pm.min_spare_servers`, `pm.max_spare_servers` ratios
+4. Configures `pm.max_requests` for memory leak protection
+5. Exports environment variables: `PHP_FPM_PM`, `PHP_FPM_MAX_CHILDREN`, etc.
+
+**Environment Variables Set:**
+```bash
+PHP_FPM_PM=dynamic
+PHP_FPM_MAX_CHILDREN=10
+PHP_FPM_START_SERVERS=3
+PHP_FPM_MIN_SPARE=2
+PHP_FPM_MAX_SPARE=5
+PHP_FPM_MAX_REQUESTS=1000
+```
+
+**PHP-FPM Pool Configuration Integration:**
+
+To use auto-tuned values in your PHP-FPM pool config (`www.conf`):
+
+```ini
+[www]
+pm = ${PHP_FPM_PM}
+pm.max_children = ${PHP_FPM_MAX_CHILDREN}
+pm.start_servers = ${PHP_FPM_START_SERVERS}
+pm.min_spare_servers = ${PHP_FPM_MIN_SPARE}
+pm.max_spare_servers = ${PHP_FPM_MAX_SPARE}
+pm.max_requests = ${PHP_FPM_MAX_REQUESTS}
+```
+
+**Example Output:**
+```
+🎯 PHP-FPM auto-tuned (medium profile):
+   pm = dynamic
+   pm.max_children = 10
+   pm.start_servers = 3
+   pm.min_spare_servers = 2
+   pm.max_spare_servers = 5
+   pm.max_requests = 1000
+   Memory: 2560MB allocated / 4096MB total
 ```
 
 ## Architecture

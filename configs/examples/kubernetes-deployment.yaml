@@ -1,0 +1,151 @@
+# Kubernetes Deployment with PHP-FPM auto-tuning
+# Example showing ConfigMap-based profile configuration
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: phpeek-config
+  namespace: production
+data:
+  # PHP-FPM auto-tune profile
+  php_fpm_profile: "medium"
+
+  # PHPeek PM configuration
+  phpeek_pm_config: |
+    version: "1.0"
+    global:
+      shutdown_timeout: 60
+      log_format: json
+      log_level: info
+      metrics_enabled: true
+      metrics_port: 9090
+
+    processes:
+      php-fpm:
+        enabled: true
+        command: ["php-fpm", "-F", "-R"]
+        priority: 10
+        restart: always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: laravel-app
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: laravel
+  template:
+    metadata:
+      labels:
+        app: laravel
+    spec:
+      containers:
+      - name: app
+        image: myapp:v1.2.3
+
+        # Auto-tune PHP-FPM via ENV from ConfigMap
+        env:
+        - name: PHP_FPM_AUTOTUNE_PROFILE
+          valueFrom:
+            configMapKeyRef:
+              name: phpeek-config
+              key: php_fpm_profile
+
+        # Container resource limits (auto-tuner uses these)
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 9090
+          name: metrics
+
+        # Readiness probe
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+        # Liveness probe
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+---
+# HorizontalPodAutoscaler for dynamic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: laravel-app-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: laravel-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Different profile for high-traffic deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: laravel-app-heavy
+  namespace: production
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: laravel-heavy
+  template:
+    metadata:
+      labels:
+        app: laravel-heavy
+    spec:
+      containers:
+      - name: app
+        image: myapp:v1.2.3
+
+        # Heavy profile for high traffic
+        env:
+        - name: PHP_FPM_AUTOTUNE_PROFILE
+          value: "heavy"
+
+        resources:
+          limits:
+            memory: "8Gi"
+            cpu: "8"
+
+        ports:
+        - containerPort: 80
+        - containerPort: 9090
