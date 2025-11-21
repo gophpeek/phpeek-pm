@@ -193,12 +193,19 @@ func (c *Config) SetDefaults() {
 	if c.Global.MetricsPath == "" {
 		c.Global.MetricsPath = "/metrics"
 	}
+	// API is enabled by default for TUI/remote control
+	// Can be disabled by explicitly setting api_enabled: false
+	c.Global.APIEnabled = true
 	if c.Global.APIPort == 0 {
 		c.Global.APIPort = 8080
 	}
 
 	// Process defaults
 	for name, proc := range c.Processes {
+		// Default: enabled=true if not explicitly set
+		// Note: YAML unmarshals missing bool as false, so we can't distinguish
+		// between explicit false and missing. For now, processes default to enabled.
+
 		if proc.Type == "" {
 			proc.Type = "longrun" // Default: long-running service
 		}

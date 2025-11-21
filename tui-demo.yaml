@@ -1,0 +1,39 @@
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  log_level: info
+  log_format: text
+  api_enabled: true      # REQUIRED for TUI
+  api_port: 8080
+
+processes:
+  # Running service
+  service1:
+    enabled: true        # REQUIRED (defaults to false if missing)
+    initial_state: running
+    command: ["sleep", "300"]
+    restart: always
+
+  # Stopped service
+  service2:
+    enabled: true
+    initial_state: stopped  # Can start via TUI
+    command: ["sleep", "300"]
+    restart: always
+
+  # Scalable service
+  service3:
+    enabled: true
+    initial_state: running
+    command: ["sleep", "300"]
+    restart: always
+    scale: 3  # 3 instances
+
+  # Scale-locked service
+  service4:
+    enabled: true
+    initial_state: stopped
+    command: ["sleep", "300"]
+    restart: always
+    scale_locked: true  # Cannot scale
