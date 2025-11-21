@@ -1,0 +1,92 @@
+# Development configuration with initial_state control
+# Demonstrates starting only essential services, leaving others stopped for manual activation
+
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  log_format: text  # Human-readable for development
+  log_level: debug  # Verbose logging
+  api_enabled: true
+  api_port: 8080
+
+processes:
+  # PHP-FPM - Always running (required for app)
+  php-fpm:
+    enabled: true
+    type: longrun
+    initial_state: running  # Start immediately
+    command: ["php-fpm", "-F", "-R"]
+    priority: 10
+    restart: always
+    scale: 1
+    scale_locked: true  # Fixed port :9000, cannot scale
+    health_check:
+      type: tcp
+      address: "127.0.0.1:9000"
+      mode: both
+
+  # Nginx - Start manually when needed
+  nginx:
+    enabled: true
+    type: longrun
+    initial_state: stopped  # Don't start automatically
+    command: ["nginx", "-g", "daemon off;"]
+    priority: 20
+    restart: always
+    scale: 1
+    scale_locked: true  # Fixed ports :80, :443, cannot scale
+    depends_on: [php-fpm]
+    health_check:
+      type: http
+      url: "http://127.0.0.1:80/health"
+      mode: both
+
+  # Horizon - Start manually for queue testing
+  horizon:
+    enabled: true
+    type: longrun
+    initial_state: stopped  # Start when testing queues
+    command: ["php", "artisan", "horizon"]
+    priority: 30
+    restart: always
+    scale: 1
+    scale_locked: false  # Can scale if needed (no port binding)
+    depends_on: [php-fpm]
+    shutdown:
+      pre_stop_hook:
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+      timeout: 120
+
+  # Queue Workers - Start manually, can scale for testing
+  queue-default:
+    enabled: true
+    type: longrun
+    initial_state: stopped  # Start when needed
+    command: ["php", "artisan", "queue:work", "--tries=3"]
+    priority: 40
+    restart: on-failure
+    scale: 1  # Start with 1, can scale up
+    scale_locked: false  # Can scale to test load
+    depends_on: [php-fpm]
+    shutdown:
+      timeout: 60
+
+# Development Workflow:
+# 1. phpeek-pm serve -c configs/examples/development.yaml
+#    → Only PHP-FPM starts
+#
+# 2. In another terminal: phpeek-pm tui
+#    → See php-fpm running, nginx/horizon/queue stopped
+#
+# 3. In TUI:
+#    → Navigate to nginx, press 's' to start
+#    → Navigate to queue-default, press 's' to start
+#    → Press '+' to scale queue-default to 3 workers
+#    → Press '-' to scale back to 1
+#    → Try pressing '+' on nginx → Error: scale-locked
+#
+# 4. Or via API:
+#    curl -X POST http://localhost:8080/api/v1/processes/nginx/start
+#    curl -X POST http://localhost:8080/api/v1/processes/queue-default/scale -d '{"desired":5}'

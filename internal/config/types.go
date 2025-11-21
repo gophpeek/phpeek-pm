@@ -49,19 +49,21 @@ type Hook struct {
 
 // Process represents a managed process definition
 type Process struct {
-	Enabled     bool              `yaml:"enabled" json:"enabled"`
-	Type        string            `yaml:"type" json:"type"`             // oneshot | longrun (default: longrun)
-	Command     []string          `yaml:"command" json:"command"`
-	Priority    int               `yaml:"priority" json:"priority"`     // Lower starts first
-	Restart     string            `yaml:"restart" json:"restart"`       // always | on-failure | never
-	Scale       int               `yaml:"scale" json:"scale"`           // Number of instances
-	DependsOn   []string          `yaml:"depends_on" json:"depends_on"` // Process dependencies
-	Env         map[string]string `yaml:"env" json:"env"`
-	HealthCheck *HealthCheck      `yaml:"health_check" json:"health_check"`
-	Shutdown    *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
-	Logging     *LoggingConfig    `yaml:"logging" json:"logging"`
-	Schedule    string            `yaml:"schedule" json:"schedule"`   // Cron expression for scheduled tasks
-	Heartbeat   *HeartbeatConfig  `yaml:"heartbeat" json:"heartbeat"` // Heartbeat/dead man's switch
+	Enabled      bool              `yaml:"enabled" json:"enabled"`
+	Type         string            `yaml:"type" json:"type"`               // oneshot | longrun (default: longrun)
+	InitialState string            `yaml:"initial_state" json:"initial_state"` // running | stopped (default: running)
+	Command      []string          `yaml:"command" json:"command"`
+	Priority     int               `yaml:"priority" json:"priority"`     // Lower starts first
+	Restart      string            `yaml:"restart" json:"restart"`       // always | on-failure | never
+	Scale        int               `yaml:"scale" json:"scale"`           // Number of instances
+	ScaleLocked  bool              `yaml:"scale_locked" json:"scale_locked"` // Prevent scaling (port conflicts)
+	DependsOn    []string          `yaml:"depends_on" json:"depends_on"`     // Process dependencies
+	Env          map[string]string `yaml:"env" json:"env"`
+	HealthCheck  *HealthCheck      `yaml:"health_check" json:"health_check"`
+	Shutdown     *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
+	Logging      *LoggingConfig    `yaml:"logging" json:"logging"`
+	Schedule     string            `yaml:"schedule" json:"schedule"`   // Cron expression for scheduled tasks
+	Heartbeat    *HeartbeatConfig  `yaml:"heartbeat" json:"heartbeat"` // Heartbeat/dead man's switch
 }
 
 // HealthCheck configuration
@@ -199,6 +201,9 @@ func (c *Config) SetDefaults() {
 	for name, proc := range c.Processes {
 		if proc.Type == "" {
 			proc.Type = "longrun" // Default: long-running service
+		}
+		if proc.InitialState == "" {
+			proc.InitialState = "running" // Default: start immediately
 		}
 		if proc.Restart == "" {
 			proc.Restart = c.Global.RestartPolicy

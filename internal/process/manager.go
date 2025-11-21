@@ -116,12 +116,18 @@ func (m *Manager) Start(ctx context.Context) error {
 		sup.SetDeathNotifier(m.NotifyProcessDeath)
 		m.processes[name] = sup
 
-		// Start the process
-		if err := sup.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start process %s: %w", name, err)
+		// Start the process only if initial_state is "running"
+		if procCfg.InitialState == "running" {
+			if err := sup.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start process %s: %w", name, err)
+			}
+			m.logger.Info("Process started successfully", "name", name)
+		} else {
+			m.logger.Info("Process in initial stopped state (can be started via TUI/API)",
+				"name", name,
+				"initial_state", procCfg.InitialState,
+			)
 		}
-
-		m.logger.Info("Process started successfully", "name", name)
 	}
 
 	// Execute post-start hooks
@@ -299,6 +305,107 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 	}
 
 	return processes
+}
+
+// StartProcess starts a stopped process
+func (m *Manager) StartProcess(ctx context.Context, name string) error {
+	m.mu.RLock()
+	sup, ok := m.processes[name]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("process %s not found", name)
+	}
+
+	// Check current state
+	if sup.GetState() != StateStopped {
+		return fmt.Errorf("process %s is not stopped (current state: %s)", name, sup.GetState())
+	}
+
+	// Start the process
+	if err := sup.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start process %s: %w", name, err)
+	}
+
+	m.logger.Info("Process started via control command", "name", name)
+	return nil
+}
+
+// StopProcess stops a running process
+func (m *Manager) StopProcess(ctx context.Context, name string) error {
+	m.mu.RLock()
+	sup, ok := m.processes[name]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("process %s not found", name)
+	}
+
+	// Stop the process
+	if err := sup.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop process %s: %w", name, err)
+	}
+
+	m.logger.Info("Process stopped via control command", "name", name)
+	return nil
+}
+
+// RestartProcess restarts a process
+func (m *Manager) RestartProcess(ctx context.Context, name string) error {
+	m.mu.RLock()
+	sup, ok := m.processes[name]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("process %s not found", name)
+	}
+
+	m.logger.Info("Restarting process via control command", "name", name)
+
+	// Stop then start
+	if err := sup.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop process %s: %w", name, err)
+	}
+
+	if err := sup.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start process %s after restart: %w", name, err)
+	}
+
+	m.logger.Info("Process restarted successfully", "name", name)
+	return nil
+}
+
+// ScaleProcess changes the number of instances for a process
+func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale int) error {
+	m.mu.RLock()
+	procCfg, ok := m.config.Processes[name]
+	sup, supOk := m.processes[name]
+	m.mu.RUnlock()
+
+	if !ok || !supOk {
+		return fmt.Errorf("process %s not found", name)
+	}
+
+	// Check if scale is locked
+	if procCfg.ScaleLocked {
+		return fmt.Errorf("process %s is scale-locked (likely binds to fixed port - cannot scale)", name)
+	}
+
+	if desiredScale < 1 {
+		return fmt.Errorf("desired scale must be >= 1, got %d", desiredScale)
+	}
+
+	currentScale := len(sup.GetInstances())
+
+	// TODO: Implement actual scaling logic
+	m.logger.Info("Scale operation requested",
+		"name", name,
+		"current", currentScale,
+		"desired", desiredScale,
+	)
+
+	// For now, just validate
+	return fmt.Errorf("scaling not yet implemented (current: %d, desired: %d)", currentScale, desiredScale)
 }
 
 // AllDeadChannel returns a channel that closes when all processes are dead

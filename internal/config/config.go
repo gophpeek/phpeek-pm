@@ -146,11 +146,17 @@ func (c *Config) Validate() error {
 		if proc.Type != "oneshot" && proc.Type != "longrun" {
 			return fmt.Errorf("process %s has invalid type: %s (must be oneshot or longrun)", name, proc.Type)
 		}
+		if proc.InitialState != "running" && proc.InitialState != "stopped" {
+			return fmt.Errorf("process %s has invalid initial_state: %s (must be running or stopped)", name, proc.InitialState)
+		}
 		if proc.Restart != "always" && proc.Restart != "on-failure" && proc.Restart != "never" {
 			return fmt.Errorf("process %s has invalid restart policy: %s", name, proc.Restart)
 		}
 		if proc.Scale < 1 {
 			return fmt.Errorf("process %s has invalid scale: %d", name, proc.Scale)
+		}
+		if proc.ScaleLocked && proc.Scale > 1 {
+			return fmt.Errorf("process %s is scale_locked but has scale > 1 (set scale: 1 for locked processes)", name)
 		}
 
 		// Oneshot validation
