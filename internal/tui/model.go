@@ -20,7 +20,9 @@ const (
 
 // Model is the main Bubbletea model for the TUI
 type Model struct {
-	manager      *process.Manager
+	manager      *process.Manager // For embedded mode
+	client       *APIClient       // For remote mode
+	isRemote     bool              // true if using API client
 	currentView  viewMode
 	processTable table.Model
 	logViewport  viewport.Model
@@ -33,10 +35,24 @@ type Model struct {
 	quitting     bool
 }
 
-// NewModel creates a new TUI model
+// NewModel creates a new TUI model for embedded mode
 func NewModel(mgr *process.Manager) Model {
 	return Model{
 		manager:     mgr,
+		client:      nil,
+		isRemote:    false,
+		currentView: viewProcessList,
+		logBuffer:   make([]string, 0, 1000),
+		logsPaused:  false,
+	}
+}
+
+// NewRemoteModel creates a new TUI model for remote mode
+func NewRemoteModel(apiURL, auth string) Model {
+	return Model{
+		manager:     nil,
+		client:      NewAPIClient(apiURL, auth),
+		isRemote:    true,
 		currentView: viewProcessList,
 		logBuffer:   make([]string, 0, 1000),
 		logsPaused:  false,

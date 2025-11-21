@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/gophpeek/phpeek-pm/internal/process"
 )
 
 // setupProcessTable initializes the process table
@@ -43,12 +44,25 @@ func (m *Model) setupProcessTable() {
 
 // refreshProcessList fetches current process state and updates table
 func (m *Model) refreshProcessList() {
-	if m.manager == nil {
-		return
-	}
+	var processes []process.ProcessInfo
 
-	// Get all processes from manager
-	processes := m.manager.ListProcesses()
+	// Fetch from appropriate source (embedded or remote)
+	if m.isRemote {
+		if m.client == nil {
+			return
+		}
+		var err error
+		processes, err = m.client.ListProcesses()
+		if err != nil {
+			// TODO: Show error in TUI
+			return
+		}
+	} else {
+		if m.manager == nil {
+			return
+		}
+		processes = m.manager.ListProcesses()
+	}
 
 	rows := []table.Row{}
 	for _, proc := range processes {

@@ -547,36 +547,74 @@ Ctrl+C
 
 ---
 
-## TUI Testing (Current MVP)
+## TUI Testing (Remote Mode)
 
-### Embedded Mode
+### Two-Terminal Workflow
+
+**Terminal 1: Start Daemon**
 ```bash
-./build/phpeek-pm tui -c configs/examples/development.yaml
+./build/phpeek-pm serve -c configs/examples/development.yaml
 ```
 
-**What works NOW:**
-- ✅ Process list table displays
-- ✅ Real-time state updates (every 1 second)
-- ✅ Keyboard navigation (j/k/g/G)
-- ✅ Help overlay (? key)
-- ✅ Quit (q key)
+**Expected output:**
+```
+🚀 PHPeek Process Manager v1.0.0
+INFO Process started successfully name=php-fpm
+INFO Process in initial stopped state name=nginx initial_state=stopped
+INFO All processes started successfully
+INFO API server started port=8080
+```
 
-**What's coming (Phase 2):**
-- ⏳ Real log streaming (Enter on process)
-- ⏳ Process actions (s/r/+/- keys)
-- ⏳ Remote mode (--remote http://localhost:8080)
-
-### Remote Mode (Placeholder)
+**Terminal 2: Connect TUI**
 ```bash
+./build/phpeek-pm tui
+# Or with custom API endpoint:
 ./build/phpeek-pm tui --remote http://localhost:8080
 ```
 
 **Expected:**
 ```
 🔗 Connecting to remote API: http://localhost:8080
-⚠️  Remote mode not yet implemented (coming in Phase 3)
-💡 For now, use embedded mode (no --remote flag)
+[TUI opens with process list]
 ```
+
+**What works NOW:**
+- ✅ TUI connects to running daemon via API
+- ✅ Process list shows real-time state from daemon
+- ✅ Real-time updates every second (polls API)
+- ✅ Keyboard navigation (j/k/g/G)
+- ✅ Help overlay (? key)
+- ✅ Quit (q key)
+- ✅ Shows stopped processes with initial_state
+- ✅ Shows scale lock indicator (🔒)
+
+**What's coming (Phase 3):**
+- ⏳ Real log streaming (Enter on process)
+- ⏳ Process actions (s/r/+/- keys implemented via API calls)
+- ⏳ Dynamic log level changes
+- ⏳ Unix socket support
+
+### If TUI Connection Fails
+
+**Error:**
+```
+🔗 Connecting to remote API: http://localhost:8080
+❌ Remote TUI error: failed to connect to API: connection refused
+
+💡 Make sure daemon is running:
+   Terminal 1: phpeek-pm serve
+   Terminal 2: phpeek-pm tui
+```
+
+**Solutions:**
+1. Start daemon first: `./build/phpeek-pm serve`
+2. Check API is enabled in config:
+   ```yaml
+   global:
+     api_enabled: true  # Required!
+     api_port: 8080
+   ```
+3. Verify daemon is running: `curl localhost:8080/api/v1/health`
 
 ---
 
