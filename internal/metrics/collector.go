@@ -132,6 +132,14 @@ var (
 		},
 	)
 
+	ShutdownDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "phpeek_pm_shutdown_duration_seconds",
+			Help:    "Duration of graceful shutdown in seconds",
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 180, 300},
+		},
+	)
+
 	// Build info
 	BuildInfo = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -276,4 +284,9 @@ func RecordScheduledTaskNextRun(name string, timestamp float64) {
 // RecordScheduledTaskLastExitCode records the last exit code of scheduled task
 func RecordScheduledTaskLastExitCode(name string, exitCode int) {
 	ScheduledTaskLastExitCode.WithLabelValues(name).Set(float64(exitCode))
+}
+
+// RecordShutdownDuration records the duration of graceful shutdown
+func RecordShutdownDuration(duration float64) {
+	ShutdownDuration.Observe(duration)
 }

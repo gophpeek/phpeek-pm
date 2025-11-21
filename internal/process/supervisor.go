@@ -55,16 +55,12 @@ type Instance struct {
 }
 
 // NewSupervisor creates a new process supervisor
-func NewSupervisor(name string, cfg *config.Process, logger *slog.Logger) *Supervisor {
-	// Determine backoff duration from config or use default
-	backoff := 5 * time.Second
-	if cfg.Restart != "" {
-		// Use global restart backoff if available
-		backoff = 5 * time.Second // TODO: Get from global config
-	}
+func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalConfig, logger *slog.Logger) *Supervisor {
+	// Get restart backoff from global config (default: 5 seconds)
+	backoff := time.Duration(globalCfg.RestartBackoff) * time.Second
 
-	// Determine max attempts from config or use default
-	maxAttempts := 3 // TODO: Get from global config
+	// Get max attempts from global config (default: 3)
+	maxAttempts := globalCfg.MaxRestartAttempts
 
 	return &Supervisor{
 		name:          name,

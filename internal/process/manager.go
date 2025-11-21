@@ -89,7 +89,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		metrics.SetDesiredScale(name, procCfg.Scale)
 
 		// Create supervisor for this process
-		sup := NewSupervisor(name, procCfg, m.logger)
+		sup := NewSupervisor(name, procCfg, &m.config.Global, m.logger)
 		sup.SetDeathNotifier(m.NotifyProcessDeath)
 		m.processes[name] = sup
 
@@ -119,6 +119,16 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Shutdown gracefully shuts down all processes
 func (m *Manager) Shutdown(ctx context.Context) error {
+	shutdownStart := time.Now()
+	defer func() {
+		// Record shutdown duration metric
+		duration := time.Since(shutdownStart).Seconds()
+		metrics.RecordShutdownDuration(duration)
+		m.logger.Info("Shutdown completed",
+			"duration_seconds", duration,
+		)
+	}()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
