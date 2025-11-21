@@ -1,0 +1,121 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"time"
+
+	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/framework"
+	"github.com/gophpeek/phpeek-pm/internal/logger"
+	"github.com/gophpeek/phpeek-pm/internal/process"
+	"github.com/gophpeek/phpeek-pm/internal/setup"
+	"github.com/gophpeek/phpeek-pm/internal/signals"
+	"github.com/gophpeek/phpeek-pm/internal/tui"
+	"github.com/spf13/cobra"
+)
+
+var logsCmd = &cobra.Command{
+	Use:   "logs [process...]",
+	Short: "Tail logs from processes",
+	Long: `Tail logs from one or more processes in real-time.
+
+If no process names are specified, shows logs from all processes.
+
+Examples:
+  phpeek-pm logs                    # All processes
+  phpeek-pm logs nginx              # Single process
+  phpeek-pm logs nginx horizon      # Multiple processes
+  phpeek-pm logs --level=error      # Filter by level
+  phpeek-pm logs --tail=100         # Last 100 lines`,
+	Run: runLogs,
+}
+
+var (
+	logsLevel  string
+	logsTail   int
+	logsFollow bool
+)
+
+func init() {
+	logsCmd.Flags().StringVar(&logsLevel, "level", "all", "Filter by log level (debug|info|warn|error|all)")
+	logsCmd.Flags().IntVar(&logsTail, "tail", 100, "Number of lines to show")
+	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", true, "Follow log output")
+}
+
+func runLogs(cmd *cobra.Command, args []string) {
+	// Get config path
+	cfgPath := getConfigPath()
+
+	// Setup environment (minimal for log viewer)
+	workdir := os.Getenv("WORKDIR")
+	if workdir == "" {
+		workdir = "/var/www/html"
+	}
+
+	fw := framework.Detect(workdir)
+
+	// Setup permissions (silent)
+	permMgr := setup.NewPermissionManager(workdir, fw, slog.Default())
+	_ = permMgr.Setup()
+
+	// Validate system (silent)
+	validator := setup.NewConfigValidator(slog.Default())
+	_ = validator.ValidateAll()
+
+	// Load configuration
+	cfg, err := config.LoadWithEnvExpansion(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logger with specified level
+	logLevel := cfg.Global.LogLevel
+	if logsLevel != "all" {
+		logLevel = logsLevel
+	}
+	log := logger.New(logLevel, "text") // Text format for readability
+
+	slog.SetDefault(log)
+
+	// Create process manager
+	pm := process.NewManager(cfg, log)
+
+	// Start zombie reaper
+	go signals.ReapZombies()
+
+	// Start processes
+	ctx := context.Background()
+	if err := pm.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Failed to start processes: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Monitor process health
+	pm.MonitorProcessHealth(ctx)
+
+	// Display header
+	fmt.Fprintf(os.Stderr, "📋 Tailing logs")
+	if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, " for: %v", args)
+	} else {
+		fmt.Fprintf(os.Stderr, " for all processes")
+	}
+	fmt.Fprintf(os.Stderr, " (level: %s)\n", logLevel)
+	fmt.Fprintf(os.Stderr, "Press Ctrl+C to exit\n\n")
+
+	// Launch simple log viewer
+	if err := tui.RunLogs(pm); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Shutdown when viewer exits
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Global.ShutdownTimeout)*time.Second)
+	defer cancel()
+
+	_ = pm.Shutdown(shutdownCtx)
+}

@@ -58,9 +58,9 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(checkConfigCmd)
-	// TUI and logs commands will be added in Phase 2
-	// rootCmd.AddCommand(tuiCmd)
-	// rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(tuiCmd)
+	rootCmd.AddCommand(logsCmd)
+	// Process control commands (future):
 	// rootCmd.AddCommand(restartCmd)
 	// rootCmd.AddCommand(stopCmd)
 	// rootCmd.AddCommand(startCmd)
