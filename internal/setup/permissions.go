@@ -28,6 +28,13 @@ func NewPermissionManager(workdir string, fw framework.Framework, log *slog.Logg
 func (pm *PermissionManager) Setup() error {
 	pm.logger.Info("Setting up permissions", "framework", pm.framework)
 
+	// Detect read-only root filesystem
+	if IsReadOnlyRoot() {
+		pm.logger.Info("Read-only root filesystem detected, skipping permission setup",
+			"info", "Runtime state will use /run/phpeek-pm (tmpfs)")
+		return nil
+	}
+
 	switch pm.framework {
 	case framework.Laravel:
 		return pm.setupLaravel()

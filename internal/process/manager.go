@@ -79,6 +79,29 @@ func (m *Manager) Start(ctx context.Context) error {
 			continue
 		}
 
+		// Wait for dependencies to be ready before starting this process
+		if len(procCfg.DependsOn) > 0 {
+			m.logger.Info("Waiting for dependencies",
+				"process", name,
+				"dependencies", procCfg.DependsOn,
+			)
+
+			for _, depName := range procCfg.DependsOn {
+				depSup, ok := m.processes[depName]
+				if !ok {
+					return fmt.Errorf("dependency %s not found for process %s", depName, name)
+				}
+
+				// Wait for dependency readiness (5 minute timeout)
+				readinessTimeout := 5 * time.Minute
+				if err := depSup.WaitForReadiness(ctx, readinessTimeout); err != nil {
+					return fmt.Errorf("dependency %s not ready for process %s: %w", depName, name, err)
+				}
+			}
+
+			m.logger.Info("All dependencies ready", "process", name)
+		}
+
 		m.logger.Info("Starting process",
 			"name", name,
 			"command", procCfg.Command,

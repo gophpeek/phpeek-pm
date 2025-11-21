@@ -50,6 +50,7 @@ type Hook struct {
 // Process represents a managed process definition
 type Process struct {
 	Enabled     bool              `yaml:"enabled" json:"enabled"`
+	Type        string            `yaml:"type" json:"type"`             // oneshot | longrun (default: longrun)
 	Command     []string          `yaml:"command" json:"command"`
 	Priority    int               `yaml:"priority" json:"priority"`     // Lower starts first
 	Restart     string            `yaml:"restart" json:"restart"`       // always | on-failure | never
@@ -196,6 +197,9 @@ func (c *Config) SetDefaults() {
 
 	// Process defaults
 	for name, proc := range c.Processes {
+		if proc.Type == "" {
+			proc.Type = "longrun" // Default: long-running service
+		}
 		if proc.Restart == "" {
 			proc.Restart = c.Global.RestartPolicy
 		}

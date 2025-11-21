@@ -143,11 +143,27 @@ func (c *Config) Validate() error {
 		if len(proc.Command) == 0 {
 			return fmt.Errorf("process %s has no command", name)
 		}
+		if proc.Type != "oneshot" && proc.Type != "longrun" {
+			return fmt.Errorf("process %s has invalid type: %s (must be oneshot or longrun)", name, proc.Type)
+		}
 		if proc.Restart != "always" && proc.Restart != "on-failure" && proc.Restart != "never" {
 			return fmt.Errorf("process %s has invalid restart policy: %s", name, proc.Restart)
 		}
 		if proc.Scale < 1 {
 			return fmt.Errorf("process %s has invalid scale: %d", name, proc.Scale)
+		}
+
+		// Oneshot validation
+		if proc.Type == "oneshot" {
+			if proc.Restart == "always" {
+				return fmt.Errorf("oneshot process %s cannot have restart: always", name)
+			}
+			if proc.Scale > 1 {
+				return fmt.Errorf("oneshot process %s cannot have scale > 1 (got %d)", name, proc.Scale)
+			}
+			if proc.Schedule != "" {
+				return fmt.Errorf("oneshot process %s cannot have schedule (use type: longrun with restart: never)", name)
+			}
 		}
 
 		// Validate health check

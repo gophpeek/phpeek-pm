@@ -20,11 +20,12 @@ import (
 type ProcessState string
 
 const (
-	StateStarting ProcessState = "starting"
-	StateRunning  ProcessState = "running"
-	StateStopping ProcessState = "stopping"
-	StateStopped  ProcessState = "stopped"
-	StateFailed   ProcessState = "failed"
+	StateStarting  ProcessState = "starting"
+	StateRunning   ProcessState = "running"
+	StateStopping  ProcessState = "stopping"
+	StateStopped   ProcessState = "stopped"
+	StateFailed    ProcessState = "failed"
+	StateCompleted ProcessState = "completed" // For oneshot services that ran successfully
 )
 
 // Supervisor supervises a single process (potentially with multiple instances)
@@ -40,6 +41,8 @@ type Supervisor struct {
 	deathNotifier func(string) // Callback when all instances are dead
 	ctx           context.Context
 	cancel        context.CancelFunc
+	readinessCh   chan struct{} // Closed when service becomes ready
+	isReady       bool          // Track readiness state
 	mu            sync.RWMutex
 }
 
@@ -69,6 +72,8 @@ func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalCon
 		instances:     make([]*Instance, 0, cfg.Scale),
 		state:         StateStopped,
 		restartPolicy: NewRestartPolicy(cfg.Restart, maxAttempts, backoff),
+		readinessCh:   make(chan struct{}),
+		isReady:       false,
 	}
 }
 
@@ -77,6 +82,43 @@ func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deathNotifier = notifier
+}
+
+// WaitForReadiness waits for the service to become ready (health check passes)
+// Returns nil when ready, error on timeout or context cancellation
+func (s *Supervisor) WaitForReadiness(ctx context.Context, timeout time.Duration) error {
+	// If no health check configured, consider immediately ready
+	if s.config.HealthCheck == nil {
+		s.logger.Debug("No health check configured, considering ready immediately")
+		return nil
+	}
+
+	// Check health check mode - only wait if readiness or both
+	mode := s.config.HealthCheck.Mode
+	if mode != "readiness" && mode != "both" && mode != "" {
+		// mode is "liveness" or unset (defaults to "both")
+		if mode == "liveness" {
+			s.logger.Debug("Health check mode is liveness-only, not waiting for readiness")
+			return nil
+		}
+	}
+
+	s.logger.Info("Waiting for service readiness",
+		"timeout", timeout,
+		"health_check_type", s.config.HealthCheck.Type,
+	)
+
+	// Wait for readiness with timeout
+	timeoutCh := time.After(timeout)
+	select {
+	case <-s.readinessCh:
+		s.logger.Info("Service ready")
+		return nil
+	case <-timeoutCh:
+		return fmt.Errorf("service did not become ready within %v", timeout)
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while waiting for readiness")
+	}
 }
 
 // Start starts all instances of the process
@@ -112,6 +154,13 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			s.logger.Warn("Failed to create health monitor",
 				"error", err,
 			)
+			// Consider ready immediately if health monitor fails to start
+			s.mu.Lock()
+			if !s.isReady {
+				s.isReady = true
+				close(s.readinessCh)
+			}
+			s.mu.Unlock()
 		} else {
 			s.healthMonitor = monitor
 			s.healthStatus = monitor.Start(s.ctx)
@@ -119,6 +168,15 @@ func (s *Supervisor) Start(ctx context.Context) error {
 			// Monitor health status in background
 			go s.handleHealthStatus(s.ctx)
 		}
+	} else {
+		// No health check configured - consider ready immediately
+		s.mu.Lock()
+		if !s.isReady {
+			s.isReady = true
+			close(s.readinessCh)
+			s.logger.Debug("No health check configured, marking as ready immediately")
+		}
+		s.mu.Unlock()
 	}
 
 	return nil
@@ -190,6 +248,44 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 	// Record process stop metrics
 	metrics.RecordProcessStop(s.name, instance.id, exitCode)
 
+	// Handle oneshot processes differently
+	isOneshot := s.config.Type == "oneshot"
+
+	if isOneshot {
+		// Oneshot services don't restart - they run once and complete
+		instance.mu.Lock()
+		if exitCode == 0 {
+			instance.state = StateCompleted
+			s.logger.Info("Oneshot process completed successfully",
+				"instance_id", instance.id,
+			)
+		} else {
+			instance.state = StateFailed
+			s.logger.Error("Oneshot process failed",
+				"instance_id", instance.id,
+				"exit_code", exitCode,
+				"error", err,
+			)
+		}
+		instance.mu.Unlock()
+
+		// Signal readiness if completed successfully (allows dependents to proceed)
+		if exitCode == 0 {
+			s.mu.Lock()
+			if !s.isReady {
+				s.isReady = true
+				close(s.readinessCh)
+				s.logger.Info("Oneshot completed, signaling readiness to dependents")
+			}
+			s.mu.Unlock()
+		}
+
+		// Check if all instances complete/failed
+		s.checkAllInstancesDead()
+		return
+	}
+
+	// Longrun service handling
 	if err != nil {
 		s.logger.Error("Process instance exited with error",
 			"instance_id", instance.id,
@@ -205,7 +301,7 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 		)
 	}
 
-	// Check if we should restart
+	// Check if we should restart (longrun only)
 	if s.restartPolicy.ShouldRestart(exitCode, restartCount) {
 		backoff := s.restartPolicy.BackoffDuration(restartCount)
 
@@ -412,7 +508,16 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 				return
 			}
 
-			if !status.Healthy {
+			if status.Healthy {
+				// Signal readiness on first successful health check
+				s.mu.Lock()
+				if !s.isReady {
+					s.isReady = true
+					close(s.readinessCh)
+					s.logger.Info("Service is ready (health check passed)")
+				}
+				s.mu.Unlock()
+			} else if !status.Healthy {
 				s.logger.Error("Process unhealthy, triggering restart",
 					"error", status.Error,
 				)
