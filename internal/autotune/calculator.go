@@ -63,6 +63,21 @@ func (c *Calculator) Calculate() (*PHPFPMConfig, error) {
 		Warnings:       []string{},
 	}
 
+	// WARNING: Auto-tuning without container limits uses host resources
+	if !c.resources.IsContainerized {
+		cfg.Warnings = append(cfg.Warnings,
+			fmt.Sprintf("Auto-tuning WITHOUT container limits - using host resources (%dMB memory, %d CPUs)",
+				c.resources.MemoryLimitMB, c.resources.CPULimit))
+		cfg.Warnings = append(cfg.Warnings,
+			"RECOMMENDED: Set container limits for accurate auto-tuning")
+		cfg.Warnings = append(cfg.Warnings,
+			"  Docker: 'docker run -m 2G --cpus 2'")
+		cfg.Warnings = append(cfg.Warnings,
+			"  Docker Compose: deploy.resources.limits.memory and cpus")
+		cfg.Warnings = append(cfg.Warnings,
+			"  Kubernetes: resources.limits.memory and cpu")
+	}
+
 	// Validate minimum memory requirement
 	minRequired := c.profile.ReservedMemoryMB + c.profile.OPcacheMemoryMB + c.profile.AvgMemoryPerWorker
 	if c.resources.MemoryLimitMB < minRequired {

@@ -3,6 +3,7 @@ package autotune
 import (
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -256,6 +257,55 @@ func TestPHPFPMConfig_ToEnvVars_Static(t *testing.T) {
 	if _, exists := env["PHP_FPM_MIN_SPARE"]; exists {
 		t.Error("Static mode should not have MIN_SPARE env var")
 	}
+}
+
+func TestCalculator_NoContainerLimits(t *testing.T) {
+	// Mock host resources (not containerized)
+	profileConfig, _ := ProfileMedium.GetConfig()
+	resources := &ContainerResources{
+		MemoryLimitBytes: 8 * 1024 * 1024 * 1024, // 8GB host memory
+		MemoryLimitMB:    8 * 1024,
+		CPULimit:         4,
+		IsContainerized:  false, // ← Not in container!
+		CgroupVersion:    0,
+	}
+
+	calc := &Calculator{
+		resources: resources,
+		profile:   profileConfig,
+		logger:    slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})),
+	}
+
+	cfg, err := calc.Calculate()
+
+	// Should succeed but with warnings
+	if err != nil {
+		t.Errorf("Should not error on host resources, got: %v", err)
+	}
+
+	// Should have warning about using host resources
+	if len(cfg.Warnings) == 0 {
+		t.Error("Expected warning about host resources, got none")
+	}
+
+	foundWarning := false
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "WITHOUT container limits") {
+			foundWarning = true
+			t.Logf("Warning found: %s", w)
+		}
+	}
+
+	if !foundWarning {
+		t.Error("Expected warning about container limits, but not found")
+	}
+
+	// Should still calculate workers (using host memory)
+	if cfg.MaxChildren == 0 {
+		t.Error("Should calculate workers even without container limits")
+	}
+
+	t.Logf("Auto-tuning on host: %d workers with warnings", cfg.MaxChildren)
 }
 
 func TestCalculator_SafetyValidations(t *testing.T) {
