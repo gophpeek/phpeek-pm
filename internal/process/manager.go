@@ -73,9 +73,16 @@ func (m *Manager) Start(ctx context.Context) error {
 	metrics.SetManagerProcessCount(len(startupOrder))
 
 	// Start processes in order
-	for _, name := range startupOrder {
+	for i, name := range startupOrder {
+		m.logger.Debug("Processing startup queue",
+			"index", i,
+			"total", len(startupOrder),
+			"process", name,
+		)
+
 		procCfg, ok := m.config.Processes[name]
 		if !ok || !procCfg.Enabled {
+			m.logger.Debug("Skipping disabled/missing process", "name", name)
 			continue
 		}
 
@@ -87,6 +94,8 @@ func (m *Manager) Start(ctx context.Context) error {
 			)
 
 			for _, depName := range procCfg.DependsOn {
+				m.logger.Debug("Checking dependency", "process", name, "dependency", depName)
+
 				depSup, ok := m.processes[depName]
 				if !ok {
 					return fmt.Errorf("dependency %s not found for process %s", depName, name)
@@ -94,13 +103,23 @@ func (m *Manager) Start(ctx context.Context) error {
 
 				// Wait for dependency readiness (5 minute timeout)
 				readinessTimeout := 5 * time.Minute
+				m.logger.Debug("Waiting for dependency readiness",
+					"process", name,
+					"dependency", depName,
+					"timeout", readinessTimeout,
+				)
+
 				if err := depSup.WaitForReadiness(ctx, readinessTimeout); err != nil {
 					return fmt.Errorf("dependency %s not ready for process %s: %w", depName, name, err)
 				}
+
+				m.logger.Debug("Dependency ready", "process", name, "dependency", depName)
 			}
 
 			m.logger.Info("All dependencies ready", "process", name)
 		}
+
+		m.logger.Debug("About to start process", "name", name)
 
 		m.logger.Info("Starting process",
 			"name", name,
@@ -123,6 +142,9 @@ func (m *Manager) Start(ctx context.Context) error {
 			}
 			m.logger.Info("Process started successfully", "name", name)
 		} else {
+			// CRITICAL: Mark stopped processes as ready immediately
+			// This prevents deadlock when other processes depend on them
+			sup.MarkReadyImmediately()
 			m.logger.Info("Process in initial stopped state (can be started via TUI/API)",
 				"name", name,
 				"initial_state", procCfg.InitialState,

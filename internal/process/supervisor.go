@@ -84,6 +84,19 @@ func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
 	s.deathNotifier = notifier
 }
 
+// MarkReadyImmediately marks the service as ready without waiting
+// Used for stopped processes to prevent dependency deadlocks
+func (s *Supervisor) MarkReadyImmediately() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isReady {
+		s.isReady = true
+		close(s.readinessCh)
+		s.logger.Debug("Service marked as ready immediately (stopped state)")
+	}
+}
+
 // WaitForReadiness waits for the service to become ready (health check passes)
 // Returns nil when ready, error on timeout or context cancellation
 func (s *Supervisor) WaitForReadiness(ctx context.Context, timeout time.Duration) error {
