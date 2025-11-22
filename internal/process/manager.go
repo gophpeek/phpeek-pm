@@ -152,6 +152,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 	}
 
+	m.logger.Debug("Finished starting all processes, checking for post-start hooks",
+		"hook_count", len(m.config.Hooks.PostStart),
+	)
+
 	// Execute post-start hooks
 	if len(m.config.Hooks.PostStart) > 0 {
 		m.logger.Info("Executing post-start hooks", "count", len(m.config.Hooks.PostStart))
@@ -164,6 +168,8 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 		m.logger.Info("Post-start hooks completed successfully")
 	}
+
+	m.logger.Debug("Manager.Start() about to return nil - startup complete")
 
 	return nil
 }

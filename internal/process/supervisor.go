@@ -168,12 +168,11 @@ func (s *Supervisor) Start(ctx context.Context) error {
 				"error", err,
 			)
 			// Consider ready immediately if health monitor fails to start
-			s.mu.Lock()
+			// NOTE: Already holding s.mu.Lock() from line 139, don't lock again!
 			if !s.isReady {
 				s.isReady = true
 				close(s.readinessCh)
 			}
-			s.mu.Unlock()
 		} else {
 			s.healthMonitor = monitor
 			s.healthStatus = monitor.Start(s.ctx)
@@ -183,13 +182,12 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		}
 	} else {
 		// No health check configured - consider ready immediately
-		s.mu.Lock()
+		// NOTE: Already holding s.mu.Lock() from line 139, don't lock again!
 		if !s.isReady {
 			s.isReady = true
 			close(s.readinessCh)
 			s.logger.Debug("No health check configured, marking as ready immediately")
 		}
-		s.mu.Unlock()
 	}
 
 	return nil
