@@ -186,7 +186,8 @@ func (c *Config) SetDefaults() {
 		c.Global.LogLevel = "info"
 	}
 	c.Global.LogTimestamps = true
-	c.Global.MetricsEnabled = true
+	// Metrics disabled by default (enable with metrics_enabled: true)
+	// Prevents port conflicts in development
 	if c.Global.MetricsPort == 0 {
 		c.Global.MetricsPort = 9090
 	}

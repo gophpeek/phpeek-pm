@@ -269,8 +269,8 @@ func startMetricsServer(ctx context.Context, cfg *config.Config, log *slog.Logge
 
 	server := metrics.NewServer(metricsPort, metricsPath, log)
 	if err := server.Start(ctx); err != nil {
-		slog.Error("Failed to start metrics server", "error", err)
-		os.Exit(1)
+		slog.Warn("Failed to start metrics server (continuing without metrics)", "error", err)
+		return nil
 	}
 
 	slog.Info("Metrics server started",
@@ -291,8 +291,8 @@ func startAPIServer(ctx context.Context, cfg *config.Config, pm *process.Manager
 
 	server := api.NewServer(apiPort, cfg.Global.APIAuth, pm, log)
 	if err := server.Start(ctx); err != nil {
-		slog.Error("Failed to start API server", "error", err)
-		os.Exit(1)
+		slog.Warn("Failed to start API server (TUI/remote control disabled)", "error", err)
+		return nil
 	}
 
 	slog.Info("API server started",
