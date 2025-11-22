@@ -255,6 +255,20 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 
 // monitorInstance monitors a process instance and handles restarts
 func (s *Supervisor) monitorInstance(instance *Instance) {
+	// CRITICAL: Panic recovery to prevent goroutine crashes from killing daemon
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("PANIC in monitorInstance recovered",
+				"instance_id", instance.id,
+				"panic", r,
+			)
+			// Attempt to mark instance as failed
+			instance.mu.Lock()
+			instance.state = StateFailed
+			instance.mu.Unlock()
+		}
+	}()
+
 	err := instance.cmd.Wait()
 
 	instance.mu.Lock()
@@ -339,20 +353,40 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 		// Record restart metric
 		metrics.RecordProcessRestart(s.name, restartReason)
 
-		// Wait for backoff period
+		// Wait for backoff period with context respect
 		select {
 		case <-time.After(backoff):
+			// Continue with restart
 		case <-s.ctx.Done():
+			s.logger.Info("Restart cancelled due to shutdown",
+				"instance_id", instance.id,
+			)
 			return
 		}
 
-		// Attempt restart
-		newInstance, err := s.startInstance(s.ctx, instance.id)
+		// Check context again before expensive restart operation
+		if s.ctx.Err() != nil {
+			s.logger.Debug("Context cancelled, skipping restart",
+				"instance_id", instance.id,
+			)
+			return
+		}
+
+		// Attempt restart with timeout protection
+		restartCtx, restartCancel := context.WithTimeout(s.ctx, 30*time.Second)
+		newInstance, err := s.startInstance(restartCtx, instance.id)
+		restartCancel() // Always cleanup context
+
 		if err != nil {
 			s.logger.Error("Failed to restart process instance",
 				"instance_id", instance.id,
 				"error", err,
+				"restart_count", restartCount,
 			)
+			// Mark instance as failed
+			instance.mu.Lock()
+			instance.state = StateFailed
+			instance.mu.Unlock()
 			return
 		}
 
@@ -424,17 +458,34 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 
 // stopInstance stops a single process instance
 func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error {
+	// NIL safety check
+	if instance == nil {
+		return fmt.Errorf("cannot stop nil instance")
+	}
+	if instance.cmd == nil || instance.cmd.Process == nil {
+		s.logger.Warn("Process already stopped or never started",
+			"instance_id", instance.id,
+		)
+		return nil
+	}
+
 	instance.mu.Lock()
-	if instance.state != StateRunning {
+	currentState := instance.state
+	if currentState != StateRunning {
 		instance.mu.Unlock()
+		s.logger.Debug("Process not running, skipping stop",
+			"instance_id", instance.id,
+			"current_state", currentState,
+		)
 		return nil
 	}
 	instance.state = StateStopping
+	pid := instance.pid
 	instance.mu.Unlock()
 
 	s.logger.Info("Stopping process instance",
 		"instance_id", instance.id,
-		"pid", instance.pid,
+		"pid", pid,
 	)
 
 	// Execute per-process pre-stop hook if configured
@@ -534,10 +585,20 @@ func (s *Supervisor) envVars(instanceID string) []string {
 
 // handleHealthStatus monitors health check results and handles failures
 func (s *Supervisor) handleHealthStatus(ctx context.Context) {
+	// CRITICAL: Panic recovery to prevent health monitor crashes
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("PANIC in handleHealthStatus recovered",
+				"panic", r,
+			)
+		}
+	}()
+
 	for {
 		select {
 		case status, ok := <-s.healthStatus:
 			if !ok {
+				s.logger.Debug("Health status channel closed, stopping health monitor")
 				return
 			}
 

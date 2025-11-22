@@ -444,6 +444,15 @@ func (m *Manager) AllDeadChannel() <-chan struct{} {
 // MonitorProcessHealth starts monitoring for all processes dying
 func (m *Manager) MonitorProcessHealth(ctx context.Context) {
 	go func() {
+		// CRITICAL: Panic recovery in monitoring goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				m.logger.Error("PANIC in MonitorProcessHealth recovered",
+					"panic", r,
+				)
+			}
+		}()
+
 		for {
 			select {
 			case <-ctx.Done():
