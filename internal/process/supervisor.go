@@ -41,8 +41,10 @@ type Supervisor struct {
 	deathNotifier func(string) // Callback when all instances are dead
 	ctx           context.Context
 	cancel        context.CancelFunc
-	readinessCh   chan struct{} // Closed when service becomes ready
-	isReady       bool          // Track readiness state
+	readinessCh   chan struct{}  // Closed when service becomes ready
+	readinessOnce sync.Once      // CRITICAL: Ensures readinessCh closed exactly once
+	isReady       bool           // Track readiness state
+	goroutines    sync.WaitGroup // CRITICAL: Track all goroutines for clean shutdown
 	mu            sync.RWMutex
 }
 
@@ -87,14 +89,20 @@ func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
 // MarkReadyImmediately marks the service as ready without waiting
 // Used for stopped processes to prevent dependency deadlocks
 func (s *Supervisor) MarkReadyImmediately() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.markReady("stopped state")
+}
 
-	if !s.isReady {
-		s.isReady = true
+// markReady atomically marks service as ready (thread-safe, idempotent)
+func (s *Supervisor) markReady(reason string) {
+	s.readinessOnce.Do(func() {
 		close(s.readinessCh)
-		s.logger.Debug("Service marked as ready immediately (stopped state)")
-	}
+		s.mu.Lock()
+		s.isReady = true
+		s.mu.Unlock()
+		s.logger.Debug("Service marked as ready",
+			"reason", reason,
+		)
+	})
 }
 
 // WaitForReadiness waits for the service to become ready (health check passes)
@@ -168,26 +176,21 @@ func (s *Supervisor) Start(ctx context.Context) error {
 				"error", err,
 			)
 			// Consider ready immediately if health monitor fails to start
-			// NOTE: Already holding s.mu.Lock() from line 139, don't lock again!
-			if !s.isReady {
-				s.isReady = true
-				close(s.readinessCh)
-			}
+			s.markReady("health monitor creation failed")
 		} else {
 			s.healthMonitor = monitor
 			s.healthStatus = monitor.Start(s.ctx)
 
-			// Monitor health status in background
-			go s.handleHealthStatus(s.ctx)
+			// Monitor health status in background with goroutine tracking
+			s.goroutines.Add(1)
+			go func() {
+				defer s.goroutines.Done()
+				s.handleHealthStatus(s.ctx)
+			}()
 		}
 	} else {
 		// No health check configured - consider ready immediately
-		// NOTE: Already holding s.mu.Lock() from line 139, don't lock again!
-		if !s.isReady {
-			s.isReady = true
-			close(s.readinessCh)
-			s.logger.Debug("No health check configured, marking as ready immediately")
-		}
+		s.markReady("no health check configured")
 	}
 
 	return nil
@@ -247,8 +250,12 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 	// Record metrics
 	metrics.RecordProcessStart(s.name, instanceID, float64(startTime.Unix()))
 
-	// Monitor process in background
-	go s.monitorInstance(instance)
+	// Monitor process in background with goroutine tracking
+	s.goroutines.Add(1)
+	go func() {
+		defer s.goroutines.Done()
+		s.monitorInstance(instance)
+	}()
 
 	return instance, nil
 }
@@ -303,13 +310,7 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 
 		// Signal readiness if completed successfully (allows dependents to proceed)
 		if exitCode == 0 {
-			s.mu.Lock()
-			if !s.isReady {
-				s.isReady = true
-				close(s.readinessCh)
-				s.logger.Info("Oneshot completed, signaling readiness to dependents")
-			}
-			s.mu.Unlock()
+			s.markReady("oneshot completed successfully")
 		}
 
 		// Check if all instances complete/failed
@@ -419,15 +420,24 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 // Stop gracefully stops all process instances
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.state = StateStopping
+	s.mu.Unlock()
+
+	// Cancel context to signal all goroutines to stop
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(s.instances))
 
-	// Stop all instances
-	for _, instance := range s.instances {
+	// Stop all instances in parallel
+	s.mu.RLock()
+	instances := make([]*Instance, len(s.instances))
+	copy(instances, s.instances)
+	s.mu.RUnlock()
+
+	for _, instance := range instances {
 		wg.Add(1)
 		go func(inst *Instance) {
 			defer wg.Done()
@@ -441,13 +451,29 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	wg.Wait()
 	close(errChan)
 
+	// CRITICAL: Wait for all goroutines to finish with timeout
+	goroutinesDone := make(chan struct{})
+	go func() {
+		s.goroutines.Wait()
+		close(goroutinesDone)
+	}()
+
+	select {
+	case <-goroutinesDone:
+		s.logger.Debug("All supervisor goroutines stopped")
+	case <-time.After(5 * time.Second):
+		s.logger.Warn("Timeout waiting for supervisor goroutines to stop")
+	}
+
 	// Collect errors
 	var errs []error
 	for err := range errChan {
 		errs = append(errs, err)
 	}
 
+	s.mu.Lock()
 	s.state = StateStopped
+	s.mu.Unlock()
 
 	if len(errs) > 0 {
 		return fmt.Errorf("stop completed with %d errors: %v", len(errs), errs)
@@ -604,13 +630,7 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 
 			if status.Healthy {
 				// Signal readiness on first successful health check
-				s.mu.Lock()
-				if !s.isReady {
-					s.isReady = true
-					close(s.readinessCh)
-					s.logger.Info("Service is ready (health check passed)")
-				}
-				s.mu.Unlock()
+				s.markReady("health check passed")
 			} else if !status.Healthy {
 				s.logger.Error("Process unhealthy, triggering restart",
 					"error", status.Error,
