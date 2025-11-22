@@ -135,30 +135,45 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	var processName, action string
 
-	// Simple path parsing
-	if len(path) > len("/api/v1/processes/") {
-		pathParts := path[len("/api/v1/processes/"):]
-		// Find first slash
-		idx := 0
-		for i, c := range pathParts {
-			if c == '/' {
-				idx = i
-				break
-			}
-		}
-		if idx > 0 {
-			processName = pathParts[:idx]
-			action = pathParts[idx+1:]
-		} else {
-			processName = pathParts
+	// Robust path parsing with validation
+	if len(path) <= len("/api/v1/processes/") {
+		s.respondError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+
+	pathParts := path[len("/api/v1/processes/"):]
+
+	// Find first slash to split name and action
+	idx := -1
+	for i, c := range pathParts {
+		if c == '/' {
+			idx = i
+			break
 		}
 	}
 
+	if idx > 0 && idx < len(pathParts)-1 {
+		processName = pathParts[:idx]
+		action = pathParts[idx+1:]
+	} else if idx == -1 {
+		// No slash - just process name (no action)
+		processName = pathParts
+		action = ""
+	}
+
+	// Validate process name
 	if processName == "" {
 		s.respondError(w, http.StatusBadRequest, "process name required")
 		return
 	}
 
+	// Validate action
+	if action == "" {
+		s.respondError(w, http.StatusBadRequest, "action required (start|stop|restart|scale)")
+		return
+	}
+
+	// Route to appropriate handler
 	switch action {
 	case "restart":
 		s.handleRestart(w, r, processName)
@@ -169,7 +184,7 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 	case "scale":
 		s.handleScale(w, r, processName)
 	default:
-		s.respondError(w, http.StatusBadRequest, "unknown action")
+		s.respondError(w, http.StatusBadRequest, fmt.Sprintf("unknown action: %s (valid: start|stop|restart|scale)", action))
 	}
 }
 

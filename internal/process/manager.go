@@ -337,6 +337,62 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 
 // StartProcess starts a stopped process
 func (m *Manager) StartProcess(ctx context.Context, name string) error {
+	// Input validation
+	if name == "" {
+		return fmt.Errorf("process name cannot be empty")
+	}
+
+	m.mu.RLock()
+	sup, ok := m.processes[name]
+	procCfg, cfgOk := m.config.Processes[name]
+	m.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("process %s not found in running processes", name)
+	}
+	if !cfgOk {
+		return fmt.Errorf("process %s not found in configuration", name)
+	}
+
+	// Check if process is enabled
+	if !procCfg.Enabled {
+		return fmt.Errorf("process %s is disabled in configuration", name)
+	}
+
+	// Check current state
+	currentState := sup.GetState()
+	if currentState != StateStopped {
+		return fmt.Errorf("process %s is not stopped (current state: %s)", name, currentState)
+	}
+
+	m.logger.Info("Starting process via control command",
+		"name", name,
+		"previous_state", currentState,
+	)
+
+	// Start the process with timeout
+	startCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := sup.Start(startCtx); err != nil {
+		m.logger.Error("Failed to start process",
+			"name", name,
+			"error", err,
+		)
+		return fmt.Errorf("failed to start process %s: %w", name, err)
+	}
+
+	m.logger.Info("Process started successfully via control command", "name", name)
+	return nil
+}
+
+// StopProcess stops a running process
+func (m *Manager) StopProcess(ctx context.Context, name string) error {
+	// Input validation
+	if name == "" {
+		return fmt.Errorf("process name cannot be empty")
+	}
+
 	m.mu.RLock()
 	sup, ok := m.processes[name]
 	m.mu.RUnlock()
@@ -346,56 +402,86 @@ func (m *Manager) StartProcess(ctx context.Context, name string) error {
 	}
 
 	// Check current state
-	if sup.GetState() != StateStopped {
-		return fmt.Errorf("process %s is not stopped (current state: %s)", name, sup.GetState())
+	currentState := sup.GetState()
+	if currentState == StateStopped {
+		m.logger.Info("Process already stopped",
+			"name", name,
+		)
+		return nil // Idempotent - not an error
 	}
 
-	// Start the process
-	if err := sup.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start process %s: %w", name, err)
-	}
+	m.logger.Info("Stopping process via control command",
+		"name", name,
+		"current_state", currentState,
+	)
 
-	m.logger.Info("Process started via control command", "name", name)
-	return nil
-}
+	// Stop the process with timeout
+	stopCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
 
-// StopProcess stops a running process
-func (m *Manager) StopProcess(ctx context.Context, name string) error {
-	m.mu.RLock()
-	sup, ok := m.processes[name]
-	m.mu.RUnlock()
-
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
-	}
-
-	// Stop the process
-	if err := sup.Stop(ctx); err != nil {
+	if err := sup.Stop(stopCtx); err != nil {
+		m.logger.Error("Failed to stop process",
+			"name", name,
+			"error", err,
+		)
 		return fmt.Errorf("failed to stop process %s: %w", name, err)
 	}
 
-	m.logger.Info("Process stopped via control command", "name", name)
+	m.logger.Info("Process stopped successfully via control command", "name", name)
 	return nil
 }
 
 // RestartProcess restarts a process
 func (m *Manager) RestartProcess(ctx context.Context, name string) error {
+	// Input validation
+	if name == "" {
+		return fmt.Errorf("process name cannot be empty")
+	}
+
 	m.mu.RLock()
 	sup, ok := m.processes[name]
+	_, cfgOk := m.config.Processes[name]
 	m.mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("process %s not found", name)
 	}
-
-	m.logger.Info("Restarting process via control command", "name", name)
-
-	// Stop then start
-	if err := sup.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop process %s: %w", name, err)
+	if !cfgOk {
+		return fmt.Errorf("process %s not found in configuration", name)
 	}
 
-	if err := sup.Start(ctx); err != nil {
+	currentState := sup.GetState()
+	m.logger.Info("Restarting process via control command",
+		"name", name,
+		"current_state", currentState,
+	)
+
+	// If already stopped, just start it
+	if currentState == StateStopped {
+		return m.StartProcess(ctx, name)
+	}
+
+	// Stop with timeout
+	stopCtx, stopCancel := context.WithTimeout(ctx, 60*time.Second)
+	if err := sup.Stop(stopCtx); err != nil {
+		stopCancel()
+		m.logger.Error("Failed to stop process during restart",
+			"name", name,
+			"error", err,
+		)
+		return fmt.Errorf("failed to stop process %s: %w", name, err)
+	}
+	stopCancel()
+
+	// Start with timeout
+	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer startCancel()
+
+	if err := sup.Start(startCtx); err != nil {
+		m.logger.Error("Failed to start process after restart",
+			"name", name,
+			"error", err,
+		)
 		return fmt.Errorf("failed to start process %s after restart: %w", name, err)
 	}
 
@@ -405,6 +491,17 @@ func (m *Manager) RestartProcess(ctx context.Context, name string) error {
 
 // ScaleProcess changes the number of instances for a process
 func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale int) error {
+	// Input validation
+	if name == "" {
+		return fmt.Errorf("process name cannot be empty")
+	}
+	if desiredScale < 1 {
+		return fmt.Errorf("desired scale must be >= 1, got %d", desiredScale)
+	}
+	if desiredScale > 100 {
+		return fmt.Errorf("desired scale %d exceeds maximum (100)", desiredScale)
+	}
+
 	m.mu.RLock()
 	procCfg, ok := m.config.Processes[name]
 	sup, supOk := m.processes[name]
@@ -419,21 +516,31 @@ func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale in
 		return fmt.Errorf("process %s is scale-locked (likely binds to fixed port - cannot scale)", name)
 	}
 
-	if desiredScale < 1 {
-		return fmt.Errorf("desired scale must be >= 1, got %d", desiredScale)
+	// Check if process type supports scaling
+	if procCfg.Type == "oneshot" {
+		return fmt.Errorf("oneshot processes cannot be scaled (type: oneshot)")
 	}
 
 	currentScale := len(sup.GetInstances())
 
-	// TODO: Implement actual scaling logic
+	// Idempotent check
+	if currentScale == desiredScale {
+		m.logger.Info("Process already at desired scale",
+			"name", name,
+			"scale", currentScale,
+		)
+		return nil
+	}
+
 	m.logger.Info("Scale operation requested",
 		"name", name,
 		"current", currentScale,
 		"desired", desiredScale,
 	)
 
-	// For now, just validate
-	return fmt.Errorf("scaling not yet implemented (current: %d, desired: %d)", currentScale, desiredScale)
+	// TODO: Implement actual scaling logic
+	// This would involve starting new instances or stopping excess instances
+	return fmt.Errorf("dynamic scaling not yet fully implemented (current: %d, desired: %d) - coming in Phase 6", currentScale, desiredScale)
 }
 
 // AllDeadChannel returns a channel that closes when all processes are dead
