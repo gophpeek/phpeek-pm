@@ -140,6 +140,63 @@ var (
 		},
 	)
 
+	// Resource metrics (CPU, memory, etc.)
+	ProcessCPUPercent = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "phpeek_pm_process_cpu_percent",
+			Help: "Process CPU usage percentage (per-core, can exceed 100)",
+		},
+		[]string{"process", "instance"},
+	)
+
+	ProcessMemoryBytes = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "phpeek_pm_process_memory_bytes",
+			Help: "Process memory usage in bytes",
+		},
+		[]string{"process", "instance", "type"}, // type: rss, vms
+	)
+
+	ProcessMemoryPercent = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "phpeek_pm_process_memory_percent",
+			Help: "Process memory usage as percentage of total system memory",
+		},
+		[]string{"process", "instance"},
+	)
+
+	ProcessThreads = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "phpeek_pm_process_threads",
+			Help: "Number of threads in process",
+		},
+		[]string{"process", "instance"},
+	)
+
+	ProcessFileDescriptors = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "phpeek_pm_process_file_descriptors",
+			Help: "Number of open file descriptors (Linux only)",
+		},
+		[]string{"process", "instance"},
+	)
+
+	ResourceCollectionDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "phpeek_pm_resource_collection_duration_seconds",
+			Help:    "Time taken to collect resource metrics",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
+		},
+	)
+
+	ResourceCollectionErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "phpeek_pm_resource_collection_errors_total",
+			Help: "Total resource collection errors",
+		},
+		[]string{"process", "instance"},
+	)
+
 	// Build info
 	BuildInfo = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{

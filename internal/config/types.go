@@ -25,6 +25,9 @@ type GlobalConfig struct {
 	APIEnabled               bool    `yaml:"api_enabled" json:"api_enabled"`                                 //
 	APIPort                  int     `yaml:"api_port" json:"api_port"`                                       //
 	APIAuth                  string  `yaml:"api_auth" json:"api_auth"`                                       // Bearer token
+	ResourceMetricsEnabled   bool    `yaml:"resource_metrics_enabled" json:"resource_metrics_enabled"`       // Enable CPU/RAM collection
+	ResourceMetricsInterval  int     `yaml:"resource_metrics_interval" json:"resource_metrics_interval"`     // seconds (default: 5)
+	ResourceMetricsMaxSamples int    `yaml:"resource_metrics_max_samples" json:"resource_metrics_max_samples"` // Per-instance buffer size (default: 720 = 1h at 5s)
 }
 
 // HooksConfig contains lifecycle hooks
@@ -199,6 +202,13 @@ func (c *Config) SetDefaults() {
 	c.Global.APIEnabled = true
 	if c.Global.APIPort == 0 {
 		c.Global.APIPort = 8080
+	}
+	// Resource metrics disabled by default (opt-in for resource tracking)
+	if c.Global.ResourceMetricsInterval == 0 {
+		c.Global.ResourceMetricsInterval = 5 // 5 seconds
+	}
+	if c.Global.ResourceMetricsMaxSamples == 0 {
+		c.Global.ResourceMetricsMaxSamples = 720 // 1 hour at 5s = 720 samples
 	}
 
 	// Process defaults
