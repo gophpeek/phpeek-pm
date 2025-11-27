@@ -1,0 +1,88 @@
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  log_level: info
+  log_format: json
+
+  # Management API
+  api_enabled: true
+  api_port: 9180
+
+  # Prometheus Metrics
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: /metrics
+
+  # Restart configuration
+  restart_backoff_initial: 1s
+  restart_backoff_max: 60s
+  max_restart_attempts: 5
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    type: longrun
+    restart: always
+    scale: 1
+    stdout: true
+    stderr: true
+    health_check:
+      type: tcp
+      address: "127.0.0.1:9000"
+      period: 30
+      timeout: 5
+      failure_threshold: 3
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    type: longrun
+    restart: always
+    scale: 1
+    depends_on:
+      - php-fpm
+    stdout: true
+    stderr: true
+    health_check:
+      type: http
+      url: "http://127.0.0.1:80/health"
+      period: 30
+      timeout: 5
+      failure_threshold: 3
+      expected_status: 200
+
+  horizon:
+    enabled: true
+    command: ["php", "artisan", "horizon"]
+    type: longrun
+    restart: always
+    scale: 1
+    working_dir: /var/www/html
+    stdout: true
+    stderr: true
+    shutdown:
+      pre_stop_hook:
+        command: ["php", "artisan", "horizon:terminate"]
+        timeout: 60
+
+  queue-default:
+    enabled: true
+    command: ["php", "artisan", "queue:work", "redis", "--queue=default", "--tries=3"]
+    type: longrun
+    restart: always
+    scale: 3
+    working_dir: /var/www/html
+    stdout: true
+    stderr: true
+
+  scheduler:
+    enabled: true
+    command: ["php", "artisan", "schedule:work"]
+    type: longrun
+    restart: always
+    scale: 1
+    working_dir: /var/www/html
+    stdout: true
+    stderr: true

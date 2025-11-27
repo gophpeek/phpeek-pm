@@ -5,21 +5,25 @@ global:
   log_level: info
   log_format: text
   api_enabled: true      # REQUIRED for TUI
-  api_port: 8080
+  #api_port: 8081
+  #metrics_enabled: true
+  #resource_metrics_enabled: true
+  resource_metrics_interval: 5   # sekunder mellem samples (valgfrit – default er 5)
+  resource_metrics_max_samples: 720
 
 processes:
   # Running service
   service1:
     enabled: true        # REQUIRED (defaults to false if missing)
     initial_state: running
-    command: ["sleep", "300"]
+    command: ["sh", "-c", "while true; do echo $(date) $PHPEEK_PROCESS:$PHPEEK_INSTANCE heartbeat; sleep 2; done"]
     restart: always
 
   # Stopped service
   service2:
     enabled: true
     initial_state: stopped  # Can start via TUI
-    command: ["sleep", "300"]
+    command: ["sh", "-c", "while true; do echo $(date) $PHPEEK_PROCESS:$PHPEEK_INSTANCE worker loop; sleep 3; done"]
     restart: always
 
   # Scalable service

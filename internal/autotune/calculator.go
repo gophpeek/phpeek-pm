@@ -282,7 +282,7 @@ func (cfg *PHPFPMConfig) String() string {
 	}
 
 	s += fmt.Sprintf("  pm.max_requests = %d\n", cfg.MaxRequests)
-	s += fmt.Sprintf("\nMemory Breakdown:\n")
+	s += "\nMemory Breakdown:\n"
 	s += fmt.Sprintf("  Total Container Memory: %dMB\n", cfg.MemoryTotal)
 	s += fmt.Sprintf("  Workers (%d × worker memory): %dMB\n", cfg.MaxChildren, cfg.MemoryAllocated)
 	s += fmt.Sprintf("  OPcache (shared): %dMB\n", cfg.MemoryOPcache)
@@ -293,7 +293,7 @@ func (cfg *PHPFPMConfig) String() string {
 	s += fmt.Sprintf("  CPUs: %d\n", cfg.CPUs)
 
 	if len(cfg.Warnings) > 0 {
-		s += fmt.Sprintf("\nWarnings:\n")
+		s += "\nWarnings:\n"
 		for _, w := range cfg.Warnings {
 			s += fmt.Sprintf("  - %s\n", w)
 		}
