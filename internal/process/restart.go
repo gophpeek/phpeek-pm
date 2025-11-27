@@ -99,7 +99,15 @@ func calculateBackoff(initial, max time.Duration, restartCount int) time.Duratio
 	if initial <= 0 {
 		initial = 1 * time.Second
 	}
-	delay := initial * time.Duration(1<<uint(restartCount))
+	// Cap restart count to prevent integer overflow (max 62 for safe bit shift)
+	if restartCount < 0 {
+		restartCount = 0
+	}
+	const maxShift = 62
+	if restartCount > maxShift {
+		restartCount = maxShift
+	}
+	delay := initial * time.Duration(1<<uint(restartCount)) // #nosec G115 -- bounds checked above
 	if max > 0 && delay > max {
 		return max
 	}

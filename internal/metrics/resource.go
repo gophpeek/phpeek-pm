@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -10,7 +11,11 @@ import (
 
 // CollectProcessMetrics collects resource metrics for a single process
 func CollectProcessMetrics(pid int, processName, instanceID string) (*ResourceSample, error) {
-	proc, err := process.NewProcess(int32(pid))
+	// Validate PID is within int32 range (process IDs are always positive and fit in int32)
+	if pid <= 0 || pid > 0x7FFFFFFF {
+		return nil, fmt.Errorf("invalid PID: %d", pid)
+	}
+	proc, err := process.NewProcess(int32(pid)) // #nosec G115 -- bounds checked above
 	if err != nil {
 		return nil, err
 	}

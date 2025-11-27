@@ -759,7 +759,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request, processNa
 }
 
 // handleGetProcess returns process configuration details
-func (s *Server) handleGetProcess(w http.ResponseWriter, r *http.Request, processName string) {
+func (s *Server) handleGetProcess(w http.ResponseWriter, _ *http.Request, processName string) {
 	cfg, err := s.manager.GetProcessConfig(processName)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, fmt.Sprintf("failed to get process: %v", err))

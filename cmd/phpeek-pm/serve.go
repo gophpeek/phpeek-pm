@@ -320,7 +320,7 @@ func runAutoTuning(profileName string, threshold float64, cfg *config.Config) er
 }
 
 // runDryRun performs dry-run validation
-func runDryRun(cfg *config.Config, cfgPath string, workdir string, autotuneProfile string) {
+func runDryRun(cfg *config.Config, cfgPath string, workdir string, _ string) {
 	log := logger.New(cfg.Global.LogLevel, cfg.Global.LogFormat)
 	slog.SetDefault(log)
 
@@ -408,10 +408,10 @@ func waitForShutdownOrReload(
 	pm *process.Manager,
 	reloadChan chan struct{},
 	devMode bool,
-	cfg *config.Config,
-	cfgPath string,
-	log *slog.Logger,
-	auditLogger *audit.Logger,
+	_ *config.Config,
+	_ string,
+	_ *slog.Logger,
+	_ *audit.Logger,
 ) string {
 	if !devMode {
 		// Dev mode disabled, use standard wait

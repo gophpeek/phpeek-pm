@@ -360,7 +360,7 @@ func (m Model) handleLogsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleHelpKeys handles keys in help view
-func (m Model) handleHelpKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleHelpKeys(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Any key returns to previous view
 	m.currentView = viewProcessList
 	return m, nil

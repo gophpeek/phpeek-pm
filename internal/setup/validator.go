@@ -17,6 +17,12 @@ func NewConfigValidator(log *slog.Logger) *ConfigValidator {
 	return &ConfigValidator{logger: log}
 }
 
+// binaryExists checks if a binary exists in PATH
+func (cv *ConfigValidator) binaryExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
 // ValidateAll validates PHP-FPM and Nginx configurations
 func (cv *ConfigValidator) ValidateAll() error {
 	cv.logger.Info("Validating configurations...")
@@ -37,10 +43,10 @@ func (cv *ConfigValidator) ValidateAll() error {
 
 // ValidatePHPFPM validates PHP-FPM configuration
 func (cv *ConfigValidator) ValidatePHPFPM() error {
-	// Check if php-fpm binary exists
-	if _, err := exec.LookPath("php-fpm"); err != nil {
+	// Check if php-fpm binary exists - skip validation if not installed
+	if !cv.binaryExists("php-fpm") {
 		cv.logger.Debug("PHP-FPM binary not found, skipping validation")
-		return nil // Not an error - might not be used
+		return nil
 	}
 
 	cmd := exec.Command("php-fpm", "-t")
@@ -69,10 +75,10 @@ func (cv *ConfigValidator) ValidatePHPFPM() error {
 
 // ValidateNginx validates Nginx configuration
 func (cv *ConfigValidator) ValidateNginx() error {
-	// Check if nginx binary exists
-	if _, err := exec.LookPath("nginx"); err != nil {
+	// Check if nginx binary exists - skip validation if not installed
+	if !cv.binaryExists("nginx") {
 		cv.logger.Debug("Nginx binary not found, skipping validation")
-		return nil // Not an error - might not be used
+		return nil
 	}
 
 	cmd := exec.Command("nginx", "-t")
