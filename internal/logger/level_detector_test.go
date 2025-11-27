@@ -405,3 +405,151 @@ func TestParseLevel(t *testing.T) {
 		})
 	}
 }
+
+func TestLevelDetector_IsEnabled(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *config.LevelDetectionConfig
+		want   bool
+	}{
+		{
+			name:   "nil config",
+			config: nil,
+			want:   false,
+		},
+		{
+			name: "disabled config",
+			config: &config.LevelDetectionConfig{
+				Enabled: false,
+			},
+			want: false,
+		},
+		{
+			name: "enabled config",
+			config: &config.LevelDetectionConfig{
+				Enabled: true,
+				Patterns: map[string]string{
+					"error": `ERROR`,
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ld, err := NewLevelDetector(tt.config)
+			if err != nil {
+				t.Fatalf("NewLevelDetector() error = %v", err)
+			}
+			if got := ld.IsEnabled(); got != tt.want {
+				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLevelDetector_GetDefaultLevel(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       *config.LevelDetectionConfig
+		wantLevel    slog.Level
+		wantErr      bool
+	}{
+		{
+			name:      "nil config defaults to info",
+			config:    nil,
+			wantLevel: slog.LevelInfo,
+			wantErr:   false,
+		},
+		{
+			name: "disabled config defaults to info",
+			config: &config.LevelDetectionConfig{
+				Enabled: false,
+			},
+			wantLevel: slog.LevelInfo,
+			wantErr:   false,
+		},
+		{
+			name: "custom default level debug",
+			config: &config.LevelDetectionConfig{
+				Enabled:      true,
+				DefaultLevel: "debug",
+			},
+			wantLevel: slog.LevelDebug,
+			wantErr:   false,
+		},
+		{
+			name: "custom default level warn",
+			config: &config.LevelDetectionConfig{
+				Enabled:      true,
+				DefaultLevel: "warn",
+			},
+			wantLevel: slog.LevelWarn,
+			wantErr:   false,
+		},
+		{
+			name: "custom default level error",
+			config: &config.LevelDetectionConfig{
+				Enabled:      true,
+				DefaultLevel: "error",
+			},
+			wantLevel: slog.LevelError,
+			wantErr:   false,
+		},
+		{
+			name: "empty default level uses info",
+			config: &config.LevelDetectionConfig{
+				Enabled:      true,
+				DefaultLevel: "",
+			},
+			wantLevel: slog.LevelInfo,
+			wantErr:   false,
+		},
+		{
+			name: "invalid default level",
+			config: &config.LevelDetectionConfig{
+				Enabled:      true,
+				DefaultLevel: "invalid",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ld, err := NewLevelDetector(tt.config)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewLevelDetector() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if got := ld.GetDefaultLevel(); got != tt.wantLevel {
+				t.Errorf("GetDefaultLevel() = %v, want %v", got, tt.wantLevel)
+			}
+		})
+	}
+}
+
+func TestLevelDetector_NoPatterns_ReturnsDefault(t *testing.T) {
+	cfg := &config.LevelDetectionConfig{
+		Enabled:      true,
+		Patterns:     map[string]string{}, // Empty patterns
+		DefaultLevel: "warn",
+	}
+
+	ld, err := NewLevelDetector(cfg)
+	if err != nil {
+		t.Fatalf("NewLevelDetector() error = %v", err)
+	}
+
+	// Should return default level when no patterns configured
+	input := "[ERROR] This won't match any pattern"
+	level := ld.Detect(input)
+
+	if level != slog.LevelWarn {
+		t.Errorf("expected default level (warn), got %v", level)
+	}
+}

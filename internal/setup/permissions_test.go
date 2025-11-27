@@ -201,3 +201,298 @@ func TestDetectFramework(t *testing.T) {
 		})
 	}
 }
+
+func TestFileExists(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() (string, error)
+		expected bool
+	}{
+		{
+			name: "file exists",
+			setup: func() (string, error) {
+				f, err := os.CreateTemp("", "phpeek-test-*")
+				if err != nil {
+					return "", err
+				}
+				f.Close()
+				return f.Name(), nil
+			},
+			expected: true,
+		},
+		{
+			name: "file does not exist",
+			setup: func() (string, error) {
+				return "/nonexistent/file/path", nil
+			},
+			expected: false,
+		},
+		{
+			name: "directory instead of file",
+			setup: func() (string, error) {
+				return os.MkdirTemp("", "phpeek-test-*")
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := tt.setup()
+			if err != nil {
+				t.Fatalf("Setup failed: %v", err)
+			}
+			if tt.expected {
+				defer os.Remove(path)
+			} else if tt.name == "directory instead of file" {
+				defer os.RemoveAll(path)
+			}
+
+			result := fileExists(path)
+			if result != tt.expected {
+				t.Errorf("fileExists(%s) = %v, want %v", path, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDirExists(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() (string, error)
+		expected bool
+	}{
+		{
+			name: "directory exists",
+			setup: func() (string, error) {
+				return os.MkdirTemp("", "phpeek-test-*")
+			},
+			expected: true,
+		},
+		{
+			name: "directory does not exist",
+			setup: func() (string, error) {
+				return "/nonexistent/directory/path", nil
+			},
+			expected: false,
+		},
+		{
+			name: "file instead of directory",
+			setup: func() (string, error) {
+				f, err := os.CreateTemp("", "phpeek-test-*")
+				if err != nil {
+					return "", err
+				}
+				f.Close()
+				return f.Name(), nil
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := tt.setup()
+			if err != nil {
+				t.Fatalf("Setup failed: %v", err)
+			}
+			if tt.expected {
+				defer os.RemoveAll(path)
+			} else if tt.name == "file instead of directory" {
+				defer os.Remove(path)
+			}
+
+			result := dirExists(path)
+			if result != tt.expected {
+				t.Errorf("dirExists(%s) = %v, want %v", path, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPermissionManager_Setup_ReadOnlyRoot(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create artisan to make it a Laravel project
+	if err := os.WriteFile(filepath.Join(tmpDir, "artisan"), []byte("#!/usr/bin/env php"), 0644); err != nil {
+		t.Fatalf("Failed to create artisan: %v", err)
+	}
+
+	// Save original env var
+	originalEnv := os.Getenv("PHPEEK_PM_READ_ONLY_ROOT")
+	defer os.Setenv("PHPEEK_PM_READ_ONLY_ROOT", originalEnv)
+
+	// Set read-only root
+	os.Setenv("PHPEEK_PM_READ_ONLY_ROOT", "true")
+
+	// Create permission manager and run setup
+	pm := NewPermissionManager(tmpDir, logger)
+	if err := pm.Setup(); err != nil {
+		t.Errorf("Setup() error = %v", err)
+	}
+
+	// Verify that directories were NOT created (read-only mode)
+	checkDirs := []string{
+		"storage/framework/sessions",
+		"storage/framework/views",
+	}
+	for _, dir := range checkDirs {
+		fullPath := filepath.Join(tmpDir, dir)
+		if _, err := os.Stat(fullPath); err == nil {
+			t.Errorf("Directory %s should not be created in read-only mode", dir)
+		}
+	}
+}
+
+func TestPermissionManager_SetupLaravel_DirectoryCreationFailure(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create artisan to make it a Laravel project
+	if err := os.WriteFile(filepath.Join(tmpDir, "artisan"), []byte("#!/usr/bin/env php"), 0644); err != nil {
+		t.Fatalf("Failed to create artisan: %v", err)
+	}
+
+	// Create a file where a directory should be (to cause mkdir failure)
+	storagePath := filepath.Join(tmpDir, "storage")
+	if err := os.WriteFile(storagePath, []byte("blocker"), 0644); err != nil {
+		t.Fatalf("Failed to create blocker file: %v", err)
+	}
+
+	pm := NewPermissionManager(tmpDir, logger)
+
+	// This should not return an error (errors are logged as warnings)
+	if err := pm.Setup(); err != nil {
+		t.Errorf("Setup() should not return error for directory creation failures, got: %v", err)
+	}
+}
+
+func TestPermissionManager_SetupSymfony_DirectoryCreationFailure(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create bin/console and var/cache to make it a Symfony project
+	if err := os.MkdirAll(filepath.Join(tmpDir, "bin"), 0755); err != nil {
+		t.Fatalf("Failed to create bin dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "bin", "console"), []byte("#!/usr/bin/env php"), 0644); err != nil {
+		t.Fatalf("Failed to create console: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "var", "cache"), 0755); err != nil {
+		t.Fatalf("Failed to create cache dir: %v", err)
+	}
+
+	// Create a file where a directory should be (to cause mkdir failure)
+	varPath := filepath.Join(tmpDir, "var", "log")
+	if err := os.MkdirAll(filepath.Join(tmpDir, "var"), 0755); err != nil {
+		t.Fatalf("Failed to create var dir: %v", err)
+	}
+	if err := os.WriteFile(varPath, []byte("blocker"), 0644); err != nil {
+		t.Fatalf("Failed to create blocker file: %v", err)
+	}
+
+	pm := NewPermissionManager(tmpDir, logger)
+
+	// This should not return an error (errors are logged as warnings)
+	if err := pm.Setup(); err != nil {
+		t.Errorf("Setup() should not return error for directory creation failures, got: %v", err)
+	}
+}
+
+func TestPermissionManager_SetupWordPress_DirectoryCreationFailure(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create wp-config.php to make it a WordPress project
+	if err := os.WriteFile(filepath.Join(tmpDir, "wp-config.php"), []byte("<?php"), 0644); err != nil {
+		t.Fatalf("Failed to create wp-config.php: %v", err)
+	}
+
+	// Create a file where a directory should be (to cause mkdir failure)
+	wpContentPath := filepath.Join(tmpDir, "wp-content")
+	if err := os.WriteFile(wpContentPath, []byte("blocker"), 0644); err != nil {
+		t.Fatalf("Failed to create blocker file: %v", err)
+	}
+
+	pm := NewPermissionManager(tmpDir, logger)
+
+	// This should not return an error (errors are logged as warnings)
+	if err := pm.Setup(); err != nil {
+		t.Errorf("Setup() should not return error for directory creation failures, got: %v", err)
+	}
+}
+
+func TestPermissionManager_ChownRecursive(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir with nested structure
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create nested directories and files
+	nestedDir := filepath.Join(tmpDir, "nested", "structure")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatalf("Failed to create nested dir: %v", err)
+	}
+
+	testFile := filepath.Join(nestedDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	pm := NewPermissionManager(tmpDir, logger)
+
+	// Call chownRecursive - should not panic even if not running as root
+	pm.chownRecursive(tmpDir, 82, 82)
+
+	// Verify files still exist (function should not fail)
+	if _, err := os.Stat(testFile); err != nil {
+		t.Errorf("Test file disappeared after chownRecursive: %v", err)
+	}
+}
+
+func TestPermissionManager_ChownRecursive_WithError(t *testing.T) {
+	logger := slog.Default()
+
+	// Create temp dir
+	tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pm := NewPermissionManager(tmpDir, logger)
+
+	// Call chownRecursive on non-existent path - should not panic
+	pm.chownRecursive("/nonexistent/path", 82, 82)
+
+	// Test completes successfully if no panic
+}

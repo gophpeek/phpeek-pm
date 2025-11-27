@@ -3,8 +3,11 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -746,5 +749,616 @@ func TestAPIClient_ListProcesses_WithAuth(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("ListProcesses() with auth failed: %v", err)
+	}
+}
+
+// TestAPIClient_ScaleProcessDelta tests delta scaling
+func TestAPIClient_ScaleProcessDelta(t *testing.T) {
+	tests := []struct {
+		name         string
+		processName  string
+		delta        int
+		currentScale int
+		wantErr      bool
+	}{
+		{
+			name:         "scale up by 2",
+			processName:  "worker",
+			delta:        2,
+			currentScale: 3,
+			wantErr:      false,
+		},
+		{
+			name:         "scale down by 1",
+			processName:  "worker",
+			delta:        -1,
+			currentScale: 3,
+			wantErr:      false,
+		},
+		{
+			name:         "scale down too much",
+			processName:  "worker",
+			delta:        -5,
+			currentScale: 3,
+			wantErr:      true,
+		},
+		{
+			name:         "no change",
+			processName:  "worker",
+			delta:        0,
+			currentScale: 3,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/processes" && r.Method == "GET" {
+					// Mock ListProcesses
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"processes": []interface{}{
+							map[string]interface{}{
+								"name":     tt.processName,
+								"scale":    tt.currentScale,
+								"desired":  tt.currentScale,
+								"status":   "running",
+								"pid":      1234,
+								"uptime":   100,
+								"restarts": 0,
+							},
+						},
+					})
+				} else if strings.HasSuffix(r.URL.Path, "/scale") && r.Method == "POST" {
+					// Mock ScaleProcess - return error for negative desired scale
+					newScale := tt.currentScale + tt.delta
+					if newScale < 1 {
+						w.WriteHeader(http.StatusBadRequest)
+						json.NewEncoder(w).Encode(map[string]string{"error": "scale must be >= 1"})
+					} else {
+						w.WriteHeader(http.StatusOK)
+					}
+				}
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.ScaleProcessDelta(tt.processName, tt.delta)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ScaleProcessDelta() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_trySocket tests socket detection logic
+func TestAPIClient_trySocket(t *testing.T) {
+	tests := []struct {
+		name       string
+		socketPath string
+		wantResult bool
+	}{
+		{
+			name:       "non-existent socket",
+			socketPath: "/tmp/does-not-exist.sock",
+			wantResult: false,
+		},
+		{
+			name:       "empty path",
+			socketPath: "",
+			wantResult: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &APIClient{}
+			result := client.trySocket(tt.socketPath)
+
+			if result != tt.wantResult {
+				t.Errorf("trySocket(%s) = %v, want %v", tt.socketPath, result, tt.wantResult)
+			}
+		})
+	}
+
+	// Test successful socket connection
+	t.Run("successful socket connection", func(t *testing.T) {
+		// Create a temporary Unix socket server
+		socketPath := "/tmp/test-phpeek-" + time.Now().Format("20060102150405") + ".sock"
+		defer func() {
+			// Clean up socket file
+			_ = os.Remove(socketPath)
+		}()
+
+		// Start a Unix socket listener
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			t.Fatalf("Failed to create socket listener: %v", err)
+		}
+		defer listener.Close()
+
+		// Test that trySocket succeeds with a real socket
+		client := &APIClient{}
+		result := client.trySocket(socketPath)
+
+		if !result {
+			t.Errorf("trySocket(%s) = false, want true for valid socket", socketPath)
+		}
+	})
+}
+
+// TestAPIClient_createSocketClient tests socket client creation
+func TestAPIClient_createSocketClient(t *testing.T) {
+	client := &APIClient{}
+	socketPath := "/tmp/test.sock"
+
+	httpClient := client.createSocketClient(socketPath)
+
+	if httpClient == nil {
+		t.Fatal("createSocketClient returned nil")
+	}
+
+	if httpClient.Timeout != 10*time.Second {
+		t.Errorf("Expected timeout 10s, got %v", httpClient.Timeout)
+	}
+
+	if httpClient.Transport == nil {
+		t.Fatal("Expected non-nil Transport")
+	}
+
+	// Test that the socket client can make actual requests
+	t.Run("socket client with real server", func(t *testing.T) {
+		socketPath := "/tmp/test-phpeek-client-" + time.Now().Format("20060102150405") + ".sock"
+		defer os.Remove(socketPath)
+
+		// Create Unix socket HTTP server
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			t.Fatalf("Failed to create socket listener: %v", err)
+		}
+		defer listener.Close()
+
+		// Start simple HTTP server on socket
+		server := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			}),
+		}
+		go server.Serve(listener)
+		defer server.Close()
+
+		// Create client with socket
+		apiClient := &APIClient{}
+		httpClient := apiClient.createSocketClient(socketPath)
+
+		// Make request through socket client
+		req, err := http.NewRequest("GET", "http://unix/test", nil)
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			t.Fatalf("Request through socket client failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+	})
+}
+
+// TestAPIClient_DeleteProcess_ErrorPaths tests error handling in DeleteProcess
+func TestAPIClient_DeleteProcess_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name           string
+		serverResponse string
+		serverStatus   int
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:           "not found error",
+			serverResponse: `{"error": "process not found"}`,
+			serverStatus:   http.StatusNotFound,
+			wantErr:        true,
+			errContains:    "delete failed",
+		},
+		{
+			name:           "internal server error",
+			serverResponse: `{"error": "internal error"}`,
+			serverStatus:   http.StatusInternalServerError,
+			wantErr:        true,
+			errContains:    "delete failed",
+		},
+		{
+			name:           "bad request",
+			serverResponse: `{"error": "invalid process name"}`,
+			serverStatus:   http.StatusBadRequest,
+			wantErr:        true,
+			errContains:    "delete failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.serverStatus)
+				w.Write([]byte(tt.serverResponse))
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.DeleteProcess("test-process")
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DeleteProcess() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if err != nil && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("Expected error containing %q, got %v", tt.errContains, err)
+			}
+		})
+	}
+}
+
+// TestAPIClient_DeleteProcess_NetworkError tests network failure handling
+func TestAPIClient_DeleteProcess_NetworkError(t *testing.T) {
+	client := &APIClient{
+		baseURL: "http://localhost:0", // Invalid port
+		client:  &http.Client{Timeout: 100 * time.Millisecond},
+	}
+
+	err := client.DeleteProcess("test-process")
+	if err == nil {
+		t.Fatal("Expected error for network failure, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to send request") {
+		t.Errorf("Expected 'failed to send request' error, got %v", err)
+	}
+}
+
+// TestAPIClient_UpdateProcess_ErrorPaths tests error handling in UpdateProcess
+func TestAPIClient_UpdateProcess_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name           string
+		processConfig  *config.Process
+		serverStatus   int
+		serverResponse string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:          "nil process config",
+			processConfig: nil,
+			wantErr:       true,
+			errContains:   "process configuration is required",
+		},
+		{
+			name: "not found error",
+			processConfig: &config.Process{
+				Enabled: true,
+				Command: []string{"test"},
+				Scale:   1,
+			},
+			serverStatus:   http.StatusNotFound,
+			serverResponse: `{"error": "process not found"}`,
+			wantErr:        true,
+			errContains:    "update failed",
+		},
+		{
+			name: "bad request error",
+			processConfig: &config.Process{
+				Enabled: true,
+				Command: []string{},
+				Scale:   -1,
+			},
+			serverStatus:   http.StatusBadRequest,
+			serverResponse: `{"error": "invalid config"}`,
+			wantErr:        true,
+			errContains:    "update failed",
+		},
+		{
+			name: "internal server error",
+			processConfig: &config.Process{
+				Enabled: true,
+				Command: []string{"test"},
+				Scale:   1,
+			},
+			serverStatus:   http.StatusInternalServerError,
+			serverResponse: `{"error": "server error"}`,
+			wantErr:        true,
+			errContains:    "update failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var server *httptest.Server
+			if tt.processConfig != nil {
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tt.serverStatus)
+					w.Write([]byte(tt.serverResponse))
+				}))
+				defer server.Close()
+			}
+
+			var client *APIClient
+			if server != nil {
+				client = NewAPIClient(server.URL, "")
+			} else {
+				client = NewAPIClient("http://localhost:9999", "")
+			}
+
+			err := client.UpdateProcess("test-process", tt.processConfig)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("UpdateProcess() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if err != nil && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("Expected error containing %q, got %v", tt.errContains, err)
+			}
+		})
+	}
+}
+
+// TestAPIClient_UpdateProcess_NetworkError tests network failure
+func TestAPIClient_UpdateProcess_NetworkError(t *testing.T) {
+	client := &APIClient{
+		baseURL: "http://localhost:0",
+		client:  &http.Client{Timeout: 100 * time.Millisecond},
+	}
+
+	proc := &config.Process{
+		Enabled: true,
+		Command: []string{"test"},
+		Scale:   1,
+	}
+
+	err := client.UpdateProcess("test", proc)
+	if err == nil {
+		t.Fatal("Expected error for network failure, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to send request") {
+		t.Errorf("Expected 'failed to send request' error, got %v", err)
+	}
+}
+
+// TestAPIClient_fetchLogs_ErrorPaths tests error handling in fetchLogs
+func TestAPIClient_fetchLogs_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name           string
+		clientSetup    func() *APIClient
+		path           string
+		serverStatus   int
+		serverResponse string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name: "nil HTTP client",
+			clientSetup: func() *APIClient {
+				return &APIClient{client: nil}
+			},
+			path:        "/api/v1/logs",
+			wantErr:     true,
+			errContains: "API client not initialized",
+		},
+		{
+			name: "HTTP error status",
+			clientSetup: func() *APIClient {
+				return nil // Will be set by test
+			},
+			path:           "/api/v1/logs",
+			serverStatus:   http.StatusNotFound,
+			serverResponse: `{"error": "not found"}`,
+			wantErr:        true,
+			errContains:    "logs request failed",
+		},
+		{
+			name: "invalid JSON response",
+			clientSetup: func() *APIClient {
+				return nil // Will be set by test
+			},
+			path:           "/api/v1/logs",
+			serverStatus:   http.StatusOK,
+			serverResponse: `invalid json{`,
+			wantErr:        true,
+			errContains:    "failed to decode logs response",
+		},
+		{
+			name: "internal server error",
+			clientSetup: func() *APIClient {
+				return nil
+			},
+			path:           "/api/v1/logs",
+			serverStatus:   http.StatusInternalServerError,
+			serverResponse: `{"error": "internal error"}`,
+			wantErr:        true,
+			errContains:    "logs request failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var client *APIClient
+
+			if tt.clientSetup != nil && tt.clientSetup() != nil {
+				client = tt.clientSetup()
+			} else {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tt.serverStatus)
+					w.Write([]byte(tt.serverResponse))
+				}))
+				defer server.Close()
+				client = NewAPIClient(server.URL, "")
+			}
+
+			_, err := client.fetchLogs(tt.path)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("fetchLogs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if err != nil && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("Expected error containing %q, got %v", tt.errContains, err)
+			}
+		})
+	}
+}
+
+// TestAPIClient_fetchLogs_NetworkError tests network failure
+func TestAPIClient_fetchLogs_NetworkError(t *testing.T) {
+	client := &APIClient{
+		baseURL: "http://localhost:0",
+		client:  &http.Client{Timeout: 100 * time.Millisecond},
+	}
+
+	_, err := client.fetchLogs("/api/v1/logs")
+	if err == nil {
+		t.Fatal("Expected error for network failure, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to fetch logs") {
+		t.Errorf("Expected 'failed to fetch logs' error, got %v", err)
+	}
+}
+
+// TestAPIClient_GetLogs_EmptyProcessName tests empty process name validation
+func TestAPIClient_GetLogs_EmptyProcessName(t *testing.T) {
+	client := NewAPIClient("http://localhost:9999", "")
+
+	_, err := client.GetLogs("", 10)
+	if err == nil {
+		t.Fatal("Expected error for empty process name, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "process name is required") {
+		t.Errorf("Expected 'process name is required' error, got %v", err)
+	}
+}
+
+// TestAPIClient_GetProcessConfig_ErrorPaths tests error handling in GetProcessConfig
+func TestAPIClient_GetProcessConfig_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name           string
+		processName    string
+		serverStatus   int
+		serverResponse string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:        "empty process name",
+			processName: "",
+			wantErr:     true,
+			errContains: "process name is required",
+		},
+		{
+			name:           "not found error",
+			processName:    "unknown",
+			serverStatus:   http.StatusNotFound,
+			serverResponse: `{"error": "not found"}`,
+			wantErr:        true,
+			errContains:    "process request failed",
+		},
+		{
+			name:           "invalid JSON response",
+			processName:    "test",
+			serverStatus:   http.StatusOK,
+			serverResponse: `invalid json{`,
+			wantErr:        true,
+			errContains:    "failed to decode process response",
+		},
+		{
+			name:           "missing config in response",
+			processName:    "test",
+			serverStatus:   http.StatusOK,
+			serverResponse: `{"config": null}`,
+			wantErr:        true,
+			errContains:    "process configuration missing in response",
+		},
+		{
+			name:           "internal server error",
+			processName:    "test",
+			serverStatus:   http.StatusInternalServerError,
+			serverResponse: `{"error": "server error"}`,
+			wantErr:        true,
+			errContains:    "process request failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var server *httptest.Server
+			if tt.processName != "" {
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tt.serverStatus)
+					w.Write([]byte(tt.serverResponse))
+				}))
+				defer server.Close()
+			}
+
+			var client *APIClient
+			if server != nil {
+				client = NewAPIClient(server.URL, "")
+			} else {
+				client = NewAPIClient("http://localhost:9999", "")
+			}
+
+			_, err := client.GetProcessConfig(tt.processName)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetProcessConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if err != nil && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("Expected error containing %q, got %v", tt.errContains, err)
+			}
+		})
+	}
+}
+
+// TestAPIClient_GetProcessConfig_NetworkError tests network failure
+func TestAPIClient_GetProcessConfig_NetworkError(t *testing.T) {
+	client := &APIClient{
+		baseURL: "http://localhost:0",
+		client:  &http.Client{Timeout: 100 * time.Millisecond},
+	}
+
+	_, err := client.GetProcessConfig("test")
+	if err == nil {
+		t.Fatal("Expected error for network failure, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to fetch process") {
+		t.Errorf("Expected 'failed to fetch process' error, got %v", err)
+	}
+}
+
+// TestAPIClient_ListProcesses_InvalidJSON tests invalid JSON response handling
+func TestAPIClient_ListProcesses_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`invalid json{`))
+	}))
+	defer server.Close()
+
+	client := NewAPIClient(server.URL, "")
+	_, err := client.ListProcesses()
+
+	if err == nil {
+		t.Fatal("Expected error for invalid JSON, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to decode response") {
+		t.Errorf("Expected 'failed to decode response' error, got %v", err)
 	}
 }

@@ -433,3 +433,71 @@ func TestRedactor_LaravelSessionToken(t *testing.T) {
 		t.Errorf("Redact() = %q, want %q", result, expected)
 	}
 }
+
+func TestRedactor_IsEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *config.RedactionConfig
+		enabled bool
+	}{
+		{
+			name:    "nil config",
+			config:  nil,
+			enabled: false,
+		},
+		{
+			name: "disabled config",
+			config: &config.RedactionConfig{
+				Enabled: false,
+			},
+			enabled: false,
+		},
+		{
+			name: "enabled config",
+			config: &config.RedactionConfig{
+				Enabled: true,
+				Patterns: []config.RedactionPattern{
+					{
+						Name:        "test",
+						Pattern:     `test`,
+						Replacement: "***",
+					},
+				},
+			},
+			enabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, err := NewRedactor(tt.config)
+			if err != nil {
+				t.Fatalf("NewRedactor() error = %v", err)
+			}
+
+			if r.IsEnabled() != tt.enabled {
+				t.Errorf("IsEnabled() = %v, want %v", r.IsEnabled(), tt.enabled)
+			}
+		})
+	}
+}
+
+func TestRedactor_NoPatterns(t *testing.T) {
+	cfg := &config.RedactionConfig{
+		Enabled:  true,
+		Patterns: []config.RedactionPattern{}, // Empty patterns
+	}
+
+	r, err := NewRedactor(cfg)
+	if err != nil {
+		t.Fatalf("NewRedactor() error = %v", err)
+	}
+
+	input := "password=secret123"
+	result := r.Redact(input)
+
+	// Should return input unchanged when no patterns configured
+	if result != input {
+		t.Errorf("Redact() with no patterns = %q, want %q", result, input)
+	}
+}

@@ -337,6 +337,63 @@ func TestTimeSeriesBuffer_EmptyBuffer(t *testing.T) {
 	}
 }
 
+// TestTimeSeriesBuffer_Latest tests getting the most recent sample
+func TestTimeSeriesBuffer_Latest(t *testing.T) {
+	tsb := NewTimeSeriesBuffer(10)
+
+	// Test empty buffer
+	_, exists := tsb.Latest()
+	if exists {
+		t.Error("Expected no latest sample in empty buffer")
+	}
+
+	// Add samples
+	now := time.Now()
+	for i := 0; i < 5; i++ {
+		sample := ResourceSample{
+			Timestamp:  now.Add(time.Duration(i) * time.Second),
+			CPUPercent: float64(i * 10),
+		}
+		tsb.Add(sample)
+	}
+
+	// Get latest
+	latest, exists := tsb.Latest()
+	if !exists {
+		t.Fatal("Expected latest sample to exist")
+	}
+
+	// Should be the last added sample (i=4)
+	if latest.CPUPercent != 40.0 {
+		t.Errorf("Expected CPU 40.0, got %f", latest.CPUPercent)
+	}
+
+	expectedTime := now.Add(4 * time.Second)
+	if !latest.Timestamp.Equal(expectedTime) {
+		t.Errorf("Expected timestamp %v, got %v", expectedTime, latest.Timestamp)
+	}
+
+	// Add more to test ring buffer wrapping
+	tsb2 := NewTimeSeriesBuffer(3)
+	for i := 0; i < 5; i++ {
+		sample := ResourceSample{
+			Timestamp:  now.Add(time.Duration(i) * time.Second),
+			CPUPercent: float64(i),
+		}
+		tsb2.Add(sample)
+	}
+
+	// Latest should be sample with i=4 (most recent)
+	latest2, exists := tsb2.Latest()
+	if !exists {
+		t.Fatal("Expected latest sample in wrapped buffer")
+	}
+
+	if latest2.CPUPercent != 4.0 {
+		t.Errorf("Expected CPU 4.0 after wrap, got %f", latest2.CPUPercent)
+	}
+}
+
 // TestTimeSeriesBuffer_ConcurrentAccess tests thread-safety
 func TestTimeSeriesBuffer_ConcurrentAccess(t *testing.T) {
 	tsb := NewTimeSeriesBuffer(100)
@@ -361,6 +418,7 @@ func TestTimeSeriesBuffer_ConcurrentAccess(t *testing.T) {
 		for i := 0; i < 50; i++ {
 			_ = tsb.GetLast(10)
 			_ = tsb.Size()
+			_, _ = tsb.Latest()
 			time.Sleep(time.Millisecond)
 		}
 		done <- true

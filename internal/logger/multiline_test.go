@@ -425,3 +425,47 @@ func TestMultilineBuffer_BufferSize(t *testing.T) {
 		t.Errorf("buffer size after flush should be 0, got: %d", mb.BufferSize())
 	}
 }
+
+func TestMultilineBuffer_IsEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *config.MultilineConfig
+		enabled bool
+	}{
+		{
+			name:    "nil config",
+			config:  nil,
+			enabled: false,
+		},
+		{
+			name: "disabled config",
+			config: &config.MultilineConfig{
+				Enabled: false,
+			},
+			enabled: false,
+		},
+		{
+			name: "enabled config",
+			config: &config.MultilineConfig{
+				Enabled:  true,
+				Pattern:  `^\[`,
+				MaxLines: 100,
+				Timeout:  1,
+			},
+			enabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mb, err := NewMultilineBuffer(tt.config)
+			if err != nil {
+				t.Fatalf("NewMultilineBuffer() error = %v", err)
+			}
+
+			if mb.IsEnabled() != tt.enabled {
+				t.Errorf("IsEnabled() = %v, want %v", mb.IsEnabled(), tt.enabled)
+			}
+		})
+	}
+}
