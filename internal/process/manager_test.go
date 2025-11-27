@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gophpeek/phpeek-pm/internal/audit"
 	"github.com/gophpeek/phpeek-pm/internal/config"
 )
 
@@ -30,7 +31,8 @@ func TestManager_GracefulShutdown(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes
 	ctx := context.Background()
@@ -86,7 +88,8 @@ func TestManager_ShutdownTimeout(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes
 	ctx := context.Background()
@@ -151,7 +154,8 @@ func TestManager_PreStopHooks(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes
 	ctx := context.Background()
@@ -199,44 +203,49 @@ func TestManager_ShutdownOrder(t *testing.T) {
 		},
 		Processes: map[string]*config.Process{
 			"process1": {
-				Enabled:  true,
-				Command:  []string{"sleep", "30"}, // Long enough to not exit before shutdown
-				Priority: 10,                      // Start first
-				Restart:  "never",
-				Scale:    1,
+				Enabled:      true,
+				InitialState: "running",                 // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "3600"}, // Long enough to not exit before shutdown (force killed)
+				Restart:      "never",
+				Scale:        1,
 				Shutdown: &config.ShutdownConfig{
+					Timeout: 1, // Short timeout to force kill quickly
 					PreStopHook: &config.Hook{
 						Name:    "mark-process1",
 						Command: []string{"touch", file1},
-						Timeout: 5,
+						Timeout: 2,
 					},
 				},
 			},
 			"process2": {
-				Enabled:  true,
-				Command:  []string{"sleep", "30"}, // Long enough to not exit before shutdown
-				Priority: 20,                      // Start second
-				Restart:  "never",
-				Scale:    1,
+				Enabled:      true,
+				InitialState: "running",                 // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "3600"}, // Long enough to not exit before shutdown (force killed)
+				DependsOn:    []string{"process1"},      // Start after process1
+				Restart:      "never",
+				Scale:        1,
 				Shutdown: &config.ShutdownConfig{
+					Timeout: 1, // Short timeout to force kill quickly
 					PreStopHook: &config.Hook{
 						Name:    "mark-process2",
 						Command: []string{"touch", file2},
-						Timeout: 5,
+						Timeout: 2,
 					},
 				},
 			},
 			"process3": {
-				Enabled:  true,
-				Command:  []string{"sleep", "30"}, // Long enough to not exit before shutdown
-				Priority: 30,                      // Start third (stop first in shutdown)
-				Restart:  "never",
-				Scale:    1,
+				Enabled:      true,
+				InitialState: "running",                 // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "3600"}, // Long enough to not exit before shutdown (force killed)
+				DependsOn:    []string{"process2"},      // Start after process2 (stop first in shutdown)
+				Restart:      "never",
+				Scale:        1,
 				Shutdown: &config.ShutdownConfig{
+					Timeout: 1, // Short timeout to force kill quickly
 					PreStopHook: &config.Hook{
 						Name:    "mark-process3",
 						Command: []string{"touch", file3},
-						Timeout: 5,
+						Timeout: 2,
 					},
 				},
 			},
@@ -244,7 +253,8 @@ func TestManager_ShutdownOrder(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes
 	ctx := context.Background()
@@ -288,19 +298,21 @@ func TestManager_MultipleInstances(t *testing.T) {
 		},
 		Processes: map[string]*config.Process{
 			"scaled-process": {
-				Enabled: true,
-				Command: []string{"sleep", "30"}, // Long enough to not exit before shutdown
-				Scale:   3,                       // 3 instances
-				Restart: "never",
+				Enabled:      true,
+				InitialState: "running", // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "3600"}, // Long enough to not exit before shutdown (force killed)
+				Scale:        3,                         // 3 instances
+				Restart:      "never",
 				Shutdown: &config.ShutdownConfig{
-					Timeout: 2, // Short timeout for test
+					Timeout: 1, // Short timeout to force kill quickly
 				},
 			},
 		},
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes
 	ctx := context.Background()
@@ -358,7 +370,8 @@ func TestManager_ConfigurableRestartBackoff(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	manager := NewManager(cfg, logger)
+	auditLogger := audit.NewLogger(logger, false) // Disable audit in tests
+	manager := NewManager(cfg, logger, auditLogger)
 
 	// Start processes (will fail and attempt restart)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -388,4 +401,433 @@ func TestManager_ConfigurableRestartBackoff(t *testing.T) {
 	}
 
 	t.Logf("Restart backoff correctly uses global config: %v", backoff)
+}
+
+// TestManager_ListProcesses tests the ListProcesses API
+func TestManager_ListProcesses(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "error",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"process-a": {
+				Enabled:      true,
+				InitialState: "running", // Required for auto-start
+				Command:      []string{"sleep", "60"},
+				Restart:      "never",
+				Scale:        2,
+			},
+			"process-b": {
+				Enabled:      true,
+				InitialState: "running", // Required for auto-start
+				Command:      []string{"sleep", "60"},
+				Restart:      "never",
+				Scale:        1,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start processes: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		manager.Shutdown(shutdownCtx)
+	}()
+
+	// Wait for processes to start with polling
+	var processes []ProcessInfo
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		processes = manager.ListProcesses()
+		// Check if process-a has instances running
+		for _, p := range processes {
+			if p.Name == "process-a" && p.Scale >= 2 {
+				goto checkResults
+			}
+		}
+	}
+
+checkResults:
+	// Test ListProcesses
+	if len(processes) != 2 {
+		t.Errorf("Expected 2 processes, got %d", len(processes))
+	}
+
+	// Find process-a and verify scale
+	var foundA bool
+	for _, p := range processes {
+		if p.Name == "process-a" {
+			foundA = true
+			// DesiredScale comes from config, Scale is running instances
+			if p.DesiredScale != 2 {
+				t.Errorf("Expected process-a DesiredScale=2, got %d", p.DesiredScale)
+			}
+			// Running instances may still be starting, be lenient
+			if p.Scale < 1 {
+				t.Errorf("Expected process-a to have at least 1 running instance, got %d", p.Scale)
+			}
+		}
+	}
+	if !foundA {
+		t.Error("process-a not found in ListProcesses")
+	}
+}
+
+// TestManager_StartStopProcess tests individual process start/stop
+func TestManager_StartStopProcess(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "error",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"test-proc": {
+				Enabled:      true,
+				InitialState: "stopped", // Start as stopped
+				Command:      []string{"sleep", "60"},
+				Restart:      "never",
+				Scale:        1,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		manager.Shutdown(shutdownCtx)
+	}()
+
+	// Process should be stopped initially
+	processes := manager.ListProcesses()
+	if len(processes) != 1 {
+		t.Fatalf("Expected 1 process, got %d", len(processes))
+	}
+	if processes[0].State != "stopped" {
+		t.Errorf("Expected initial state 'stopped', got '%s'", processes[0].State)
+	}
+
+	// Start the process
+	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := manager.StartProcess(startCtx, "test-proc"); err != nil {
+		t.Fatalf("Failed to start process: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Process should be running
+	processes = manager.ListProcesses()
+	if processes[0].State != "running" {
+		t.Errorf("Expected state 'running' after start, got '%s'", processes[0].State)
+	}
+
+	// Stop the process
+	stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer stopCancel()
+	if err := manager.StopProcess(stopCtx, "test-proc"); err != nil {
+		t.Fatalf("Failed to stop process: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Process should be stopped
+	processes = manager.ListProcesses()
+	if processes[0].State != "stopped" {
+		t.Errorf("Expected state 'stopped' after stop, got '%s'", processes[0].State)
+	}
+}
+
+// TestManager_RestartProcess tests process restart
+func TestManager_RestartProcess(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "error",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"restart-proc": {
+				Enabled:      true,
+				InitialState: "running", // Required for auto-start
+				Command:      []string{"sleep", "60"},
+				Restart:      "never",
+				Scale:        1,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		manager.Shutdown(shutdownCtx)
+	}()
+
+	// Wait for process to start with polling
+	var processes []ProcessInfo
+	var initialPID int
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		processes = manager.ListProcesses()
+		if len(processes) > 0 && len(processes[0].Instances) > 0 && processes[0].Instances[0].PID > 0 {
+			initialPID = processes[0].Instances[0].PID
+			break
+		}
+	}
+	if initialPID == 0 {
+		t.Fatal("No process instances started within timeout")
+	}
+
+	// Restart the process
+	restartCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := manager.RestartProcess(restartCtx, "restart-proc"); err != nil {
+		t.Fatalf("Failed to restart process: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// PID should have changed
+	processes = manager.ListProcesses()
+	if len(processes) == 0 || len(processes[0].Instances) == 0 {
+		t.Fatal("No process instances found after restart")
+	}
+	newPID := processes[0].Instances[0].PID
+
+	if newPID == initialPID && newPID != 0 {
+		t.Errorf("PID should have changed after restart: initial=%d, new=%d", initialPID, newPID)
+	}
+}
+
+// TestManager_ScaleProcess tests process scaling
+func TestManager_ScaleProcess(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "error",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"scale-proc": {
+				Enabled:      true,
+				InitialState: "running", // Required for auto-start
+				Command:      []string{"sleep", "60"},
+				Restart:      "never",
+				Scale:        1,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		manager.Shutdown(shutdownCtx)
+	}()
+
+	// Wait for initial process to start with polling
+	var processes []ProcessInfo
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		processes = manager.ListProcesses()
+		if len(processes) > 0 && processes[0].Scale >= 1 {
+			break
+		}
+	}
+
+	// Initial scale should be 1 (or at least desired is 1)
+	if len(processes) == 0 {
+		t.Fatal("No processes found")
+	}
+	if processes[0].DesiredScale != 1 {
+		t.Errorf("Expected initial DesiredScale=1, got %d", processes[0].DesiredScale)
+	}
+
+	// Scale up to 3
+	scaleCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := manager.ScaleProcess(scaleCtx, "scale-proc", 3); err != nil {
+		t.Fatalf("Failed to scale up process: %v", err)
+	}
+
+	// Poll for scale to reach 3
+	for i := 0; i < 20; i++ {
+		time.Sleep(100 * time.Millisecond)
+		processes = manager.ListProcesses()
+		if len(processes) > 0 && processes[0].Scale >= 3 {
+			break
+		}
+	}
+
+	if processes[0].Scale < 3 {
+		t.Errorf("Expected scale>=3 after scale up, got %d", processes[0].Scale)
+	}
+
+	// Scale down to 1
+	if err := manager.ScaleProcess(scaleCtx, "scale-proc", 1); err != nil {
+		t.Fatalf("Failed to scale down process: %v", err)
+	}
+
+	// Poll for scale to decrease
+	for i := 0; i < 20; i++ {
+		time.Sleep(100 * time.Millisecond)
+		processes = manager.ListProcesses()
+		if len(processes) > 0 && processes[0].Scale <= 1 {
+			break
+		}
+	}
+
+	processes = manager.ListProcesses()
+	if processes[0].Scale != 1 {
+		t.Errorf("Expected scale=1 after scale down, got %d", processes[0].Scale)
+	}
+}
+
+// TestManager_InputValidation tests input validation for control APIs
+func TestManager_InputValidation(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "error",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"valid-proc": {
+				Enabled: true,
+				Command: []string{"sleep", "60"},
+				Restart: "never",
+				Scale:   1,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		manager.Shutdown(shutdownCtx)
+	}()
+
+	// Test empty process name
+	if err := manager.StartProcess(ctx, ""); err == nil {
+		t.Error("Expected error for empty process name on StartProcess")
+	}
+
+	// Test non-existent process
+	if err := manager.StartProcess(ctx, "non-existent"); err == nil {
+		t.Error("Expected error for non-existent process")
+	}
+
+	// Test scale validation - empty name
+	if err := manager.ScaleProcess(ctx, "", 1); err == nil {
+		t.Error("Expected error for empty process name on ScaleProcess")
+	}
+
+	// Test scale validation - exceeds max (100)
+	if err := manager.ScaleProcess(ctx, "valid-proc", 101); err == nil {
+		t.Error("Expected error for scale > 100")
+	}
+
+	// Test scale non-existent process
+	if err := manager.ScaleProcess(ctx, "non-existent", 2); err == nil {
+		t.Error("Expected error for scaling non-existent process")
+	}
+}
+
+// TestManager_GetConfig tests config retrieval
+func TestManager_GetConfig(t *testing.T) {
+	cfg := &config.Config{
+		Global: config.GlobalConfig{
+			ShutdownTimeout:    30,
+			LogLevel:           "info",
+			MaxRestartAttempts: 3,
+			RestartBackoff:     5,
+		},
+		Processes: map[string]*config.Process{
+			"test-proc": {
+				Enabled: true,
+				Command: []string{"sleep", "60"},
+				Restart: "never",
+				Scale:   2,
+			},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	auditLogger := audit.NewLogger(logger, false)
+	manager := NewManager(cfg, logger, auditLogger)
+
+	// Test GetConfig
+	retrievedCfg := manager.GetConfig()
+	if retrievedCfg == nil {
+		t.Fatal("GetConfig returned nil")
+	}
+	if retrievedCfg.Global.LogLevel != "info" {
+		t.Errorf("Expected log_level=info, got %s", retrievedCfg.Global.LogLevel)
+	}
+
+	// Test GetProcessConfig
+	procCfg, err := manager.GetProcessConfig("test-proc")
+	if err != nil {
+		t.Fatalf("GetProcessConfig returned error for existing process: %v", err)
+	}
+	if procCfg == nil {
+		t.Fatal("GetProcessConfig returned nil for existing process")
+	}
+	if procCfg.Scale != 2 {
+		t.Errorf("Expected scale=2, got %d", procCfg.Scale)
+	}
+
+	// Test GetProcessConfig for non-existent
+	nilCfg, err := manager.GetProcessConfig("non-existent")
+	if err == nil {
+		t.Error("Expected error for non-existent process config")
+	}
+	if nilCfg != nil {
+		t.Error("Expected nil config for non-existent process")
+	}
 }

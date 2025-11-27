@@ -464,3 +464,335 @@ func TestCalculator_SafetyValidations(t *testing.T) {
 		})
 	}
 }
+
+// Tests for Profile.String()
+func TestProfile_String(t *testing.T) {
+	tests := []struct {
+		profile  Profile
+		expected string
+	}{
+		{ProfileDev, "dev"},
+		{ProfileLight, "light"},
+		{ProfileMedium, "medium"},
+		{ProfileHeavy, "heavy"},
+		{ProfileBursty, "bursty"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			got := tt.profile.String()
+			if got != tt.expected {
+				t.Errorf("Profile.String() = %q, expected %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// Tests for PHPFPMConfig.String()
+func TestPHPFPMConfig_String_Dynamic(t *testing.T) {
+	cfg := &PHPFPMConfig{
+		ProcessManager:  "dynamic",
+		MaxChildren:     10,
+		StartServers:    3,
+		MinSpare:        2,
+		MaxSpare:        5,
+		MaxRequests:     1000,
+		Profile:         ProfileMedium,
+		MemoryAllocated: 420,
+		MemoryOPcache:   128,
+		MemoryReserved:  192,
+		MemoryTotal:     1024,
+		CPUs:            4,
+	}
+
+	s := cfg.String()
+
+	// Check key elements are present
+	if !strings.Contains(s, "medium profile") {
+		t.Error("String() should contain profile name")
+	}
+	if !strings.Contains(s, "pm = dynamic") {
+		t.Error("String() should contain process manager type")
+	}
+	if !strings.Contains(s, "pm.max_children = 10") {
+		t.Error("String() should contain max_children")
+	}
+	if !strings.Contains(s, "pm.start_servers = 3") {
+		t.Error("String() should contain start_servers for dynamic PM")
+	}
+	if !strings.Contains(s, "pm.min_spare_servers = 2") {
+		t.Error("String() should contain min_spare_servers for dynamic PM")
+	}
+	if !strings.Contains(s, "pm.max_spare_servers = 5") {
+		t.Error("String() should contain max_spare_servers for dynamic PM")
+	}
+	if !strings.Contains(s, "pm.max_requests = 1000") {
+		t.Error("String() should contain max_requests")
+	}
+	if !strings.Contains(s, "Memory Breakdown") {
+		t.Error("String() should contain memory breakdown section")
+	}
+	if !strings.Contains(s, "Total Container Memory: 1024MB") {
+		t.Error("String() should contain total memory")
+	}
+	if !strings.Contains(s, "CPUs: 4") {
+		t.Error("String() should contain CPU count")
+	}
+}
+
+func TestPHPFPMConfig_String_Static(t *testing.T) {
+	cfg := &PHPFPMConfig{
+		ProcessManager:  "static",
+		MaxChildren:     2,
+		MaxRequests:     100,
+		Profile:         ProfileDev,
+		MemoryAllocated: 96,
+		MemoryOPcache:   64,
+		MemoryReserved:  64,
+		MemoryTotal:     512,
+		CPUs:            2,
+	}
+
+	s := cfg.String()
+
+	// Check static PM does NOT include spare server settings
+	if strings.Contains(s, "pm.start_servers") {
+		t.Error("Static PM should not have start_servers in output")
+	}
+	if strings.Contains(s, "pm.min_spare_servers") {
+		t.Error("Static PM should not have min_spare_servers in output")
+	}
+	if strings.Contains(s, "pm.max_spare_servers") {
+		t.Error("Static PM should not have max_spare_servers in output")
+	}
+
+	// But should have the basic settings
+	if !strings.Contains(s, "pm = static") {
+		t.Error("String() should contain pm = static")
+	}
+	if !strings.Contains(s, "pm.max_children = 2") {
+		t.Error("String() should contain max_children")
+	}
+}
+
+func TestPHPFPMConfig_String_WithWarnings(t *testing.T) {
+	cfg := &PHPFPMConfig{
+		ProcessManager:  "dynamic",
+		MaxChildren:     8,
+		StartServers:    2,
+		MinSpare:        1,
+		MaxSpare:        4,
+		MaxRequests:     500,
+		Profile:         ProfileMedium,
+		MemoryAllocated: 256,
+		MemoryOPcache:   128,
+		MemoryReserved:  192,
+		MemoryTotal:     2048,
+		CPUs:            2,
+		Warnings: []string{
+			"CPU limiting: workers limited to 8 by CPU cores",
+			"Container limits not detected",
+		},
+	}
+
+	s := cfg.String()
+
+	if !strings.Contains(s, "Warnings:") {
+		t.Error("String() should contain Warnings section when warnings exist")
+	}
+	if !strings.Contains(s, "CPU limiting") {
+		t.Error("String() should include warning text")
+	}
+	if !strings.Contains(s, "Container limits not detected") {
+		t.Error("String() should include all warnings")
+	}
+}
+
+func TestPHPFPMConfig_String_NoWarnings(t *testing.T) {
+	cfg := &PHPFPMConfig{
+		ProcessManager:  "dynamic",
+		MaxChildren:     10,
+		StartServers:    3,
+		MinSpare:        2,
+		MaxSpare:        5,
+		MaxRequests:     1000,
+		Profile:         ProfileMedium,
+		MemoryAllocated: 420,
+		MemoryOPcache:   128,
+		MemoryReserved:  192,
+		MemoryTotal:     1024,
+		CPUs:            4,
+		Warnings:        []string{}, // Empty warnings
+	}
+
+	s := cfg.String()
+
+	// Should not have warnings section when no warnings
+	if strings.Contains(s, "Warnings:") {
+		t.Error("String() should not contain Warnings section when no warnings")
+	}
+}
+
+// Tests for ContainerResources.String()
+func TestContainerResources_String_Containerized(t *testing.T) {
+	r := &ContainerResources{
+		MemoryLimitBytes: 2 * 1024 * 1024 * 1024, // 2GB
+		MemoryLimitMB:    2048,
+		CPULimit:         4,
+		IsContainerized:  true,
+		CgroupVersion:    2,
+	}
+
+	s := r.String()
+
+	if !strings.Contains(s, "cgroup v2") {
+		t.Errorf("String() = %q, expected to contain 'cgroup v2'", s)
+	}
+	if !strings.Contains(s, "Memory=2048MB") {
+		t.Errorf("String() = %q, expected to contain 'Memory=2048MB'", s)
+	}
+	if !strings.Contains(s, "CPUs=4") {
+		t.Errorf("String() = %q, expected to contain 'CPUs=4'", s)
+	}
+}
+
+func TestContainerResources_String_CgroupV1(t *testing.T) {
+	r := &ContainerResources{
+		MemoryLimitBytes: 1024 * 1024 * 1024, // 1GB
+		MemoryLimitMB:    1024,
+		CPULimit:         2,
+		IsContainerized:  true,
+		CgroupVersion:    1,
+	}
+
+	s := r.String()
+
+	if !strings.Contains(s, "cgroup v1") {
+		t.Errorf("String() = %q, expected to contain 'cgroup v1'", s)
+	}
+	if !strings.Contains(s, "Memory=1024MB") {
+		t.Errorf("String() = %q, expected to contain 'Memory=1024MB'", s)
+	}
+}
+
+func TestContainerResources_String_Host(t *testing.T) {
+	r := &ContainerResources{
+		MemoryLimitBytes: 16 * 1024 * 1024 * 1024, // 16GB
+		MemoryLimitMB:    16384,
+		CPULimit:         8,
+		IsContainerized:  false,
+		CgroupVersion:    0,
+	}
+
+	s := r.String()
+
+	if !strings.Contains(s, "host") {
+		t.Errorf("String() = %q, expected to contain 'host' for non-containerized", s)
+	}
+	if !strings.Contains(s, "Memory=16384MB") {
+		t.Errorf("String() = %q, expected to contain memory amount", s)
+	}
+	if !strings.Contains(s, "CPUs=8") {
+		t.Errorf("String() = %q, expected to contain CPU count", s)
+	}
+}
+
+func TestContainerResources_String_UnlimitedMemory(t *testing.T) {
+	r := &ContainerResources{
+		MemoryLimitBytes: 0, // Unlimited
+		MemoryLimitMB:    0,
+		CPULimit:         4,
+		IsContainerized:  false,
+		CgroupVersion:    0,
+	}
+
+	s := r.String()
+
+	if !strings.Contains(s, "Memory=unlimited") {
+		t.Errorf("String() = %q, expected to contain 'Memory=unlimited' for zero memory", s)
+	}
+}
+
+// Test Profile.Validate()
+func TestProfile_Validate(t *testing.T) {
+	tests := []struct {
+		profile   Profile
+		wantError bool
+	}{
+		{ProfileDev, false},
+		{ProfileLight, false},
+		{ProfileMedium, false},
+		{ProfileHeavy, false},
+		{ProfileBursty, false},
+		{Profile("invalid"), true},
+		{Profile(""), true},
+		{Profile("MEDIUM"), true}, // Case sensitive
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.profile), func(t *testing.T) {
+			err := tt.profile.Validate()
+			if (err != nil) != tt.wantError {
+				t.Errorf("Profile(%q).Validate() error = %v, wantError = %v", tt.profile, err, tt.wantError)
+			}
+		})
+	}
+}
+
+// Test Profile.GetConfig()
+func TestProfile_GetConfig(t *testing.T) {
+	tests := []struct {
+		profile   Profile
+		wantError bool
+	}{
+		{ProfileDev, false},
+		{ProfileLight, false},
+		{ProfileMedium, false},
+		{ProfileHeavy, false},
+		{ProfileBursty, false},
+		{Profile("invalid"), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.profile), func(t *testing.T) {
+			cfg, err := tt.profile.GetConfig()
+			if (err != nil) != tt.wantError {
+				t.Errorf("Profile(%q).GetConfig() error = %v, wantError = %v", tt.profile, err, tt.wantError)
+			}
+			if !tt.wantError && cfg.Name == "" {
+				t.Error("GetConfig() returned empty config name for valid profile")
+			}
+		})
+	}
+}
+
+// Test ProfileConfig values
+func TestProfileConfig_Values(t *testing.T) {
+	tests := []struct {
+		profile           Profile
+		expectedMinWorker int
+		expectedPMType    string
+	}{
+		{ProfileDev, 2, "static"},
+		{ProfileLight, 2, "dynamic"},
+		{ProfileMedium, 4, "dynamic"},
+		{ProfileHeavy, 8, "dynamic"},
+		{ProfileBursty, 4, "dynamic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.profile), func(t *testing.T) {
+			cfg, err := tt.profile.GetConfig()
+			if err != nil {
+				t.Fatalf("GetConfig() failed: %v", err)
+			}
+
+			if cfg.MinWorkers != tt.expectedMinWorker {
+				t.Errorf("MinWorkers = %d, expected %d", cfg.MinWorkers, tt.expectedMinWorker)
+			}
+			if cfg.ProcessManagerType != tt.expectedPMType {
+				t.Errorf("ProcessManagerType = %q, expected %q", cfg.ProcessManagerType, tt.expectedPMType)
+			}
+		})
+	}
+}
