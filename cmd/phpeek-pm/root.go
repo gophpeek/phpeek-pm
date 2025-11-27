@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(checkConfigCmd)
 	rootCmd.AddCommand(tuiCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(scaffoldCmd)
 	// Process control commands (future):
 	// rootCmd.AddCommand(restartCmd)
 	// rootCmd.AddCommand(stopCmd)

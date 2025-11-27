@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/gophpeek/phpeek-pm/internal/audit"
 	"github.com/gophpeek/phpeek-pm/internal/config"
-	"github.com/gophpeek/phpeek-pm/internal/framework"
 	"github.com/gophpeek/phpeek-pm/internal/logger"
 	"github.com/gophpeek/phpeek-pm/internal/process"
 	"github.com/gophpeek/phpeek-pm/internal/setup"
@@ -55,10 +55,8 @@ func runLogs(cmd *cobra.Command, args []string) {
 		workdir = "/var/www/html"
 	}
 
-	fw := framework.Detect(workdir)
-
-	// Setup permissions (silent)
-	permMgr := setup.NewPermissionManager(workdir, fw, slog.Default())
+	// Setup permissions (silent, detects framework internally)
+	permMgr := setup.NewPermissionManager(workdir, slog.Default())
 	_ = permMgr.Setup()
 
 	// Validate system (silent)
@@ -81,8 +79,11 @@ func runLogs(cmd *cobra.Command, args []string) {
 
 	slog.SetDefault(log)
 
+	// Create audit logger
+	auditLogger := audit.NewLogger(log, cfg.Global.AuditEnabled)
+
 	// Create process manager
-	pm := process.NewManager(cfg, log)
+	pm := process.NewManager(cfg, log, auditLogger)
 
 	// Start zombie reaper
 	go signals.ReapZombies()

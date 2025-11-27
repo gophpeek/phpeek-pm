@@ -36,7 +36,7 @@ var (
 )
 
 func init() {
-	tuiCmd.Flags().StringVar(&tuiRemote, "remote", "http://localhost:8080", "API endpoint to connect to")
+	tuiCmd.Flags().StringVar(&tuiRemote, "remote", "http://localhost:9180", "API endpoint to connect to")
 }
 
 func runTUI(cmd *cobra.Command, args []string) {
@@ -59,7 +59,7 @@ func runTUIRemote(apiURL string) {
 		fmt.Fprintf(os.Stderr, "💡 Ensure API is enabled in config:\n")
 		fmt.Fprintf(os.Stderr, "   global:\n")
 		fmt.Fprintf(os.Stderr, "     api_enabled: true\n")
-		fmt.Fprintf(os.Stderr, "     api_port: 8080\n")
+		fmt.Fprintf(os.Stderr, "     api_port: 9180\n")
 		os.Exit(1)
 	}
 }
