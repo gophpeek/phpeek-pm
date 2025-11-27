@@ -5,16 +5,22 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/gophpeek/phpeek-pm/internal/config"
 )
 
+// maxBufferSize is the maximum size for the line buffer to prevent OOM
+// If a process outputs continuous data without newlines, flush partial content
+const maxBufferSize = 64 * 1024 // 64KB
+
 // ProcessWriter captures process output and logs it with structured metadata
 // Implements the full logging pipeline: Multiline → Redaction → JSON → Level → Filters
 type ProcessWriter struct {
-	Logger     *slog.Logger
-	InstanceID string
-	Stream     string // stdout or stderr
+	Logger      *slog.Logger
+	ProcessName string
+	InstanceID  string
+	Stream      string // stdout or stderr
 
 	// Advanced logging components
 	redactor      *Redactor
@@ -23,15 +29,20 @@ type ProcessWriter struct {
 	levelDetector *LevelDetector
 	filters       *LogFilters
 
+	// Log buffer for TUI/API access
+	logBuffer *LogBuffer
+
 	buffer bytes.Buffer
 }
 
 // NewProcessWriter creates a new ProcessWriter with advanced logging features
-func NewProcessWriter(logger *slog.Logger, instanceID, stream string, cfg *config.LoggingConfig) (*ProcessWriter, error) {
+func NewProcessWriter(logger *slog.Logger, processName, instanceID, stream string, cfg *config.LoggingConfig) (*ProcessWriter, error) {
 	pw := &ProcessWriter{
-		Logger:     logger,
-		InstanceID: instanceID,
-		Stream:     stream,
+		Logger:      logger,
+		ProcessName: processName,
+		InstanceID:  instanceID,
+		Stream:      stream,
+		logBuffer:   NewLogBuffer(1000), // Store last 1000 log entries
 	}
 
 	// Initialize components only if config provided
@@ -96,6 +107,19 @@ func (pw *ProcessWriter) Write(p []byte) (n int, err error) {
 		remaining.Write(pw.buffer.Bytes())
 	}
 	pw.buffer = remaining
+
+	// SAFETY: Flush buffer if it exceeds max size to prevent OOM
+	// This handles pathological cases where process outputs no newlines
+	if pw.buffer.Len() > maxBufferSize {
+		partialLine := pw.buffer.String()
+		pw.buffer.Reset()
+		pw.Logger.Warn("Flushing oversized buffer (no newline)",
+			"process", pw.ProcessName,
+			"instance_id", pw.InstanceID,
+			"buffer_size", len(partialLine),
+		)
+		pw.processLine(partialLine)
+	}
 
 	return len(p), nil
 }
@@ -175,17 +199,35 @@ func (pw *ProcessWriter) processEntry(entry string) {
 	}
 
 	// Log at appropriate level
+	var levelStr string
 	switch level {
 	case slog.LevelDebug:
 		pw.Logger.Debug(message, baseAttrs...)
+		levelStr = "debug"
 	case slog.LevelInfo:
-		pw.Logger.Info(message, baseAttrs...)
+		pw.Logger.Debug(message, baseAttrs...)
+		levelStr = "info"
 	case slog.LevelWarn:
 		pw.Logger.Warn(message, baseAttrs...)
+		levelStr = "warn"
 	case slog.LevelError:
 		pw.Logger.Error(message, baseAttrs...)
+		levelStr = "error"
 	default:
-		pw.Logger.Info(message, baseAttrs...)
+		pw.Logger.Debug(message, baseAttrs...)
+		levelStr = "info"
+	}
+
+	// Step 7: Add to log buffer for TUI/API access
+	if pw.logBuffer != nil {
+		pw.logBuffer.Add(LogEntry{
+			Timestamp:   time.Now(),
+			ProcessName: pw.ProcessName,
+			InstanceID:  pw.InstanceID,
+			Stream:      pw.Stream,
+			Message:     message,
+			Level:       levelStr,
+		})
 	}
 }
 
@@ -207,4 +249,20 @@ func (pw *ProcessWriter) Flush() {
 			pw.processEntry(entry)
 		}
 	}
+}
+
+// GetLogs returns all log entries from the buffer
+func (pw *ProcessWriter) GetLogs() []LogEntry {
+	if pw.logBuffer == nil {
+		return []LogEntry{}
+	}
+	return pw.logBuffer.GetAll()
+}
+
+// GetRecentLogs returns the last n log entries
+func (pw *ProcessWriter) GetRecentLogs(n int) []LogEntry {
+	if pw.logBuffer == nil {
+		return []LogEntry{}
+	}
+	return pw.logBuffer.GetRecent(n)
 }

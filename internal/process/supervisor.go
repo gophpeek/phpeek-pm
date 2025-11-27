@@ -3,13 +3,16 @@ package process
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gophpeek/phpeek-pm/internal/audit"
 	"github.com/gophpeek/phpeek-pm/internal/config"
 	"github.com/gophpeek/phpeek-pm/internal/hooks"
 	"github.com/gophpeek/phpeek-pm/internal/logger"
@@ -30,22 +33,25 @@ const (
 
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
-	name          string
-	config        *config.Process
-	logger        *slog.Logger
-	instances     []*Instance
-	state         ProcessState
-	healthMonitor *HealthMonitor
-	healthStatus  <-chan HealthStatus
-	restartPolicy RestartPolicy
-	deathNotifier func(string) // Callback when all instances are dead
-	ctx           context.Context
-	cancel        context.CancelFunc
-	readinessCh   chan struct{}  // Closed when service becomes ready
-	readinessOnce sync.Once      // CRITICAL: Ensures readinessCh closed exactly once
-	isReady       bool           // Track readiness state
-	goroutines    sync.WaitGroup // CRITICAL: Track all goroutines for clean shutdown
-	mu            sync.RWMutex
+	name              string
+	config            *config.Process
+	logger            *slog.Logger
+	auditLogger       *audit.Logger
+	instances         []*Instance
+	state             ProcessState
+	healthMonitor     *HealthMonitor
+	healthStatus      <-chan HealthStatus
+	restartPolicy     RestartPolicy
+	resourceCollector *metrics.ResourceCollector // Shared resource collector (can be nil)
+	deathNotifier     func(string)               // Callback when all instances are dead
+	ctx               context.Context
+	cancel            context.CancelFunc
+	readinessCh       chan struct{}  // Closed when service becomes ready
+	readinessOnce     sync.Once      // CRITICAL: Ensures readinessCh closed exactly once
+	isReady           bool           // Track readiness state
+	goroutines        sync.WaitGroup // CRITICAL: Track all goroutines for clean shutdown
+	mu                sync.RWMutex
+	operationMu       sync.Mutex // Serializes lifecycle/scale operations so reads can proceed
 }
 
 // Instance represents a single process instance
@@ -56,26 +62,45 @@ type Instance struct {
 	pid          int
 	started      time.Time
 	restartCount int
+	doneCh       chan struct{} // Closed when process exits (monitored by monitorInstance)
+	stdoutWriter *logger.ProcessWriter
+	stderrWriter *logger.ProcessWriter
+	allowRestart bool
 	mu           sync.RWMutex
 }
 
 // NewSupervisor creates a new process supervisor
-func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalConfig, logger *slog.Logger) *Supervisor {
-	// Get restart backoff from global config (default: 5 seconds)
-	backoff := time.Duration(globalCfg.RestartBackoff) * time.Second
+func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalConfig, logger *slog.Logger, auditLogger *audit.Logger, resourceCollector *metrics.ResourceCollector) *Supervisor {
+	// Get restart backoff from global config (default: 5 seconds, max 1 minute)
+	initialBackoff := globalCfg.RestartBackoffInitial
+	if initialBackoff <= 0 {
+		initialBackoff = time.Duration(globalCfg.RestartBackoff) * time.Second
+		if initialBackoff <= 0 {
+			initialBackoff = 5 * time.Second
+		}
+	}
+	maxBackoff := globalCfg.RestartBackoffMax
+	if maxBackoff <= 0 {
+		maxBackoff = time.Duration(globalCfg.RestartBackoff) * time.Second
+		if maxBackoff <= 0 {
+			maxBackoff = 1 * time.Minute
+		}
+	}
 
 	// Get max attempts from global config (default: 3)
 	maxAttempts := globalCfg.MaxRestartAttempts
 
 	return &Supervisor{
-		name:          name,
-		config:        cfg,
-		logger:        logger.With("process", name),
-		instances:     make([]*Instance, 0, cfg.Scale),
-		state:         StateStopped,
-		restartPolicy: NewRestartPolicy(cfg.Restart, maxAttempts, backoff),
-		readinessCh:   make(chan struct{}),
-		isReady:       false,
+		name:              name,
+		config:            cfg,
+		logger:            logger.With("process", name),
+		auditLogger:       auditLogger,
+		instances:         make([]*Instance, 0, cfg.Scale),
+		state:             StateStopped,
+		restartPolicy:     NewRestartPolicy(cfg.Restart, maxAttempts, initialBackoff, maxBackoff),
+		resourceCollector: resourceCollector,
+		readinessCh:       make(chan struct{}),
+		isReady:           false,
 	}
 }
 
@@ -86,6 +111,21 @@ func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
 	s.deathNotifier = notifier
 }
 
+// streamEnabled determines if stdout/stderr streaming is enabled for this process
+func (s *Supervisor) streamEnabled(stream string) bool {
+	if s.config.Logging == nil {
+		return true
+	}
+	switch stream {
+	case "stdout":
+		return s.config.Logging.Stdout
+	case "stderr":
+		return s.config.Logging.Stderr
+	default:
+		return true
+	}
+}
+
 // MarkReadyImmediately marks the service as ready without waiting
 // Used for stopped processes to prevent dependency deadlocks
 func (s *Supervisor) MarkReadyImmediately() {
@@ -93,12 +133,14 @@ func (s *Supervisor) MarkReadyImmediately() {
 }
 
 // markReady atomically marks service as ready (thread-safe, idempotent)
+// CRITICAL: Does NOT acquire locks - caller must manage locking if needed
+// The sync.Once ensures the channel is closed exactly once regardless of concurrent calls
 func (s *Supervisor) markReady(reason string) {
 	s.readinessOnce.Do(func() {
 		close(s.readinessCh)
-		s.mu.Lock()
+		// NOTE: No lock here - isReady is just a status flag for debugging
+		// The readinessCh close is the actual synchronization mechanism
 		s.isReady = true
-		s.mu.Unlock()
 		s.logger.Debug("Service marked as ready",
 			"reason", reason,
 		)
@@ -144,6 +186,9 @@ func (s *Supervisor) WaitForReadiness(ctx context.Context, timeout time.Duration
 
 // Start starts all instances of the process
 func (s *Supervisor) Start(ctx context.Context) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -193,6 +238,15 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		s.markReady("no health check configured")
 	}
 
+	// Start resource metrics collection if enabled
+	if s.resourceCollector != nil {
+		s.goroutines.Add(1)
+		go func() {
+			defer s.goroutines.Done()
+			s.collectResourceMetrics()
+		}()
+	}
+
 	return nil
 }
 
@@ -205,9 +259,18 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 
 	// Create command
 	cmd := exec.CommandContext(ctx, s.config.Command[0], s.config.Command[1:]...)
+	if s.config.WorkingDir != "" {
+		cmd.Dir = s.config.WorkingDir
+	}
 
 	// Set environment variables
-	cmd.Env = append(os.Environ(), s.envVars(instanceID)...)
+	envVars := append(os.Environ(), s.envVars(instanceID)...)
+	envVars = append(envVars,
+		fmt.Sprintf("PHPEEK_SERVICE=%s", s.name),
+		fmt.Sprintf("PHPEEK_INSTANCE=%s", instanceID),
+		fmt.Sprintf("PHPEEK_PROCESS=%s", s.name),
+	)
+	cmd.Env = envVars
 
 	// CRITICAL: Put subprocess in its own process group
 	// This prevents Ctrl+C (SIGINT) from propagating to child processes
@@ -217,15 +280,33 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 	}
 
 	// Setup stdout/stderr capture with structured logging
-	cmd.Stdout = &logger.ProcessWriter{
-		Logger:     s.logger,
-		InstanceID: instanceID,
-		Stream:     "stdout",
+	// Create ProcessWriter instances only if stream enabled
+	var stdoutWriter *logger.ProcessWriter
+	var stderrWriter *logger.ProcessWriter
+	var err error
+
+	if s.streamEnabled("stdout") {
+		stdoutWriter, err = logger.NewProcessWriter(s.logger, s.name, instanceID, "stdout", s.config.Logging)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stdout writer: %w", err)
+		}
 	}
-	cmd.Stderr = &logger.ProcessWriter{
-		Logger:     s.logger,
-		InstanceID: instanceID,
-		Stream:     "stderr",
+	if s.streamEnabled("stderr") {
+		stderrWriter, err = logger.NewProcessWriter(s.logger, s.name, instanceID, "stderr", s.config.Logging)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create stderr writer: %w", err)
+		}
+	}
+
+	if stdoutWriter != nil {
+		cmd.Stdout = stdoutWriter
+	} else {
+		cmd.Stdout = io.Discard
+	}
+	if stderrWriter != nil {
+		cmd.Stderr = stderrWriter
+	} else {
+		cmd.Stderr = io.Discard
 	}
 
 	// Start the process
@@ -235,17 +316,24 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 
 	startTime := time.Now()
 	instance := &Instance{
-		id:      instanceID,
-		cmd:     cmd,
-		state:   StateRunning,
-		pid:     cmd.Process.Pid,
-		started: startTime,
+		id:           instanceID,
+		cmd:          cmd,
+		state:        StateRunning,
+		pid:          cmd.Process.Pid,
+		started:      startTime,
+		doneCh:       make(chan struct{}),
+		stdoutWriter: stdoutWriter,
+		stderrWriter: stderrWriter,
+		allowRestart: true,
 	}
 
 	s.logger.Info("Process instance started",
 		"instance_id", instanceID,
 		"pid", instance.pid,
 	)
+
+	// Log to audit trail
+	s.auditLogger.LogProcessStart(s.name, instance.pid, s.config.Scale)
 
 	// Record metrics
 	metrics.RecordProcessStart(s.name, instanceID, float64(startTime.Unix()))
@@ -274,6 +362,8 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 			instance.state = StateFailed
 			instance.mu.Unlock()
 		}
+		// CRITICAL: Always close doneCh to unblock stopInstance
+		close(instance.doneCh)
 	}()
 
 	err := instance.cmd.Wait()
@@ -326,12 +416,31 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 			"restart_count", restartCount,
 			"error", err,
 		)
+
+		// Log crash to audit trail
+		signal := ""
+		if instance.cmd.ProcessState != nil && instance.cmd.ProcessState.Sys() != nil {
+			signal = instance.cmd.ProcessState.String()
+		}
+		s.auditLogger.LogProcessCrash(s.name, instance.pid, exitCode, signal)
 	} else {
 		s.logger.Info("Process instance exited",
 			"instance_id", instance.id,
 			"exit_code", exitCode,
 			"restart_count", restartCount,
 		)
+	}
+
+	instance.mu.RLock()
+	allowRestart := instance.allowRestart
+	instance.mu.RUnlock()
+
+	// Skip restart if disabled (e.g., intentional stop/scale down)
+	if !allowRestart {
+		s.logger.Debug("Restart skipped because instance restart disabled",
+			"instance_id", instance.id,
+		)
+		return
 	}
 
 	// Check if we should restart (longrun only)
@@ -373,10 +482,8 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 			return
 		}
 
-		// Attempt restart with timeout protection
-		restartCtx, restartCancel := context.WithTimeout(s.ctx, 30*time.Second)
-		newInstance, err := s.startInstance(restartCtx, instance.id)
-		restartCancel() // Always cleanup context
+		// Attempt restart using supervisor context (ensures new instance isn't tied to request timeout)
+		newInstance, err := s.startInstance(s.ctx, instance.id)
 
 		if err != nil {
 			s.logger.Error("Failed to restart process instance",
@@ -395,6 +502,9 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 		newInstance.mu.Lock()
 		newInstance.restartCount = restartCount + 1
 		newInstance.mu.Unlock()
+
+		// Log restart to audit trail
+		s.auditLogger.LogProcessRestart(s.name, instance.pid, newInstance.pid, restartReason)
 
 		// Replace old instance with new one
 		s.mu.Lock()
@@ -417,8 +527,135 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 	}
 }
 
+// ScaleUp adds new instances to reach the target scale
+func (s *Supervisor) ScaleUp(ctx context.Context, targetScale int) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	s.mu.RLock()
+	currentScale := len(s.instances)
+	s.mu.RUnlock()
+
+	if targetScale <= currentScale {
+		return fmt.Errorf("target scale %d must be greater than current scale %d", targetScale, currentScale)
+	}
+
+	instancesToAdd := targetScale - currentScale
+	s.logger.Info("Scaling up supervisor",
+		"current_scale", currentScale,
+		"target_scale", targetScale,
+		"instances_to_add", instancesToAdd,
+	)
+
+	newInstances := make([]*Instance, 0, instancesToAdd)
+
+	// Start new instances
+	runCtx := s.ctx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+
+	for i := 0; i < instancesToAdd; i++ {
+		instanceID := fmt.Sprintf("%s-%d", s.name, currentScale+i)
+
+		instance, err := s.startInstance(runCtx, instanceID)
+		if err != nil {
+			// Clean up any instances we already started
+			for _, started := range newInstances {
+				if stopErr := s.stopInstance(ctx, started); stopErr != nil {
+					s.logger.Warn("Failed to cleanup instance after scale-up error",
+						"instance_id", started.id,
+						"error", stopErr,
+					)
+				}
+			}
+			return fmt.Errorf("failed to start instance %s during scale up: %w", instanceID, err)
+		}
+
+		newInstances = append(newInstances, instance)
+	}
+
+	s.mu.Lock()
+	s.instances = append(s.instances, newInstances...)
+	newScale := len(s.instances)
+	s.mu.Unlock()
+
+	s.logger.Info("Scale up completed",
+		"new_scale", newScale,
+	)
+	return nil
+}
+
+// ScaleDown removes instances to reach the target scale
+func (s *Supervisor) ScaleDown(ctx context.Context, targetScale int) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	s.mu.RLock()
+	currentScale := len(s.instances)
+	if targetScale >= currentScale {
+		s.mu.RUnlock()
+		return fmt.Errorf("target scale %d must be less than current scale %d", targetScale, currentScale)
+	}
+
+	instancesToRemove := currentScale - targetScale
+	// Copy pointers to the instances we plan to stop so we can release the main lock
+	toStop := make([]*Instance, 0, instancesToRemove)
+	for i := currentScale - 1; i >= targetScale; i-- {
+		toStop = append(toStop, s.instances[i])
+	}
+	s.mu.RUnlock()
+
+	s.logger.Info("Scaling down supervisor",
+		"current_scale", currentScale,
+		"target_scale", targetScale,
+		"instances_to_remove", instancesToRemove,
+	)
+
+	// Stop instances from the end (LIFO - Last In First Out)
+	var wg sync.WaitGroup
+	errChan := make(chan error, instancesToRemove)
+
+	for _, instance := range toStop {
+		wg.Add(1)
+		go func(inst *Instance) {
+			defer wg.Done()
+			if err := s.stopInstance(ctx, inst); err != nil {
+				errChan <- fmt.Errorf("failed to stop instance %s: %w", inst.id, err)
+			}
+		}(instance)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Collect errors
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	// Remove stopped instances from the list
+	s.mu.Lock()
+	s.instances = s.instances[:targetScale]
+	newScale := len(s.instances)
+	s.mu.Unlock()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("scale down completed with %d errors: %v", len(errs), errs)
+	}
+
+	s.logger.Info("Scale down completed",
+		"new_scale", newScale,
+	)
+	return nil
+}
+
 // Stop gracefully stops all process instances
 func (s *Supervisor) Stop(ctx context.Context) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
 	s.mu.Lock()
 	s.state = StateStopping
 	s.mu.Unlock()
@@ -473,6 +710,8 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 
 	s.mu.Lock()
 	s.state = StateStopped
+	s.instances = nil
+	s.ctx = nil
 	s.mu.Unlock()
 
 	if len(errs) > 0 {
@@ -506,6 +745,7 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		return nil
 	}
 	instance.state = StateStopping
+	instance.allowRestart = false
 	pid := instance.pid
 	instance.mu.Unlock()
 
@@ -563,16 +803,19 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		timeout = time.Duration(s.config.Shutdown.Timeout) * time.Second
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- instance.cmd.Wait()
-	}()
-
+	// CRITICAL: Wait on doneCh instead of calling Wait() again to avoid double-Wait race
+	// The monitorInstance goroutine is already calling Wait() and will close doneCh when done
 	select {
-	case <-done:
+	case <-instance.doneCh:
 		s.logger.Info("Process instance stopped gracefully",
 			"instance_id", instance.id,
 		)
+		// Log graceful stop to audit trail
+		s.auditLogger.LogProcessStop(s.name, pid, "graceful_shutdown")
+		// Clean up metrics buffer for this instance
+		if s.resourceCollector != nil {
+			s.resourceCollector.RemoveBuffer(s.name, instance.id)
+		}
 		return nil
 
 	case <-time.After(timeout):
@@ -586,7 +829,15 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 			return fmt.Errorf("failed to kill process: %w", err)
 		}
 
-		<-done // Wait for process to actually exit
+		// Wait for monitorInstance to detect the exit and close doneCh
+		<-instance.doneCh
+
+		// Log forced stop to audit trail
+		s.auditLogger.LogProcessStop(s.name, pid, "force_killed_after_timeout")
+		// Clean up metrics buffer for this instance
+		if s.resourceCollector != nil {
+			s.resourceCollector.RemoveBuffer(s.name, instance.id)
+		}
 		return nil
 	}
 }
@@ -639,9 +890,14 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 				// Record health check restart
 				metrics.RecordProcessRestart(s.name, "health_check")
 
+				// Copy instances slice to avoid holding supervisor lock while locking instances
+				s.mu.RLock()
+				instancesCopy := make([]*Instance, len(s.instances))
+				copy(instancesCopy, s.instances)
+				s.mu.RUnlock()
+
 				// Restart all instances that are currently running
-				s.mu.Lock()
-				for _, instance := range s.instances {
+				for _, instance := range instancesCopy {
 					instance.mu.Lock()
 					if instance.state == StateRunning {
 						s.logger.Info("Health check failure - restarting instance",
@@ -659,7 +915,6 @@ func (s *Supervisor) handleHealthStatus(ctx context.Context) {
 					}
 					instance.mu.Unlock()
 				}
-				s.mu.Unlock()
 			}
 		case <-ctx.Done():
 			return
@@ -741,4 +996,128 @@ func (s *Supervisor) checkAllInstancesDead() {
 		s.logger.Debug("All instances dead, notifying manager")
 		notifier(s.name)
 	}
+}
+
+// collectResourceMetrics periodically collects resource metrics for all running instances
+func (s *Supervisor) collectResourceMetrics() {
+	// Defensive: Check if resourceCollector is nil (should never happen if this is called)
+	if s.resourceCollector == nil {
+		return
+	}
+
+	// Get collection interval from manager
+	interval := s.resourceCollector.GetInterval()
+	if interval <= 0 {
+		s.logger.Debug("Resource metrics collection disabled (interval <= 0)")
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	s.logger.Debug("Resource metrics collection started", "interval", interval)
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.logger.Debug("Resource metrics collection stopped")
+			return
+
+		case <-ticker.C:
+			// Collect metrics for all running instances
+			s.collectInstanceMetrics()
+		}
+	}
+}
+
+// collectInstanceMetrics collects and records metrics for all running instances
+func (s *Supervisor) collectInstanceMetrics() {
+	startTime := time.Now()
+
+	s.mu.RLock()
+	instances := make([]*Instance, len(s.instances))
+	copy(instances, s.instances)
+	s.mu.RUnlock()
+
+	// Collect metrics for each instance
+	for _, inst := range instances {
+		inst.mu.RLock()
+		pid := inst.pid
+		instanceID := inst.id
+		state := inst.state
+		inst.mu.RUnlock()
+
+		// Only collect metrics for running processes
+		if state != StateRunning || pid == 0 {
+			continue
+		}
+
+		// Collect process metrics
+		sample, err := metrics.CollectProcessMetrics(pid, s.name, instanceID)
+		if err != nil {
+			metrics.ResourceCollectionErrors.WithLabelValues(s.name, instanceID).Inc()
+			s.logger.Debug("Failed to collect metrics",
+				"instance", instanceID,
+				"pid", pid,
+				"error", err,
+			)
+			continue
+		}
+
+		// Store in time series buffer
+		s.resourceCollector.AddSample(s.name, instanceID, *sample)
+
+		// Update Prometheus gauges
+		metrics.UpdatePrometheusMetrics(s.name, instanceID, sample)
+	}
+
+	// Record collection duration
+	duration := time.Since(startTime).Seconds()
+	metrics.ResourceCollectionDuration.Observe(duration)
+}
+
+// GetLogs returns log entries from all instances of this process
+// Aggregates logs from stdout and stderr writers of all instances
+func (s *Supervisor) GetLogs(limit int) []logger.LogEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var allLogs []logger.LogEntry
+
+	// Collect logs from all instances
+	for _, inst := range s.instances {
+		inst.mu.RLock()
+		stdoutWriter := inst.stdoutWriter
+		stderrWriter := inst.stderrWriter
+		inst.mu.RUnlock()
+
+		// Get logs from stdout
+		if stdoutWriter != nil {
+			if limit > 0 {
+				allLogs = append(allLogs, stdoutWriter.GetRecentLogs(limit)...)
+			} else {
+				allLogs = append(allLogs, stdoutWriter.GetLogs()...)
+			}
+		}
+
+		// Get logs from stderr
+		if stderrWriter != nil {
+			if limit > 0 {
+				allLogs = append(allLogs, stderrWriter.GetRecentLogs(limit)...)
+			} else {
+				allLogs = append(allLogs, stderrWriter.GetLogs()...)
+			}
+		}
+	}
+
+	// Sort by timestamp (newest first)
+	sort.Slice(allLogs, func(i, j int) bool {
+		return allLogs[i].Timestamp.After(allLogs[j].Timestamp)
+	})
+
+	// Apply limit if specified
+	if limit > 0 && len(allLogs) > limit {
+		allLogs = allLogs[:limit]
+	}
+
+	return allLogs
 }

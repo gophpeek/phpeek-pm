@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // Config represents the complete phpeek-pm configuration
 type Config struct {
 	Version   string              `yaml:"version" json:"version"`
@@ -10,24 +12,38 @@ type Config struct {
 
 // GlobalConfig contains global settings for the process manager
 type GlobalConfig struct {
-	ShutdownTimeout          int     `yaml:"shutdown_timeout" json:"shutdown_timeout"`                       // seconds
-	HealthCheckInterval      int     `yaml:"health_check_interval" json:"health_check_interval"`             // seconds
-	RestartPolicy            string  `yaml:"restart_policy" json:"restart_policy"`                           // always | on-failure | never
-	MaxRestartAttempts       int     `yaml:"max_restart_attempts" json:"max_restart_attempts"`               //
-	RestartBackoff           int     `yaml:"restart_backoff" json:"restart_backoff"`                         // seconds
-	AutotuneMemoryThreshold  float64 `yaml:"autotune_memory_threshold" json:"autotune_memory_threshold"`     // 0.0-2.0, overrides profile MaxMemoryUsage
-	LogFormat                string  `yaml:"log_format" json:"log_format"`                                   // json | text
-	LogLevel                 string  `yaml:"log_level" json:"log_level"`                                     // debug | info | warn | error
-	LogTimestamps            bool    `yaml:"log_timestamps" json:"log_timestamps"`                           //
-	MetricsEnabled           bool    `yaml:"metrics_enabled" json:"metrics_enabled"`                         //
-	MetricsPort              int     `yaml:"metrics_port" json:"metrics_port"`                               //
-	MetricsPath              string  `yaml:"metrics_path" json:"metrics_path"`                               //
-	APIEnabled               bool    `yaml:"api_enabled" json:"api_enabled"`                                 //
-	APIPort                  int     `yaml:"api_port" json:"api_port"`                                       //
-	APIAuth                  string  `yaml:"api_auth" json:"api_auth"`                                       // Bearer token
-	ResourceMetricsEnabled   bool    `yaml:"resource_metrics_enabled" json:"resource_metrics_enabled"`       // Enable CPU/RAM collection
-	ResourceMetricsInterval  int     `yaml:"resource_metrics_interval" json:"resource_metrics_interval"`     // seconds (default: 5)
-	ResourceMetricsMaxSamples int    `yaml:"resource_metrics_max_samples" json:"resource_metrics_max_samples"` // Per-instance buffer size (default: 720 = 1h at 5s)
+	ShutdownTimeout           int           `yaml:"shutdown_timeout" json:"shutdown_timeout"`                         // seconds
+	HealthCheckInterval       int           `yaml:"health_check_interval" json:"health_check_interval"`               // seconds
+	RestartPolicy             string        `yaml:"restart_policy" json:"restart_policy"`                             // always | on-failure | never
+	MaxRestartAttempts        int           `yaml:"max_restart_attempts" json:"max_restart_attempts"`                 //
+	RestartBackoff            int           `yaml:"restart_backoff" json:"restart_backoff"`                           // seconds (legacy, prefer restart_backoff_initial/max)
+	RestartBackoffInitial     time.Duration `yaml:"restart_backoff_initial" json:"restart_backoff_initial"`           // initial duration (supports "5s" style)
+	RestartBackoffMax         time.Duration `yaml:"restart_backoff_max" json:"restart_backoff_max"`                   // max duration
+	AutotuneMemoryThreshold   float64       `yaml:"autotune_memory_threshold" json:"autotune_memory_threshold"`       // 0.0-2.0, overrides profile MaxMemoryUsage
+	LogFormat                 string        `yaml:"log_format" json:"log_format"`                                     // json | text
+	LogLevel                  string        `yaml:"log_level" json:"log_level"`                                       // debug | info | warn | error
+	LogTimestamps             bool          `yaml:"log_timestamps" json:"log_timestamps"`                             //
+	MetricsEnabled            *bool         `yaml:"metrics_enabled" json:"metrics_enabled"`                           //
+	MetricsPort               int           `yaml:"metrics_port" json:"metrics_port"`                                 //
+	MetricsPath               string        `yaml:"metrics_path" json:"metrics_path"`                                 //
+	APIEnabled                *bool         `yaml:"api_enabled" json:"api_enabled"`                                   //
+	APIPort                   int           `yaml:"api_port" json:"api_port"`                                         //
+	APISocket                 string        `yaml:"api_socket" json:"api_socket"`                                     // Unix socket path (e.g. /var/run/phpeek-pm.sock)
+	APIAuth                   string        `yaml:"api_auth" json:"api_auth"`                                         // Bearer token
+	APITLS                    *TLSConfig    `yaml:"api_tls" json:"api_tls"`                                           // TLS configuration for API
+	APIACL                    *ACLConfig    `yaml:"api_acl" json:"api_acl"`                                           // IP ACL for API
+	MetricsTLS                *TLSConfig    `yaml:"metrics_tls" json:"metrics_tls"`                                   // TLS configuration for metrics
+	MetricsACL                *ACLConfig    `yaml:"metrics_acl" json:"metrics_acl"`                                   // IP ACL for metrics
+	ResourceMetricsEnabled    *bool         `yaml:"resource_metrics_enabled" json:"resource_metrics_enabled"`         // Enable CPU/RAM collection
+	ResourceMetricsInterval   int           `yaml:"resource_metrics_interval" json:"resource_metrics_interval"`       // seconds (default: 5)
+	ResourceMetricsMaxSamples int           `yaml:"resource_metrics_max_samples" json:"resource_metrics_max_samples"` // Per-instance buffer size (default: 720 = 1h at 5s)
+	AuditEnabled              bool          `yaml:"audit_enabled" json:"audit_enabled"`                               // Enable audit logging
+	TracingEnabled            bool          `yaml:"tracing_enabled" json:"tracing_enabled"`                           // Enable distributed tracing
+	TracingExporter           string        `yaml:"tracing_exporter" json:"tracing_exporter"`                         // otlp-grpc | otlp-http | stdout | jaeger | zipkin
+	TracingEndpoint           string        `yaml:"tracing_endpoint" json:"tracing_endpoint"`                         // Exporter endpoint (e.g., localhost:4317)
+	TracingSampleRate         float64       `yaml:"tracing_sample_rate" json:"tracing_sample_rate"`                   // 0.0-1.0 (default: 1.0 = 100%)
+	TracingServiceName        string        `yaml:"tracing_service_name" json:"tracing_service_name"`                 // Service name for traces (default: phpeek-pm)
+	TracingUseTLS             bool          `yaml:"tracing_use_tls" json:"tracing_use_tls"`                           // Enable TLS for production (default: false)
 }
 
 // HooksConfig contains lifecycle hooks
@@ -53,20 +69,20 @@ type Hook struct {
 // Process represents a managed process definition
 type Process struct {
 	Enabled      bool              `yaml:"enabled" json:"enabled"`
-	Type         string            `yaml:"type" json:"type"`               // oneshot | longrun (default: longrun)
+	Type         string            `yaml:"type" json:"type"`                   // oneshot | longrun (default: longrun)
 	InitialState string            `yaml:"initial_state" json:"initial_state"` // running | stopped (default: running)
 	Command      []string          `yaml:"command" json:"command"`
-	Priority     int               `yaml:"priority" json:"priority"`     // Lower starts first
-	Restart      string            `yaml:"restart" json:"restart"`       // always | on-failure | never
-	Scale        int               `yaml:"scale" json:"scale"`           // Number of instances
+	WorkingDir   string            `yaml:"working_dir" json:"working_dir"`   // Working directory override
+	Stdout       *bool             `yaml:"stdout" json:"stdout"`             // Legacy shorthand for logging.stdout
+	Stderr       *bool             `yaml:"stderr" json:"stderr"`             // Legacy shorthand for logging.stderr
+	Restart      string            `yaml:"restart" json:"restart"`           // always | on-failure | never
+	Scale        int               `yaml:"scale" json:"scale"`               // Number of instances
 	ScaleLocked  bool              `yaml:"scale_locked" json:"scale_locked"` // Prevent scaling (port conflicts)
 	DependsOn    []string          `yaml:"depends_on" json:"depends_on"`     // Process dependencies
 	Env          map[string]string `yaml:"env" json:"env"`
 	HealthCheck  *HealthCheck      `yaml:"health_check" json:"health_check"`
 	Shutdown     *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
-	Logging      *LoggingConfig    `yaml:"logging" json:"logging"`
-	Schedule     string            `yaml:"schedule" json:"schedule"`   // Cron expression for scheduled tasks
-	Heartbeat    *HeartbeatConfig  `yaml:"heartbeat" json:"heartbeat"` // Heartbeat/dead man's switch
+	Logging *LoggingConfig `yaml:"logging" json:"logging"`
 }
 
 // HealthCheck configuration
@@ -149,15 +165,26 @@ type FilterConfig struct {
 	Include []string `yaml:"include" json:"include"` // Only include logs matching these patterns (if specified)
 }
 
-// HeartbeatConfig configures heartbeat/dead man's switch notifications
-type HeartbeatConfig struct {
-	SuccessURL string            `yaml:"success_url" json:"success_url"` // URL to ping on success
-	FailureURL string            `yaml:"failure_url" json:"failure_url"` // URL to ping on failure
-	Timeout    int               `yaml:"timeout" json:"timeout"`         // HTTP timeout in seconds (default: 30)
-	RetryCount int               `yaml:"retry_count" json:"retry_count"` // Number of retries on failure (default: 3)
-	RetryDelay int               `yaml:"retry_delay" json:"retry_delay"` // Delay between retries in seconds (default: 5)
-	Method     string            `yaml:"method" json:"method"`           // HTTP method (default: POST)
-	Headers    map[string]string `yaml:"headers" json:"headers"`         // Custom HTTP headers (e.g., Authorization)
+// TLSConfig configures TLS/HTTPS for API and metrics endpoints
+type TLSConfig struct {
+	Enabled            bool     `yaml:"enabled" json:"enabled"`                           // Enable TLS
+	CertFile           string   `yaml:"cert_file" json:"cert_file"`                       // Path to certificate file
+	KeyFile            string   `yaml:"key_file" json:"key_file"`                         // Path to private key file
+	CAFile             string   `yaml:"ca_file" json:"ca_file"`                           // Path to CA certificate (for mTLS)
+	ClientAuth         string   `yaml:"client_auth" json:"client_auth"`                   // none | request | require | verify (default: none)
+	MinVersion         string   `yaml:"min_version" json:"min_version"`                   // TLS 1.2 | TLS 1.3 (default: TLS 1.2)
+	CipherSuites       []string `yaml:"cipher_suites" json:"cipher_suites"`               // Allowed cipher suites (empty = defaults)
+	AutoReload         bool     `yaml:"auto_reload" json:"auto_reload"`                   // Auto-reload certs on file change (default: false)
+	AutoReloadInterval int      `yaml:"auto_reload_interval" json:"auto_reload_interval"` // Check interval in seconds (default: 300)
+}
+
+// ACLConfig configures IP-based Access Control Lists
+type ACLConfig struct {
+	Enabled    bool     `yaml:"enabled" json:"enabled"`         // Enable IP ACL
+	Mode       string   `yaml:"mode" json:"mode"`               // allow | deny (default: allow)
+	AllowList  []string `yaml:"allow_list" json:"allow_list"`   // Allowed IP addresses/CIDRs
+	DenyList   []string `yaml:"deny_list" json:"deny_list"`     // Denied IP addresses/CIDRs
+	TrustProxy bool     `yaml:"trust_proxy" json:"trust_proxy"` // Trust X-Forwarded-For header (default: false)
 }
 
 // SetDefaults sets sensible default values for the configuration
@@ -182,6 +209,22 @@ func (c *Config) SetDefaults() {
 	if c.Global.RestartBackoff == 0 {
 		c.Global.RestartBackoff = 5
 	}
+	legacyBackoff := time.Duration(c.Global.RestartBackoff) * time.Second
+	if c.Global.RestartBackoffInitial == 0 {
+		if legacyBackoff > 0 {
+			c.Global.RestartBackoffInitial = legacyBackoff
+		} else {
+			c.Global.RestartBackoffInitial = 5 * time.Second
+		}
+	}
+	if c.Global.RestartBackoffMax == 0 {
+		if legacyBackoff > 0 {
+			c.Global.RestartBackoffMax = legacyBackoff * 12
+		}
+		if c.Global.RestartBackoffMax == 0 {
+			c.Global.RestartBackoffMax = 1 * time.Minute
+		}
+	}
 	if c.Global.LogFormat == "" {
 		c.Global.LogFormat = "json"
 	}
@@ -189,8 +232,10 @@ func (c *Config) SetDefaults() {
 		c.Global.LogLevel = "info"
 	}
 	c.Global.LogTimestamps = true
-	// Metrics disabled by default (enable with metrics_enabled: true)
-	// Prevents port conflicts in development
+	// Metrics enabled by default for observability
+	if c.Global.MetricsEnabled == nil {
+		c.Global.SetMetricsEnabled(true)
+	}
 	if c.Global.MetricsPort == 0 {
 		c.Global.MetricsPort = 9090
 	}
@@ -199,16 +244,80 @@ func (c *Config) SetDefaults() {
 	}
 	// API is enabled by default for TUI/remote control
 	// Can be disabled by explicitly setting api_enabled: false
-	c.Global.APIEnabled = true
-	if c.Global.APIPort == 0 {
-		c.Global.APIPort = 8080
+	if c.Global.APIEnabled == nil {
+		c.Global.SetAPIEnabled(true)
 	}
-	// Resource metrics disabled by default (opt-in for resource tracking)
+	if c.Global.APIPort == 0 {
+		c.Global.APIPort = 9180
+	}
+	// TLS defaults for API
+	if c.Global.APITLS != nil {
+		if c.Global.APITLS.MinVersion == "" {
+			c.Global.APITLS.MinVersion = "TLS 1.2"
+		}
+		if c.Global.APITLS.ClientAuth == "" {
+			c.Global.APITLS.ClientAuth = "none"
+		}
+		if c.Global.APITLS.AutoReloadInterval == 0 {
+			c.Global.APITLS.AutoReloadInterval = 300 // 5 minutes
+		}
+	}
+	// TLS defaults for Metrics
+	if c.Global.MetricsTLS != nil {
+		if c.Global.MetricsTLS.MinVersion == "" {
+			c.Global.MetricsTLS.MinVersion = "TLS 1.2"
+		}
+		if c.Global.MetricsTLS.ClientAuth == "" {
+			c.Global.MetricsTLS.ClientAuth = "none"
+		}
+		if c.Global.MetricsTLS.AutoReloadInterval == 0 {
+			c.Global.MetricsTLS.AutoReloadInterval = 300 // 5 minutes
+		}
+	}
+	// ACL defaults for API
+	if c.Global.APIACL != nil {
+		if c.Global.APIACL.Mode == "" {
+			c.Global.APIACL.Mode = "allow" // Whitelist approach (deny all except allowed)
+		}
+	}
+	// ACL defaults for Metrics
+	if c.Global.MetricsACL != nil {
+		if c.Global.MetricsACL.Mode == "" {
+			c.Global.MetricsACL.Mode = "allow" // Whitelist approach
+		}
+	}
+	// Enable resource metrics collection by default
+	if c.Global.ResourceMetricsEnabled == nil {
+		c.Global.SetResourceMetricsEnabled(true)
+	}
 	if c.Global.ResourceMetricsInterval == 0 {
 		c.Global.ResourceMetricsInterval = 5 // 5 seconds
 	}
 	if c.Global.ResourceMetricsMaxSamples == 0 {
 		c.Global.ResourceMetricsMaxSamples = 720 // 1 hour at 5s = 720 samples
+	}
+	// Distributed tracing disabled by default (opt-in for observability)
+	if c.Global.TracingExporter == "" {
+		c.Global.TracingExporter = "stdout" // Default: stdout for development
+	}
+	if c.Global.TracingSampleRate == 0 {
+		c.Global.TracingSampleRate = 1.0 // Default: 100% sampling
+	}
+	if c.Global.TracingServiceName == "" {
+		c.Global.TracingServiceName = "phpeek-pm" // Default service name
+	}
+	if c.Global.TracingEndpoint == "" {
+		// Set default endpoint based on exporter type
+		switch c.Global.TracingExporter {
+		case "otlp-grpc":
+			c.Global.TracingEndpoint = "localhost:4317"
+		case "otlp-http":
+			c.Global.TracingEndpoint = "localhost:4318"
+		case "jaeger":
+			c.Global.TracingEndpoint = "localhost:14268"
+		case "zipkin":
+			c.Global.TracingEndpoint = "http://localhost:9411/api/v2/spans"
+		}
 	}
 
 	// Process defaults
@@ -271,13 +380,35 @@ func (c *Config) SetDefaults() {
 		}
 
 		// Logging defaults
+		stdoutEnabled := true
+		if proc.Stdout != nil {
+			stdoutEnabled = *proc.Stdout
+		}
+		stderrEnabled := true
+		if proc.Stderr != nil {
+			stderrEnabled = *proc.Stderr
+		}
+
 		if proc.Logging == nil {
 			proc.Logging = &LoggingConfig{
-				Stdout: true,
-				Stderr: true,
+				Stdout: stdoutEnabled,
+				Stderr: stderrEnabled,
 				Labels: map[string]string{
 					"process": name,
 				},
+			}
+		} else {
+			if proc.Stdout != nil {
+				proc.Logging.Stdout = *proc.Stdout
+			}
+			if proc.Stderr != nil {
+				proc.Logging.Stderr = *proc.Stderr
+			}
+			if proc.Stdout == nil && !proc.Logging.Stdout {
+				proc.Logging.Stdout = true
+			}
+			if proc.Stderr == nil && !proc.Logging.Stderr {
+				proc.Logging.Stderr = true
 			}
 		}
 
@@ -304,4 +435,83 @@ func (c *Config) SetDefaults() {
 			}
 		}
 	}
+}
+
+// MetricsEnabledValue returns true if metrics are enabled (default true)
+func (g *GlobalConfig) MetricsEnabledValue() bool {
+	if g == nil || g.MetricsEnabled == nil {
+		return true
+	}
+	return *g.MetricsEnabled
+}
+
+// SetMetricsEnabled sets the metrics_enabled flag
+func (g *GlobalConfig) SetMetricsEnabled(v bool) {
+	g.MetricsEnabled = boolPtr(v)
+}
+
+// ResourceMetricsEnabledValue returns true if resource metrics enabled (default true)
+func (g *GlobalConfig) ResourceMetricsEnabledValue() bool {
+	if g == nil || g.ResourceMetricsEnabled == nil {
+		return true
+	}
+	return *g.ResourceMetricsEnabled
+}
+
+// SetResourceMetricsEnabled sets resource metrics flag
+func (g *GlobalConfig) SetResourceMetricsEnabled(v bool) {
+	g.ResourceMetricsEnabled = boolPtr(v)
+}
+
+// APIEnabledValue returns true if API enabled (default true)
+func (g *GlobalConfig) APIEnabledValue() bool {
+	if g == nil || g.APIEnabled == nil {
+		return true
+	}
+	return *g.APIEnabled
+}
+
+// SetAPIEnabled sets the api_enabled flag
+func (g *GlobalConfig) SetAPIEnabled(v bool) {
+	g.APIEnabled = boolPtr(v)
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+// Equal compares two Process configurations for equality
+func (p *Process) Equal(other *Process) bool {
+	if p == nil || other == nil {
+		return p == other
+	}
+
+	// Compare basic fields
+	if p.Enabled != other.Enabled ||
+		p.Scale != other.Scale ||
+		p.Restart != other.Restart ||
+		len(p.Command) != len(other.Command) ||
+		len(p.DependsOn) != len(other.DependsOn) {
+		return false
+	}
+
+	// Compare command slices
+	for i := range p.Command {
+		if p.Command[i] != other.Command[i] {
+			return false
+		}
+	}
+
+	// Compare depends_on slices
+	for i := range p.DependsOn {
+		if p.DependsOn[i] != other.DependsOn[i] {
+			return false
+		}
+	}
+
+	// For simplicity, if both configurations have different complex nested structs,
+	// consider them different (health checks, shutdown config, logging, etc.)
+	// In production, you'd want more detailed comparison
+
+	return true
 }

@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"context"
 	"log/slog"
 	"sync"
 	"time"
@@ -73,9 +72,6 @@ type ResourceCollector struct {
 	buffers    map[string]*TimeSeriesBuffer // key: "process-instance"
 	mu         sync.RWMutex
 	logger     *slog.Logger
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
 }
 
 // NewResourceCollector creates a new resource collector
@@ -137,4 +133,23 @@ func (rc *ResourceCollector) GetBufferSizes() map[string]int {
 	}
 
 	return sizes
+}
+
+// GetInterval returns the collection interval
+func (rc *ResourceCollector) GetInterval() time.Duration {
+	return rc.interval
+}
+
+// GetLatest returns the latest sample for a process instance if available
+func (rc *ResourceCollector) GetLatest(processName, instanceID string) (ResourceSample, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+
+	key := processName + "-" + instanceID
+	buffer, exists := rc.buffers[key]
+	if !exists {
+		return ResourceSample{}, false
+	}
+
+	return buffer.Latest()
 }

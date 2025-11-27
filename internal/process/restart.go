@@ -12,15 +12,17 @@ type RestartPolicy interface {
 
 // AlwaysRestartPolicy always restarts processes up to max attempts
 type AlwaysRestartPolicy struct {
-	maxAttempts int
-	backoff     time.Duration
+	maxAttempts    int
+	initialBackoff time.Duration
+	maxBackoff     time.Duration
 }
 
 // NewAlwaysRestartPolicy creates a new always restart policy
-func NewAlwaysRestartPolicy(maxAttempts int, backoff time.Duration) *AlwaysRestartPolicy {
+func NewAlwaysRestartPolicy(maxAttempts int, initial, max time.Duration) *AlwaysRestartPolicy {
 	return &AlwaysRestartPolicy{
-		maxAttempts: maxAttempts,
-		backoff:     backoff,
+		maxAttempts:    maxAttempts,
+		initialBackoff: initial,
+		maxBackoff:     max,
 	}
 }
 
@@ -32,25 +34,22 @@ func (p *AlwaysRestartPolicy) ShouldRestart(exitCode int, restartCount int) bool
 }
 
 func (p *AlwaysRestartPolicy) BackoffDuration(restartCount int) time.Duration {
-	// Exponential backoff: backoff * 2^restartCount (capped at 5 minutes)
-	duration := p.backoff * time.Duration(1<<uint(restartCount))
-	if duration > 5*time.Minute {
-		return 5 * time.Minute
-	}
-	return duration
+	return calculateBackoff(p.initialBackoff, p.maxBackoff, restartCount)
 }
 
 // OnFailureRestartPolicy restarts only on non-zero exit codes
 type OnFailureRestartPolicy struct {
-	maxAttempts int
-	backoff     time.Duration
+	maxAttempts    int
+	initialBackoff time.Duration
+	maxBackoff     time.Duration
 }
 
 // NewOnFailureRestartPolicy creates a new on-failure restart policy
-func NewOnFailureRestartPolicy(maxAttempts int, backoff time.Duration) *OnFailureRestartPolicy {
+func NewOnFailureRestartPolicy(maxAttempts int, initial, max time.Duration) *OnFailureRestartPolicy {
 	return &OnFailureRestartPolicy{
-		maxAttempts: maxAttempts,
-		backoff:     backoff,
+		maxAttempts:    maxAttempts,
+		initialBackoff: initial,
+		maxBackoff:     max,
 	}
 }
 
@@ -65,11 +64,7 @@ func (p *OnFailureRestartPolicy) ShouldRestart(exitCode int, restartCount int) b
 }
 
 func (p *OnFailureRestartPolicy) BackoffDuration(restartCount int) time.Duration {
-	duration := p.backoff * time.Duration(1<<uint(restartCount))
-	if duration > 5*time.Minute {
-		return 5 * time.Minute
-	}
-	return duration
+	return calculateBackoff(p.initialBackoff, p.maxBackoff, restartCount)
 }
 
 // NeverRestartPolicy never restarts processes
@@ -89,13 +84,24 @@ func (p *NeverRestartPolicy) BackoffDuration(restartCount int) time.Duration {
 }
 
 // NewRestartPolicy creates a restart policy based on type
-func NewRestartPolicy(policyType string, maxAttempts int, backoff time.Duration) RestartPolicy {
+func NewRestartPolicy(policyType string, maxAttempts int, initial, max time.Duration) RestartPolicy {
 	switch policyType {
 	case "always":
-		return NewAlwaysRestartPolicy(maxAttempts, backoff)
+		return NewAlwaysRestartPolicy(maxAttempts, initial, max)
 	case "on-failure":
-		return NewOnFailureRestartPolicy(maxAttempts, backoff)
+		return NewOnFailureRestartPolicy(maxAttempts, initial, max)
 	default:
 		return NewNeverRestartPolicy()
 	}
+}
+
+func calculateBackoff(initial, max time.Duration, restartCount int) time.Duration {
+	if initial <= 0 {
+		initial = 1 * time.Second
+	}
+	delay := initial * time.Duration(1<<uint(restartCount))
+	if max > 0 && delay > max {
+		return max
+	}
+	return delay
 }

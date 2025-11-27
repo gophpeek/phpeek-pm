@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,103 +20,7 @@ func Load() (*Config, error) {
 		}
 	}
 
-	cfg := &Config{
-		Processes: make(map[string]*Process),
-	}
-
-	// Try to load YAML config
-	if _, err := os.Stat(configPath); err == nil {
-		if err := loadYAML(configPath, cfg); err != nil {
-			return nil, fmt.Errorf("failed to load YAML config: %w", err)
-		}
-	} else {
-		// No config file, use env vars only
-		fmt.Fprintf(os.Stderr, "ℹ️  No config file found, using environment variables only\n")
-	}
-
-	// Apply defaults
-	cfg.SetDefaults()
-
-	// Override with environment variables
-	applyEnvOverrides(cfg)
-
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return cfg, nil
-}
-
-// loadYAML loads configuration from a YAML file
-func loadYAML(path string, cfg *Config) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// applyEnvOverrides applies environment variable overrides
-// Environment variables follow the pattern: PHPEEK_PM_<SECTION>_<KEY>
-func applyEnvOverrides(cfg *Config) {
-	// Global settings
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_SHUTDOWN_TIMEOUT"); v != "" {
-		var timeout int
-		if _, err := fmt.Sscanf(v, "%d", &timeout); err == nil {
-			cfg.Global.ShutdownTimeout = timeout
-		}
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_LOG_LEVEL"); v != "" {
-		cfg.Global.LogLevel = v
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_LOG_FORMAT"); v != "" {
-		cfg.Global.LogFormat = v
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_METRICS_PORT"); v != "" {
-		var port int
-		if _, err := fmt.Sscanf(v, "%d", &port); err == nil {
-			cfg.Global.MetricsPort = port
-		}
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_METRICS_ENABLED"); v != "" {
-		cfg.Global.MetricsEnabled = v == "true"
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_API_PORT"); v != "" {
-		var port int
-		if _, err := fmt.Sscanf(v, "%d", &port); err == nil {
-			cfg.Global.APIPort = port
-		}
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_API_ENABLED"); v != "" {
-		cfg.Global.APIEnabled = v == "true"
-	}
-	if v := os.Getenv("PHPEEK_PM_GLOBAL_API_AUTH"); v != "" {
-		cfg.Global.APIAuth = v
-	}
-
-	// Process-specific overrides
-	for name, proc := range cfg.Processes {
-		envPrefix := fmt.Sprintf("PHPEEK_PM_PROCESS_%s_", strings.ToUpper(strings.ReplaceAll(name, "-", "_")))
-
-		if v := os.Getenv(envPrefix + "ENABLED"); v != "" {
-			proc.Enabled = v == "true"
-		}
-		if v := os.Getenv(envPrefix + "SCALE"); v != "" {
-			var scale int
-			if _, err := fmt.Sscanf(v, "%d", &scale); err == nil {
-				proc.Scale = scale
-			}
-		}
-		if v := os.Getenv(envPrefix + "RESTART"); v != "" {
-			proc.Restart = v
-		}
-	}
+	return LoadWithEnvExpansion(configPath)
 }
 
 // Validate validates the configuration
@@ -166,9 +69,6 @@ func (c *Config) Validate() error {
 			}
 			if proc.Scale > 1 {
 				return fmt.Errorf("oneshot process %s cannot have scale > 1 (got %d)", name, proc.Scale)
-			}
-			if proc.Schedule != "" {
-				return fmt.Errorf("oneshot process %s cannot have schedule (use type: longrun with restart: never)", name)
 			}
 		}
 
@@ -235,4 +135,18 @@ func (c *Config) hasCycle(name string, visited, recStack map[string]bool) bool {
 
 	recStack[name] = false
 	return false
+}
+
+// Save writes the configuration to a file
+func Save(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }

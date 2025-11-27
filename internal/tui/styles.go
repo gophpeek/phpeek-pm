@@ -34,6 +34,21 @@ var (
 			Foreground(highlightColor).
 			Bold(true)
 
+	// Toast notification style
+	toastStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(primaryColor).
+			Padding(0, 1).
+			Bold(true)
+
+	// Dialog box style
+	dialogBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primaryColor).
+			Padding(1, 2).
+			Background(lipgloss.Color("#1a1a1a")).
+			Foreground(lipgloss.Color("#FFFFFF"))
+
 	// Table styles
 	tableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -45,41 +60,26 @@ var (
 )
 
 // State formatters
-func formatState(state string) string {
+func stateDisplay(state string) (string, lipgloss.Style) {
 	switch state {
 	case "running":
-		return successStyle.Render("✓ Running")
+		return "✓ Running", successStyle
 	case "starting":
-		return highlightStyle.Render("● Starting")
+		return "● Starting", highlightStyle
 	case "stopped":
-		return dimStyle.Render("○ Stopped")
+		return "○ Stopped", dimStyle
 	case "failed":
-		return errorStyle.Render("✗ Failed")
+		return "✗ Failed", errorStyle
 	case "completed":
-		return successStyle.Render("✓ Completed")
+		return "✓ Completed", successStyle
 	default:
-		return state
+		return state, dimStyle
 	}
 }
 
-func formatHealth(healthy bool) string {
+func healthDisplay(healthy bool) (string, lipgloss.Style) {
 	if healthy {
-		return successStyle.Render("✓ Healthy")
+		return "✓ Healthy", successStyle
 	}
-	return warnStyle.Render("⚠ Unhealthy")
-}
-
-func formatLogLevel(level string) string {
-	switch level {
-	case "ERROR", "error":
-		return errorStyle.Render(level)
-	case "WARN", "warn", "WARNING":
-		return warnStyle.Render(level)
-	case "INFO", "info":
-		return successStyle.Render(level)
-	case "DEBUG", "debug":
-		return dimStyle.Render(level)
-	default:
-		return level
-	}
+	return "⚠ Unhealthy", warnStyle
 }

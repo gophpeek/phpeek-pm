@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/gophpeek/phpeek-pm/internal/framework"
 )
 
 func TestPermissionManager_Setup(t *testing.T) {
@@ -14,13 +12,11 @@ func TestPermissionManager_Setup(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		framework framework.Framework
 		setupFunc func(string) error
 		checkDirs []string
 	}{
 		{
-			name:      "Laravel setup",
-			framework: framework.Laravel,
+			name: "Laravel setup",
 			setupFunc: func(dir string) error {
 				// Create artisan to make it a Laravel project
 				return os.WriteFile(filepath.Join(dir, "artisan"), []byte("#!/usr/bin/env php"), 0644)
@@ -34,10 +30,16 @@ func TestPermissionManager_Setup(t *testing.T) {
 			},
 		},
 		{
-			name:      "Symfony setup",
-			framework: framework.Symfony,
+			name: "Symfony setup",
 			setupFunc: func(dir string) error {
-				return nil
+				// Create bin/console and var/cache to make it a Symfony project
+				if err := os.MkdirAll(filepath.Join(dir, "bin"), 0755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(dir, "bin", "console"), []byte("#!/usr/bin/env php"), 0644); err != nil {
+					return err
+				}
+				return os.MkdirAll(filepath.Join(dir, "var", "cache"), 0755)
 			},
 			checkDirs: []string{
 				"var/cache",
@@ -45,18 +47,17 @@ func TestPermissionManager_Setup(t *testing.T) {
 			},
 		},
 		{
-			name:      "WordPress setup",
-			framework: framework.WordPress,
+			name: "WordPress setup",
 			setupFunc: func(dir string) error {
-				return nil
+				// Create wp-config.php to make it a WordPress project
+				return os.WriteFile(filepath.Join(dir, "wp-config.php"), []byte("<?php"), 0644)
 			},
 			checkDirs: []string{
 				"wp-content/uploads",
 			},
 		},
 		{
-			name:      "Generic framework (no-op)",
-			framework: framework.Generic,
+			name: "Generic framework (no-op)",
 			setupFunc: func(dir string) error {
 				return nil
 			},
@@ -79,7 +80,7 @@ func TestPermissionManager_Setup(t *testing.T) {
 			}
 
 			// Create permission manager and run setup
-			pm := NewPermissionManager(tmpDir, tt.framework, logger)
+			pm := NewPermissionManager(tmpDir, logger)
 			if err := pm.Setup(); err != nil {
 				t.Errorf("Setup() error = %v", err)
 			}
@@ -103,7 +104,7 @@ func TestPermissionManager_CreateDir(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	pm := NewPermissionManager(tmpDir, framework.Generic, logger)
+	pm := NewPermissionManager(tmpDir, logger)
 
 	testPath := filepath.Join(tmpDir, "nested", "dir", "structure")
 	if err := pm.createDir(testPath, 0755); err != nil {
@@ -119,9 +120,8 @@ func TestPermissionManager_CreateDir(t *testing.T) {
 func TestNewPermissionManager(t *testing.T) {
 	logger := slog.Default()
 	workdir := "/var/www/html"
-	fw := framework.Laravel
 
-	pm := NewPermissionManager(workdir, fw, logger)
+	pm := NewPermissionManager(workdir, logger)
 
 	if pm == nil {
 		t.Fatal("NewPermissionManager returned nil")
@@ -131,11 +131,73 @@ func TestNewPermissionManager(t *testing.T) {
 		t.Errorf("workdir = %v, want %v", pm.workdir, workdir)
 	}
 
-	if pm.framework != fw {
-		t.Errorf("framework = %v, want %v", pm.framework, fw)
-	}
-
 	if pm.logger == nil {
 		t.Error("logger is nil")
+	}
+}
+
+func TestDetectFramework(t *testing.T) {
+	logger := slog.Default()
+
+	tests := []struct {
+		name     string
+		setup    func(string) error
+		expected Framework
+	}{
+		{
+			name: "Laravel detection",
+			setup: func(dir string) error {
+				return os.WriteFile(filepath.Join(dir, "artisan"), []byte("#!/usr/bin/env php"), 0644)
+			},
+			expected: FrameworkLaravel,
+		},
+		{
+			name: "Symfony detection",
+			setup: func(dir string) error {
+				if err := os.MkdirAll(filepath.Join(dir, "bin"), 0755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(dir, "bin", "console"), []byte("#!/usr/bin/env php"), 0644); err != nil {
+					return err
+				}
+				return os.MkdirAll(filepath.Join(dir, "var", "cache"), 0755)
+			},
+			expected: FrameworkSymfony,
+		},
+		{
+			name: "WordPress detection",
+			setup: func(dir string) error {
+				return os.WriteFile(filepath.Join(dir, "wp-config.php"), []byte("<?php"), 0644)
+			},
+			expected: FrameworkWordPress,
+		},
+		{
+			name: "Generic (no markers)",
+			setup: func(dir string) error {
+				return nil
+			},
+			expected: FrameworkGeneric,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "phpeek-test-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			if err := tt.setup(tmpDir); err != nil {
+				t.Fatalf("Setup failed: %v", err)
+			}
+
+			pm := NewPermissionManager(tmpDir, logger)
+			detected := pm.detectFramework()
+
+			if detected != tt.expected {
+				t.Errorf("detectFramework() = %v, want %v", detected, tt.expected)
+			}
+		})
 	}
 }

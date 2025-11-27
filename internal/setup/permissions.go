@@ -4,29 +4,64 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+)
 
-	"github.com/gophpeek/phpeek-pm/internal/framework"
+// Framework represents a detected PHP framework
+type Framework string
+
+const (
+	FrameworkLaravel   Framework = "laravel"
+	FrameworkSymfony   Framework = "symfony"
+	FrameworkWordPress Framework = "wordpress"
+	FrameworkGeneric   Framework = "generic"
 )
 
 // PermissionManager handles directory creation and permission setup
 type PermissionManager struct {
-	logger    *slog.Logger
-	workdir   string
-	framework framework.Framework
+	logger  *slog.Logger
+	workdir string
 }
 
 // NewPermissionManager creates a new permission manager
-func NewPermissionManager(workdir string, fw framework.Framework, log *slog.Logger) *PermissionManager {
+func NewPermissionManager(workdir string, log *slog.Logger) *PermissionManager {
 	return &PermissionManager{
-		logger:    log,
-		workdir:   workdir,
-		framework: fw,
+		logger:  log,
+		workdir: workdir,
 	}
+}
+
+// detectFramework identifies the PHP framework in the working directory
+func (pm *PermissionManager) detectFramework() Framework {
+	// Laravel: check for artisan file
+	if fileExists(filepath.Join(pm.workdir, "artisan")) {
+		return FrameworkLaravel
+	}
+	// Symfony: check for bin/console and var/cache
+	if fileExists(filepath.Join(pm.workdir, "bin", "console")) &&
+		dirExists(filepath.Join(pm.workdir, "var", "cache")) {
+		return FrameworkSymfony
+	}
+	// WordPress: check for wp-config.php
+	if fileExists(filepath.Join(pm.workdir, "wp-config.php")) {
+		return FrameworkWordPress
+	}
+	return FrameworkGeneric
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // Setup creates necessary directories and sets permissions
 func (pm *PermissionManager) Setup() error {
-	pm.logger.Info("Setting up permissions", "framework", pm.framework)
+	fw := pm.detectFramework()
+	pm.logger.Info("Setting up permissions", "framework", fw)
 
 	// Detect read-only root filesystem
 	if IsReadOnlyRoot() {
@@ -35,12 +70,12 @@ func (pm *PermissionManager) Setup() error {
 		return nil
 	}
 
-	switch pm.framework {
-	case framework.Laravel:
+	switch fw {
+	case FrameworkLaravel:
 		return pm.setupLaravel()
-	case framework.Symfony:
+	case FrameworkSymfony:
 		return pm.setupSymfony()
-	case framework.WordPress:
+	case FrameworkWordPress:
 		return pm.setupWordPress()
 	default:
 		pm.logger.Debug("Generic framework, skipping permission setup")

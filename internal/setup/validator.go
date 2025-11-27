@@ -22,12 +22,12 @@ func (cv *ConfigValidator) ValidateAll() error {
 	cv.logger.Info("Validating configurations...")
 
 	if err := cv.ValidatePHPFPM(); err != nil {
-		return fmt.Errorf("PHP-FPM config invalid: %w", err)
+		return fmt.Errorf("php-fpm config invalid: %w", err)
 	}
 	cv.logger.Debug("PHP-FPM config valid")
 
 	if err := cv.ValidateNginx(); err != nil {
-		return fmt.Errorf("Nginx config invalid: %w", err)
+		return fmt.Errorf("nginx config invalid: %w", err)
 	}
 	cv.logger.Debug("Nginx config valid")
 

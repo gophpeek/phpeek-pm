@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,11 +20,11 @@ func Run(mgr *process.Manager) error {
 	model.height = 30
 
 	model.setupProcessTable()
+	model.setupInstanceTable()
 	model.setupLogViewport()
 
-	// CRITICAL: Populate initial data before starting TUI
-	// This ensures processes show up immediately instead of after first tick
-	model.refreshProcessList()
+	// Populate initial data before starting TUI
+	model.applyProcessListResult(model.fetchProcessList())
 
 	p := tea.NewProgram(
 		model,
@@ -49,6 +48,7 @@ func RunRemote(apiURL, auth string) error {
 	model.height = 30
 
 	model.setupProcessTable()
+	model.setupInstanceTable()
 	model.setupLogViewport()
 
 	// Test connection before starting
@@ -60,7 +60,7 @@ func RunRemote(apiURL, auth string) error {
 	}
 
 	// Populate initial data
-	model.refreshProcessList()
+	model.applyProcessListResult(model.fetchProcessList())
 
 	p := tea.NewProgram(
 		model,
@@ -99,19 +99,4 @@ func (m *Model) setupLogViewport() {
 		BorderForeground(primaryColor)
 
 	m.logViewport = vp
-}
-
-// Helper to update table styles
-func getTableStyle() table.Styles {
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(primaryColor).
-		BorderBottom(true).
-		Bold(true)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(primaryColor).
-		Bold(false)
-	return s
 }

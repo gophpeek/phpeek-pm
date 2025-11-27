@@ -206,47 +206,6 @@ var (
 		[]string{"version", "go_version"},
 	)
 
-	// Scheduled task metrics
-	ScheduledTaskRuns = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "phpeek_pm_scheduled_task_runs_total",
-			Help: "Total number of scheduled task runs",
-		},
-		[]string{"name", "status"}, // status: success, failed, started
-	)
-
-	ScheduledTaskDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "phpeek_pm_scheduled_task_duration_seconds",
-			Help:    "Scheduled task execution duration in seconds",
-			Buckets: []float64{0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0},
-		},
-		[]string{"name"},
-	)
-
-	ScheduledTaskLastRun = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "phpeek_pm_scheduled_task_last_run_seconds",
-			Help: "Unix timestamp of last scheduled task run",
-		},
-		[]string{"name"},
-	)
-
-	ScheduledTaskNextRun = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "phpeek_pm_scheduled_task_next_run_seconds",
-			Help: "Unix timestamp of next scheduled task run",
-		},
-		[]string{"name"},
-	)
-
-	ScheduledTaskLastExitCode = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "phpeek_pm_scheduled_task_last_exit_code",
-			Help: "Last exit code of scheduled task",
-		},
-		[]string{"name"},
-	)
 )
 
 // RecordProcessStart records a process start event
@@ -316,31 +275,6 @@ func SetManagerStartTime(startTime float64) {
 // SetBuildInfo sets build information
 func SetBuildInfo(version, goVersion string) {
 	BuildInfo.WithLabelValues(version, goVersion).Set(1)
-}
-
-// RecordScheduledTask records a scheduled task run with status
-func RecordScheduledTask(name, status string) {
-	ScheduledTaskRuns.WithLabelValues(name, status).Inc()
-}
-
-// RecordScheduledTaskDuration records scheduled task execution duration
-func RecordScheduledTaskDuration(name string, duration float64) {
-	ScheduledTaskDuration.WithLabelValues(name).Observe(duration)
-}
-
-// RecordScheduledTaskLastRun records the timestamp of last scheduled task run
-func RecordScheduledTaskLastRun(name string, timestamp float64) {
-	ScheduledTaskLastRun.WithLabelValues(name).Set(timestamp)
-}
-
-// RecordScheduledTaskNextRun records the timestamp of next scheduled task run
-func RecordScheduledTaskNextRun(name string, timestamp float64) {
-	ScheduledTaskNextRun.WithLabelValues(name).Set(timestamp)
-}
-
-// RecordScheduledTaskLastExitCode records the last exit code of scheduled task
-func RecordScheduledTaskLastExitCode(name string, exitCode int) {
-	ScheduledTaskLastExitCode.WithLabelValues(name).Set(float64(exitCode))
 }
 
 // RecordShutdownDuration records the duration of graceful shutdown

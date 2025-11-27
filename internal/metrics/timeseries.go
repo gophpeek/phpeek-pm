@@ -7,13 +7,13 @@ import (
 
 // ResourceSample represents a single resource metrics sample
 type ResourceSample struct {
-	Timestamp      time.Time `json:"timestamp"`
-	CPUPercent     float64   `json:"cpu_percent"`
-	MemoryRSSBytes uint64    `json:"memory_rss_bytes"`
-	MemoryVMSBytes uint64    `json:"memory_vms_bytes"`
-	MemoryPercent  float32   `json:"memory_percent"`
-	Threads        int32     `json:"threads"`
-	FileDescriptors int32    `json:"file_descriptors,omitempty"` // -1 if unavailable
+	Timestamp       time.Time `json:"timestamp"`
+	CPUPercent      float64   `json:"cpu_percent"`
+	MemoryRSSBytes  uint64    `json:"memory_rss_bytes"`
+	MemoryVMSBytes  uint64    `json:"memory_vms_bytes"`
+	MemoryPercent   float32   `json:"memory_percent"`
+	Threads         int32     `json:"threads"`
+	FileDescriptors int32     `json:"file_descriptors,omitempty"` // -1 if unavailable
 }
 
 // TimeSeriesBuffer stores resource metrics in a ring buffer
@@ -98,6 +98,19 @@ func (tsb *TimeSeriesBuffer) Size() int {
 	tsb.mu.RLock()
 	defer tsb.mu.RUnlock()
 	return tsb.size
+}
+
+// Latest returns the most recent sample
+func (tsb *TimeSeriesBuffer) Latest() (ResourceSample, bool) {
+	tsb.mu.RLock()
+	defer tsb.mu.RUnlock()
+
+	if tsb.size == 0 {
+		return ResourceSample{}, false
+	}
+
+	idx := (tsb.head - 1 + tsb.maxSamples) % tsb.maxSamples
+	return tsb.samples[idx], true
 }
 
 // Clear empties the buffer
