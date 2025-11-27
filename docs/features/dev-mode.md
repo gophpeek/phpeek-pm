@@ -344,9 +344,7 @@ global:
 # Initial: No dependencies
 processes:
   nginx:
-    priority: 20
   php-fpm:
-    priority: 10
 
 # Add dependency for correct order
 # Edit: Add depends_on: [php-fpm] to nginx

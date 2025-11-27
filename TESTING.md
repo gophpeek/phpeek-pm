@@ -37,7 +37,7 @@ global:
   log_level: info
   log_format: text
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
 
 processes:
   auto-start:
@@ -67,7 +67,7 @@ EOF
 INFO Process started successfully name=auto-start
 INFO Process in initial stopped state name=manual-start initial_state=stopped
 INFO All processes started successfully
-INFO API server started port=8080
+INFO API server started port=9180
 ```
 
 ### Verify
@@ -77,7 +77,7 @@ ps aux | grep sleep
 # Should only show auto-start, NOT manual-start
 
 # Start via API
-curl -X POST http://localhost:8080/api/v1/processes/manual-start/start
+curl -X POST http://localhost:9180/api/v1/processes/manual-start/start
 
 # Check again
 ps aux | grep sleep
@@ -95,7 +95,7 @@ version: "1.0"
 
 global:
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
 
 processes:
   fixed-port:
@@ -116,14 +116,14 @@ EOF
 ./build/phpeek-pm serve -c test-scale-locked.yaml &
 
 # Try to scale locked process (should fail)
-curl -X POST http://localhost:8080/api/v1/processes/fixed-port/scale \
+curl -X POST http://localhost:9180/api/v1/processes/fixed-port/scale \
   -H "Content-Type: application/json" \
   -d '{"desired": 2}'
 
 # Expected: {"error":"process fixed-port is scale-locked (likely binds to fixed port - cannot scale)"}
 
 # Try to scale unlocked process (will fail with "not implemented" but validates lock check works)
-curl -X POST http://localhost:8080/api/v1/processes/scalable/scale \
+curl -X POST http://localhost:9180/api/v1/processes/scalable/scale \
   -H "Content-Type: application/json" \
   -d '{"desired": 5}'
 
@@ -225,7 +225,6 @@ version: "1.0"
 processes:
   backend:
     command: ["sh", "-c", "sleep 5 && nc -l -p 9999"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9999"
@@ -233,7 +232,6 @@ processes:
 
   frontend:
     command: ["sleep", "300"]
-    priority: 20
     depends_on: [backend]
 EOF
 
@@ -259,12 +257,10 @@ processes:
   init-task:
     type: oneshot
     command: ["sh", "-c", "echo 'Initialization...' && sleep 2 && echo 'Done!'"]
-    priority: 10
 
   main-service:
     type: longrun
     command: ["sleep", "300"]
-    priority: 20
     depends_on: [init-task]
 EOF
 
@@ -294,22 +290,22 @@ DAEMON_PID=$!
 ### Test Endpoints
 ```bash
 # Health check
-curl http://localhost:8080/api/v1/health
+curl http://localhost:9180/api/v1/health
 
 # List processes
-curl http://localhost:8080/api/v1/processes | jq
+curl http://localhost:9180/api/v1/processes | jq
 
 # Start stopped process
-curl -X POST http://localhost:8080/api/v1/processes/nginx/start
+curl -X POST http://localhost:9180/api/v1/processes/nginx/start
 
 # Stop running process
-curl -X POST http://localhost:8080/api/v1/processes/nginx/stop
+curl -X POST http://localhost:9180/api/v1/processes/nginx/stop
 
 # Restart process
-curl -X POST http://localhost:8080/api/v1/processes/nginx/restart
+curl -X POST http://localhost:9180/api/v1/processes/nginx/restart
 
 # Try to scale locked process (should fail)
-curl -X POST http://localhost:8080/api/v1/processes/nginx/scale \
+curl -X POST http://localhost:9180/api/v1/processes/nginx/scale \
   -H "Content-Type: application/json" \
   -d '{"desired": 2}'
 ```
@@ -521,19 +517,19 @@ chmod +x integration-test.sh
 sleep 2
 
 # Check status
-curl http://localhost:8080/api/v1/processes | jq '.processes[] | {name, state}'
+curl http://localhost:9180/api/v1/processes | jq '.processes[] | {name, state}'
 
 # Start nginx (initially stopped)
-curl -X POST http://localhost:8080/api/v1/processes/nginx/start
+curl -X POST http://localhost:9180/api/v1/processes/nginx/start
 
 # Check it started
-curl http://localhost:8080/api/v1/processes | jq '.processes[] | select(.name=="nginx")'
+curl http://localhost:9180/api/v1/processes | jq '.processes[] | select(.name=="nginx")'
 
 # Stop it
-curl -X POST http://localhost:8080/api/v1/processes/nginx/stop
+curl -X POST http://localhost:9180/api/v1/processes/nginx/stop
 
 # Try to scale php-fpm (should fail - scale_locked)
-curl -X POST http://localhost:8080/api/v1/processes/php-fpm/scale \
+curl -X POST http://localhost:9180/api/v1/processes/php-fpm/scale \
   -H "Content-Type: application/json" \
   -d '{"desired": 2}'
 # Expected error: scale-locked
@@ -562,19 +558,19 @@ Ctrl+C
 INFO Process started successfully name=php-fpm
 INFO Process in initial stopped state name=nginx initial_state=stopped
 INFO All processes started successfully
-INFO API server started port=8080
+INFO API server started port=9180
 ```
 
 **Terminal 2: Connect TUI**
 ```bash
 ./build/phpeek-pm tui
 # Or with custom API endpoint:
-./build/phpeek-pm tui --remote http://localhost:8080
+./build/phpeek-pm tui --remote http://localhost:9180
 ```
 
 **Expected:**
 ```
-🔗 Connecting to remote API: http://localhost:8080
+🔗 Connecting to remote API: http://localhost:9180
 [TUI opens with process list]
 ```
 
@@ -598,7 +594,7 @@ INFO API server started port=8080
 
 **Error:**
 ```
-🔗 Connecting to remote API: http://localhost:8080
+🔗 Connecting to remote API: http://localhost:9180
 ❌ Remote TUI error: failed to connect to API: connection refused
 
 💡 Make sure daemon is running:
@@ -612,9 +608,9 @@ INFO API server started port=8080
    ```yaml
    global:
      api_enabled: true  # Required!
-     api_port: 8080
+     api_port: 9180
    ```
-3. Verify daemon is running: `curl localhost:8080/api/v1/health`
+3. Verify daemon is running: `curl localhost:9180/api/v1/health`
 
 ---
 
@@ -629,15 +625,15 @@ INFO API server started port=8080
 # - Nginx: ○ Stopped (initial_state: stopped)
 # - Horizon: ○ Stopped (initial_state: stopped)
 # - Queue: ○ Stopped (initial_state: stopped)
-# - API enabled on :8080
+# - API enabled on :9180
 
 # Control processes:
-curl -X POST localhost:8080/api/v1/processes/nginx/start
-curl -X POST localhost:8080/api/v1/processes/horizon/start
-curl -X POST localhost:8080/api/v1/processes/queue-default/start
+curl -X POST localhost:9180/api/v1/processes/nginx/start
+curl -X POST localhost:9180/api/v1/processes/horizon/start
+curl -X POST localhost:9180/api/v1/processes/queue-default/start
 
 # All should now be running
-curl localhost:8080/api/v1/processes | jq '.processes[] | {name, state}'
+curl localhost:9180/api/v1/processes | jq '.processes[] | {name, state}'
 ```
 
 ---
@@ -671,7 +667,7 @@ export PHPEEK_PM_CONFIG=/path/to/config.yaml
 ./build/phpeek-pm serve -c your-config.yaml
 
 # In another terminal, check API
-curl localhost:8080/api/v1/processes
+curl localhost:9180/api/v1/processes
 ```
 
 ---
@@ -692,7 +688,7 @@ curl localhost:8080/api/v1/processes
    ./build/phpeek-pm serve
 
    # Terminal 2: TUI connects to daemon
-   ./build/phpeek-pm tui --remote http://localhost:8080
+   ./build/phpeek-pm tui --remote http://localhost:9180
    ```
 
 3. **Test Log Streaming (Phase 3):**

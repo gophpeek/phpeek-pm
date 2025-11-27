@@ -15,7 +15,7 @@ Enable the API in your `phpeek-pm.yaml`:
 ```yaml
 global:
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token-here"  # Optional Bearer token
 ```
 
@@ -25,7 +25,7 @@ If `api_auth` is configured, all API requests (except `/api/v1/health`) require 
 
 ```bash
 curl -H "Authorization: Bearer your-secure-token-here" \
-  http://localhost:8080/api/v1/processes
+  http://localhost:9180/api/v1/processes
 ```
 
 ## Endpoints
@@ -146,7 +146,7 @@ Perform actions on a specific process.
 
 ```bash
 curl -H "Authorization: Bearer your-token" \
-  http://localhost:8080/api/v1/processes
+  http://localhost:9180/api/v1/processes
 ```
 
 ### Restart a process
@@ -154,7 +154,7 @@ curl -H "Authorization: Bearer your-token" \
 ```bash
 curl -X POST \
   -H "Authorization: Bearer your-token" \
-  http://localhost:8080/api/v1/processes/php-fpm/restart
+  http://localhost:9180/api/v1/processes/php-fpm/restart
 ```
 
 ### Scale a process to 10 instances
@@ -164,13 +164,13 @@ curl -X POST \
   -H "Authorization: Bearer your-token" \
   -H "Content-Type: application/json" \
   -d '{"scale": 10}' \
-  http://localhost:8080/api/v1/processes/queue-default/scale
+  http://localhost:9180/api/v1/processes/queue-default/scale
 ```
 
 ### Check API health (no auth required)
 
 ```bash
-curl http://localhost:8080/api/v1/health
+curl http://localhost:9180/api/v1/health
 ```
 
 ## Error Responses

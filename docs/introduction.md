@@ -154,7 +154,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     health_check:
       type: tcp
@@ -163,14 +162,12 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     restart: always
 
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     depends_on: [php-fpm]
     shutdown:
       pre_stop_hook:

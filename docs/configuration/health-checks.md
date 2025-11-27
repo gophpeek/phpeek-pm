@@ -234,13 +234,11 @@ health_check:
 ```yaml
 processes:
   php-fpm:
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
 
   nginx:
-    priority: 20
     depends_on: [php-fpm]  # Waits for PHP-FPM to be healthy
     health_check:
       type: http
@@ -270,7 +268,7 @@ processes:
 set -e
 
 # Check HTTP endpoint
-curl -f http://localhost:8080/health || exit 1
+curl -f http://localhost:9180/health || exit 1
 
 # Check database
 psql -U user -d db -c "SELECT 1" || exit 1
@@ -308,7 +306,6 @@ processes:
   # PHP-FPM with TCP check
   php-fpm:
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -319,7 +316,6 @@ processes:
   # Nginx with HTTP check
   nginx:
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     health_check:
       type: http
@@ -332,7 +328,6 @@ processes:
   # Horizon with exec check
   horizon:
     command: ["php", "artisan", "horizon"]
-    priority: 30
     health_check:
       type: exec
       command: ["php", "artisan", "horizon:status"]
@@ -347,7 +342,6 @@ processes:
 processes:
   database:
     command: ["postgres"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:5432"
@@ -355,7 +349,6 @@ processes:
 
   cache:
     command: ["redis-server"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:6379"
@@ -363,7 +356,6 @@ processes:
 
   api:
     command: ["./api-server"]
-    priority: 20
     depends_on: [database, cache]
     health_check:
       type: http
@@ -373,7 +365,6 @@ processes:
 
   worker:
     command: ["./worker"]
-    priority: 30
     depends_on: [database, cache]
     health_check:
       type: exec
@@ -438,7 +429,7 @@ phpeek_pm_process_health_status{process="nginx"} 1  # 1 = healthy
 
 ```bash
 # Get process status
-curl http://localhost:8080/api/v1/processes | jq '.[] | {name, health_status}'
+curl http://localhost:9180/api/v1/processes | jq '.[] | {name, health_status}'
 
 # Example output
 {

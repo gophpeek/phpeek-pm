@@ -15,7 +15,6 @@ processes:
   process-name:
     enabled: true
     command: ["executable", "arg1", "arg2"]
-    priority: 10
     restart: always
     scale: 1
     working_dir: /var/www/html
@@ -77,30 +76,6 @@ command: ["php", "artisan", "horizon"]
 command: ["php", "artisan", "reverb:start"]
 ```
 
-### priority
-
-**Type:** `integer`
-**Default:** `99`
-**Description:** Startup order (lower = starts first, higher = starts last).
-
-```yaml
-processes:
-  php-fpm:
-    priority: 10  # Start first
-
-  nginx:
-    priority: 20  # Start after PHP-FPM
-
-  queue:
-    priority: 30  # Start after Nginx
-```
-
-**Recommended Ranges:**
-- **1-10:** Core infrastructure (PHP-FPM, databases)
-- **11-20:** Web servers (Nginx, Apache)
-- **21-30:** Application services (Horizon, queues)
-- **31-40:** Optional services (workers, scheduled tasks)
-
 ### restart
 
 **Type:** `string`
@@ -159,21 +134,22 @@ processes:
 ```yaml
 processes:
   php-fpm:
-    priority: 10
+    command: ["php-fpm", "-F", "-R"]
 
   nginx:
-    priority: 20
+    command: ["nginx", "-g", "daemon off;"]
     depends_on: [php-fpm]  # Wait for PHP-FPM to be healthy
 
   horizon:
-    priority: 30
-    depends_on: [php-fpm, nginx]  # Wait for both
+    command: ["php", "artisan", "horizon"]
+    depends_on: [php-fpm]  # Wait for PHP-FPM
 ```
 
 **Behavior:**
 - Processes wait for dependencies to be **healthy** (if health check configured)
 - Creates a dependency graph (DAG) for proper ordering
 - Prevents startup failures from missing dependencies
+- Processes without dependencies start in alphabetical order
 
 ### working_dir
 
@@ -187,6 +163,22 @@ processes:
     command: ["./my-app"]
     working_dir: /opt/application
 ```
+
+### stdout / stderr
+
+**Type:** `bool`
+**Default:** `true`
+**Description:** Enable or disable forwarding of the process' STDOUT/STDERR streams to PHPeek's logger.
+
+```yaml
+processes:
+  queue-default:
+    command: ["php", "artisan", "queue:work"]
+    stdout: false  # Silence STDOUT
+    stderr: true
+```
+
+Use these top-level flags as a shorthand for `logging.stdout` and `logging.stderr`.
 
 ### env
 
@@ -322,7 +314,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     health_check:
       type: tcp
@@ -333,7 +324,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     restart: always
     depends_on: [php-fpm]
     health_check:
@@ -344,8 +334,8 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     restart: on-failure
+    depends_on: [php-fpm]
     working_dir: /var/www/html
     shutdown:
       timeout: 120
@@ -358,8 +348,8 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--tries=3"]
     scale: 3
-    priority: 40
     restart: always
+    depends_on: [php-fpm]
     env:
       QUEUE_CONNECTION: redis
       QUEUE_NAME: default

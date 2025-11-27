@@ -340,7 +340,7 @@ curl http://localhost:9090/metrics | grep scheduled_task
 
 ```bash
 # Get task status
-curl http://localhost:8080/api/v1/processes | jq '.[] | select(.scheduled==true)'
+curl http://localhost:9180/api/v1/processes | jq '.[] | select(.scheduled==true)'
 
 # Example response:
 {

@@ -32,7 +32,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
 ```
 
@@ -45,19 +44,16 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
 
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
 
   queue-default:
     enabled: true
     command: ["php", "artisan", "queue:work"]
     scale: 3
-    priority: 30
 ```
 
 ## See Also

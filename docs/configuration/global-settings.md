@@ -21,7 +21,7 @@ global:
   metrics_port: 9090
   metrics_path: /metrics
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token"
 ```
 
@@ -122,6 +122,20 @@ global:
     - "metrics_export"  # Exclude metrics logs
 ```
 
+### Restart Configuration
+
+```yaml
+global:
+  restart_policy: always           # always | on-failure | never
+  max_restart_attempts: 5          # 0 = unlimited
+  restart_backoff_initial: 5s      # Initial delay before restart
+  restart_backoff_max: 60s         # Maximum delay cap
+```
+
+- `restart_backoff_initial` and `restart_backoff_max` accept Go duration strings (`5s`, `1m`, etc.).
+- Backoff grows exponentially (`initial * 2^n`) and is clamped by `restart_backoff_max`.
+- Legacy `restart_backoff` (integer seconds) is still accepted for backwards compatibility.
+
 ### Metrics Configuration
 
 ```yaml
@@ -148,13 +162,13 @@ See [Prometheus Metrics](../observability/metrics) for complete metric documenta
 ```yaml
 global:
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token"
 ```
 
 **Settings:**
-- `api_enabled` - Enable/disable REST API (default: `false`)
-- `api_port` - HTTP port for API endpoints (default: `8080`)
+- `api_enabled` - Enable/disable REST API (default: `true`)
+- `api_port` - HTTP port for API endpoints (default: `9180`)
 - `api_auth` - Optional Bearer token for authentication
 
 **API Endpoints:**
@@ -163,6 +177,8 @@ global:
 - `POST /api/v1/processes/{name}/restart` - Restart process
 
 See [Management API](../observability/api) for complete API documentation.
+
+> **Note:** The API is enabled by default to support the TUI and remote management. Set `api_enabled: false` (or `PHPEEK_PM_GLOBAL_API_ENABLED=false`) to disable it entirely.
 
 ## Environment Variable Overrides
 
@@ -206,7 +222,7 @@ global:
   metrics_port: 9090
 
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token-here"
 
 processes:

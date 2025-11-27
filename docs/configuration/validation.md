@@ -201,7 +201,7 @@ Machine-readable output for automation, scripting, and tooling integration.
 - Invalid data types (`shutdown_timeout: "abc"`)
 - Circular dependencies (`A depends on B, B depends on A`)
 - Invalid enum values (`restart: "sometimes"`)
-- Out-of-range values (`priority: 150`, max is 100)
+- Out-of-range values (`scale: 1000`, max is 100)
 - Unknown process references in `depends_on`
 - Invalid regex patterns
 - Port conflicts

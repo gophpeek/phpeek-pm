@@ -169,7 +169,7 @@ phpeek_pm_scheduled_task_total{task="backup-job",status="failure"}
 
 ```bash
 # Get task status
-curl http://localhost:8080/api/v1/processes | \
+curl http://localhost:9180/api/v1/processes | \
   jq '.[] | select(.scheduled==true)'
 
 # Response:
@@ -532,7 +532,7 @@ curl http://localhost:9090/metrics | \
 ```bash
 # Get all scheduled tasks
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/processes | \
+  http://localhost:9180/api/v1/processes | \
   jq '.[] | select(.scheduled==true) | {name, last_run, next_run, success_count, failure_count}'
 ```
 

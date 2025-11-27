@@ -31,7 +31,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
 ```
 
@@ -58,7 +57,6 @@ processes:
   php-fpm:
     enabled: true                      # Start this process
     command: ["php-fpm", "-F", "-R"]  # Foreground mode, allow root
-    priority: 10                       # Startup order (low = first)
     restart: always                    # Always restart on exit
 ```
 

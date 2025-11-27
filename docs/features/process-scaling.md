@@ -148,7 +148,7 @@ curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"desired": 10}' \
-  http://localhost:8080/api/v1/processes/queue-default/scale
+  http://localhost:9180/api/v1/processes/queue-default/scale
 
 # Response:
 {
@@ -170,7 +170,7 @@ curl -X POST \
 ```bash
 #!/bin/bash
 # auto-scale-queues.sh
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 while true; do
@@ -339,7 +339,7 @@ sum(phpeek_pm_process_restarts_total{process=~"queue-default-.*"})
 ```bash
 # List all instances
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/processes | \
+  http://localhost:9180/api/v1/processes | \
   jq '.[] | select(.name | startswith("queue-default-"))'
 
 # Response:
@@ -404,7 +404,7 @@ processes:
 # Stop specific instance
 curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/api/v1/processes/queue-default-5/stop
+  http://localhost:9180/api/v1/processes/queue-default-5/stop
 ```
 
 ### Uneven Load Distribution
@@ -463,7 +463,7 @@ esac
 ```bash
 #!/bin/bash
 # gradual-scale.sh
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 CURRENT=2

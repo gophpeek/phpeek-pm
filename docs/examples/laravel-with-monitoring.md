@@ -48,7 +48,7 @@ global:
 
   # Management API
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token-here"
 
 hooks:
@@ -65,7 +65,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     health_check:
       type: tcp
@@ -75,7 +74,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     health_check:
       type: http
@@ -85,7 +83,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     health_check:
       type: exec
       command: ["php", "artisan", "horizon:status"]
@@ -100,7 +97,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work"]
     scale: 3
-    priority: 40
 ```
 
 ## Prometheus Metrics
@@ -205,7 +201,7 @@ export API_TOKEN="your-secure-token-here"
 
 # All requests require Bearer token
 curl -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:8080/api/v1/health
+  http://localhost:9180/api/v1/health
 ```
 
 ### API Endpoints
@@ -214,7 +210,7 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 
 **Check API health:**
 ```bash
-curl http://localhost:8080/api/v1/health
+curl http://localhost:9180/api/v1/health
 
 # Response:
 {
@@ -228,7 +224,7 @@ curl http://localhost:8080/api/v1/health
 **List all processes:**
 ```bash
 curl -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:8080/api/v1/processes | jq
+  http://localhost:9180/api/v1/processes | jq
 
 # Response:
 [
@@ -258,7 +254,7 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:8080/api/v1/processes/nginx/restart
+  http://localhost:9180/api/v1/processes/nginx/restart
 
 # Response:
 {
@@ -274,7 +270,7 @@ curl -X POST \
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:8080/api/v1/processes/queue-default/stop
+  http://localhost:9180/api/v1/processes/queue-default/stop
 
 # Response:
 {
@@ -289,7 +285,7 @@ curl -X POST \
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_TOKEN" \
-  http://localhost:8080/api/v1/processes/queue-default/start
+  http://localhost:9180/api/v1/processes/queue-default/start
 
 # Response:
 {
@@ -306,7 +302,7 @@ curl -X POST \
   -H "Authorization: Bearer $API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"desired": 5}' \
-  http://localhost:8080/api/v1/processes/queue-default/scale
+  http://localhost:9180/api/v1/processes/queue-default/scale
 
 # Response:
 {
@@ -326,7 +322,7 @@ curl -X POST \
 # deploy-with-monitoring.sh
 set -e
 
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 echo "1. Check current health..."
@@ -352,7 +348,7 @@ echo "Deployment complete!"
 ```bash
 #!/bin/bash
 # scale-queues.sh
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 # Get current queue depth
@@ -381,7 +377,7 @@ fi
 ```bash
 #!/bin/bash
 # health-monitor.sh
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 while true; do
@@ -616,7 +612,7 @@ receivers:
 
 ```bash
 # API base URL
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-secure-token-here"
 
 # Restart Nginx (zero-downtime reload)
@@ -647,7 +643,7 @@ curl -X POST \
 **check-health.sh:**
 ```bash
 #!/bin/bash
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 # Get all process health
@@ -668,7 +664,7 @@ fi
 **auto-scale-queues.sh:**
 ```bash
 #!/bin/bash
-API_URL="http://localhost:8080/api/v1"
+API_URL="http://localhost:9180/api/v1"
 TOKEN="your-api-token"
 
 # Get current queue depth (Laravel Horizon)
@@ -938,7 +934,7 @@ curl http://localhost:9090/metrics | head
 **Test without authentication:**
 ```bash
 # Check if API is reachable
-curl http://localhost:8080/api/v1/health
+curl http://localhost:9180/api/v1/health
 
 # If this works, check token
 echo $API_TOKEN

@@ -375,18 +375,15 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
 
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
 
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     shutdown:
       timeout: 120
       pre_stop_hook:

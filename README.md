@@ -50,7 +50,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
 ```
 
@@ -160,18 +159,15 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
 
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
 
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     shutdown:
       pre_stop_hook:
         command: ["php", "artisan", "horizon:terminate"]
@@ -181,7 +177,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--tries=3"]
     scale: 3
-    priority: 40
 ```
 
 ## Scheduled Tasks
@@ -446,12 +441,12 @@ See [docs/observability/metrics.md](docs/observability/metrics.md) for complete 
 
 ### Management API
 
-REST API for runtime process control on port 8080 (configurable):
+REST API for runtime process control on port 9180 (configurable):
 
 ```yaml
 global:
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token"  # Optional Bearer token
 ```
 

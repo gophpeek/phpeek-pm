@@ -58,7 +58,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -66,7 +65,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     health_check:
       type: http
@@ -75,7 +73,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     shutdown:
       pre_stop_hook:
         command: ["php", "artisan", "horizon:terminate"]
@@ -85,7 +82,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--tries=3"]
     scale: 3
-    priority: 40
 ```
 
 ### 2. Production (Laravel + Observability)
@@ -141,19 +137,16 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
 
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
 
   messenger-async:
     enabled: true
     command: ["php", "bin/console", "messenger:consume", "async", "--time-limit=3600"]
     scale: 2
-    priority: 30
     restart: always
 ```
 
@@ -487,7 +480,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--queue=emails"]
     scale: 2
-    priority: 45
 ```
 
 ### 4. Validate Configuration

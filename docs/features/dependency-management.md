@@ -24,18 +24,15 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
 
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]  # Wait for PHP-FPM
 
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     depends_on: [php-fpm, nginx]  # Wait for both
 ```
 
@@ -60,13 +57,10 @@ Horizon starts (all dependencies met)
 # Simple priority-based ordering
 processes:
   php-fpm:
-    priority: 10  # Starts first
 
   nginx:
-    priority: 20  # Starts second
 
   worker:
-    priority: 30  # Starts third
 ```
 
 **Behavior:** Processes start in priority order, but don't wait for each other.
@@ -78,17 +72,14 @@ processes:
 ```yaml
 processes:
   php-fpm:
-    priority: 10
     health_check:
       type: tcp
       address: 127.0.0.1:9000
 
   nginx:
-    priority: 20
     depends_on: [php-fpm]  # WAIT for PHP-FPM health
 
   worker:
-    priority: 30
     depends_on: [php-fpm]  # WAIT for PHP-FPM health
 ```
 
@@ -103,14 +94,11 @@ processes:
 ```yaml
 processes:
   database:
-    priority: 10
 
   app:
-    priority: 20
     depends_on: [database]
 
   worker:
-    priority: 30
     depends_on: [app]
 ```
 
@@ -124,17 +112,13 @@ database → app → worker
 ```yaml
 processes:
   database:
-    priority: 10
 
   cache:
-    priority: 10
 
   app:
-    priority: 20
     depends_on: [database, cache]
 
   worker:
-    priority: 30
     depends_on: [app]
 ```
 
@@ -155,29 +139,22 @@ processes:
 ```yaml
 processes:
   postgres:
-    priority: 10
 
   redis:
-    priority: 10
 
   php-fpm:
-    priority: 20
     depends_on: [postgres, redis]
 
   nginx:
-    priority: 30
     depends_on: [php-fpm]
 
   horizon:
-    priority: 40
     depends_on: [php-fpm, redis]
 
   queue-default:
-    priority: 50
     depends_on: [php-fpm, redis]
 
   queue-high:
-    priority: 45
     depends_on: [php-fpm, redis]
 ```
 
@@ -329,28 +306,22 @@ processes:
 processes:
   # Stage 1: Infrastructure
   postgres:
-    priority: 10
 
   redis:
-    priority: 10
 
   # Stage 2: Application
   php-fpm:
-    priority: 20
     depends_on: [postgres, redis]
 
   # Stage 3: Web layer
   nginx:
-    priority: 30
     depends_on: [php-fpm]
 
   # Stage 4: Background services
   horizon:
-    priority: 40
     depends_on: [php-fpm, redis]
 
   queue:
-    priority: 50
     depends_on: [php-fpm, redis]
 ```
 
@@ -366,13 +337,10 @@ processes:
 ```yaml
 processes:
   logger:
-    priority: 5  # Start first for logging
 
   app:
-    priority: 10  # Start second
 
   metrics:
-    priority: 15  # Start last
 ```
 
 ### When to Use depends_on
@@ -399,19 +367,15 @@ processes:
 processes:
   # Infrastructure (priority 10)
   postgres:
-    priority: 10
 
   redis:
-    priority: 10
 
   # Application depends on infrastructure (priority 20)
   php-fpm:
-    priority: 20
     depends_on: [postgres, redis]
 
   # Web depends on application (priority 30)
   nginx:
-    priority: 30
     depends_on: [php-fpm]
 ```
 
@@ -449,7 +413,7 @@ processes:
 docker logs app | grep "waiting for dependency"
 
 # Check dependency health
-curl http://localhost:8080/api/v1/processes | jq '.[] | {name, health_status}'
+curl http://localhost:9180/api/v1/processes | jq '.[] | {name, health_status}'
 ```
 
 **Solutions:**

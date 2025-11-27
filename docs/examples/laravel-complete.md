@@ -60,7 +60,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     health_check:
       type: tcp
@@ -77,7 +76,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     restart: always
     depends_on: [php-fpm]
     health_check:
@@ -96,7 +94,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     restart: always
     depends_on: [php-fpm]
     health_check:
@@ -118,7 +115,6 @@ processes:
   reverb:
     enabled: false  # Enable for real-time features
     command: ["php", "artisan", "reverb:start"]
-    priority: 30
     restart: always
     depends_on: [php-fpm]
     health_check:
@@ -140,7 +136,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
     scale: 2
-    priority: 40
     restart: on-failure
     depends_on: [php-fpm]
     shutdown:
@@ -152,7 +147,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "schedule:run"]
     schedule: "* * * * *"  # Every minute
-    priority: 50
     restart: never
     depends_on: [php-fpm]
 ```
@@ -247,7 +241,6 @@ hooks:
 php-fpm:
   enabled: true
   command: ["php-fpm", "-F", "-R"]
-  priority: 10  # Start first
   restart: always
 
   health_check:
@@ -274,7 +267,6 @@ php-fpm:
 nginx:
   enabled: true
   command: ["nginx", "-g", "daemon off;"]
-  priority: 20  # Start after PHP-FPM
   depends_on: [php-fpm]  # Wait for PHP-FPM health
 
   health_check:
@@ -303,7 +295,6 @@ Route::get('/health', function () {
 horizon:
   enabled: true
   command: ["php", "artisan", "horizon"]
-  priority: 30
   depends_on: [php-fpm]
 
   shutdown:
@@ -327,7 +318,6 @@ queue-default:
   enabled: true
   command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
   scale: 2  # Run 2 workers
-  priority: 40
   restart: on-failure  # Only restart on errors
   depends_on: [php-fpm]
 
@@ -758,7 +748,7 @@ curl http://localhost:9090/metrics
 
 ```bash
 # Check all process health
-curl http://localhost:8080/api/v1/processes | jq '.[] | {name, health_status, state}'
+curl http://localhost:9180/api/v1/processes | jq '.[] | {name, health_status, state}'
 ```
 
 ## Troubleshooting

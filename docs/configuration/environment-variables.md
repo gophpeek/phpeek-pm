@@ -116,6 +116,17 @@ PHPEEK_PM_GLOBAL_METRICS_PORT=9090
 PHPEEK_PM_GLOBAL_METRICS_PATH=/metrics
 ```
 
+### Restart Configuration
+
+```bash
+# Exponential backoff (Go duration strings)
+PHPEEK_PM_GLOBAL_RESTART_BACKOFF_INITIAL=5s
+PHPEEK_PM_GLOBAL_RESTART_BACKOFF_MAX=60s
+
+# Maximum automatic restart attempts (0 = unlimited)
+PHPEEK_PM_GLOBAL_MAX_RESTART_ATTEMPTS=5
+```
+
 ### API Configuration
 
 ```bash

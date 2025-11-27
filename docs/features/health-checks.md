@@ -364,7 +364,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -372,7 +371,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]  # Wait for PHP-FPM
     health_check:
       type: http
@@ -475,7 +473,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -485,7 +482,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     health_check:
       type: http
@@ -498,7 +494,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     health_check:
       type: exec
       command: ["php", "artisan", "horizon:status"]

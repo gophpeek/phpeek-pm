@@ -91,7 +91,6 @@ data:
       php-fpm:
         enabled: true
         command: ["php-fpm", "-F", "-R"]
-        priority: 10
         restart: always
         health_check:
           type: tcp
@@ -100,7 +99,6 @@ data:
       nginx:
         enabled: true
         command: ["nginx", "-g", "daemon off;"]
-        priority: 20
         depends_on: [php-fpm]
         health_check:
           type: http
@@ -109,7 +107,6 @@ data:
       horizon:
         enabled: true
         command: ["php", "artisan", "horizon"]
-        priority: 30
         shutdown:
           pre_stop_hook:
             command: ["php", "artisan", "horizon:terminate"]
@@ -119,7 +116,6 @@ data:
         enabled: true
         command: ["php", "artisan", "queue:work"]
         scale: 2
-        priority: 40
 ```
 
 ### Deployment
@@ -844,7 +840,7 @@ curl http://localhost:9090/metrics
 kubectl port-forward -n production deployment/laravel-app 8080:8080
 
 # Get process status
-curl http://localhost:8080/api/v1/processes
+curl http://localhost:9180/api/v1/processes
 ```
 
 ### View Logs
