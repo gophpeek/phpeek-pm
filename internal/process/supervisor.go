@@ -31,6 +31,21 @@ const (
 	StateCompleted ProcessState = "completed" // For oneshot services that ran successfully
 )
 
+// Default timeouts for supervisor operations.
+const (
+	// DefaultRestartBackoffInitial is the initial delay before restarting a failed process.
+	DefaultRestartBackoffInitial = 5 * time.Second
+
+	// DefaultRestartBackoffMax is the maximum delay between restart attempts.
+	DefaultRestartBackoffMax = 1 * time.Minute
+
+	// DefaultGoroutineStopTimeout is the timeout for supervisor goroutines to stop during shutdown.
+	DefaultGoroutineStopTimeout = 5 * time.Second
+
+	// DefaultInstanceShutdownTimeout is the timeout for graceful instance shutdown.
+	DefaultInstanceShutdownTimeout = 30 * time.Second
+)
+
 // Supervisor supervises a single process (potentially with multiple instances)
 type Supervisor struct {
 	name              string
@@ -76,14 +91,14 @@ func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalCon
 	if initialBackoff <= 0 {
 		initialBackoff = time.Duration(globalCfg.RestartBackoff) * time.Second
 		if initialBackoff <= 0 {
-			initialBackoff = 5 * time.Second
+			initialBackoff = DefaultRestartBackoffInitial
 		}
 	}
 	maxBackoff := globalCfg.RestartBackoffMax
 	if maxBackoff <= 0 {
 		maxBackoff = time.Duration(globalCfg.RestartBackoff) * time.Second
 		if maxBackoff <= 0 {
-			maxBackoff = 1 * time.Minute
+			maxBackoff = DefaultRestartBackoffMax
 		}
 	}
 
@@ -698,7 +713,7 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	select {
 	case <-goroutinesDone:
 		s.logger.Debug("All supervisor goroutines stopped")
-	case <-time.After(5 * time.Second):
+	case <-time.After(DefaultGoroutineStopTimeout):
 		s.logger.Warn("Timeout waiting for supervisor goroutines to stop")
 	}
 
@@ -798,7 +813,7 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 	}
 
 	// Wait for graceful shutdown with timeout
-	timeout := 30 * time.Second
+	timeout := DefaultInstanceShutdownTimeout
 	if s.config.Shutdown != nil && s.config.Shutdown.Timeout > 0 {
 		timeout = time.Duration(s.config.Shutdown.Timeout) * time.Second
 	}

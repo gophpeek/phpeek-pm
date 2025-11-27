@@ -19,6 +19,23 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+// Default timeouts and limits for process management operations.
+// These can be overridden via configuration where applicable.
+const (
+	// DefaultDependencyReadinessTimeout is the maximum time to wait for
+	// a process's dependencies to become ready before starting it.
+	DefaultDependencyReadinessTimeout = 5 * time.Minute
+
+	// DefaultProcessStartTimeout is the timeout for starting a single process.
+	DefaultProcessStartTimeout = 30 * time.Second
+
+	// DefaultProcessStopTimeout is the timeout for stopping a single process.
+	DefaultProcessStopTimeout = 60 * time.Second
+
+	// MaxProcessScale is the maximum number of instances a process can scale to.
+	MaxProcessScale = 100
+)
+
 // Manager manages multiple processes
 type Manager struct {
 	config            *config.Config
@@ -129,15 +146,14 @@ func (m *Manager) Start(ctx context.Context) error {
 					return fmt.Errorf("dependency %s not found for process %s", depName, name)
 				}
 
-				// Wait for dependency readiness (5 minute timeout)
-				readinessTimeout := 5 * time.Minute
+				// Wait for dependency readiness
 				m.logger.Debug("Waiting for dependency readiness",
 					"process", name,
 					"dependency", depName,
-					"timeout", readinessTimeout,
+					"timeout", DefaultDependencyReadinessTimeout,
 				)
 
-				if err := depSup.WaitForReadiness(ctx, readinessTimeout); err != nil {
+				if err := depSup.WaitForReadiness(ctx, DefaultDependencyReadinessTimeout); err != nil {
 					return fmt.Errorf("dependency %s not ready for process %s: %w", depName, name, err)
 				}
 
@@ -464,7 +480,7 @@ func (m *Manager) StartProcess(ctx context.Context, name string) error {
 	)
 
 	// Start the process with timeout
-	startCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	startCtx, cancel := context.WithTimeout(ctx, DefaultProcessStartTimeout)
 	defer cancel()
 
 	if err := sup.Start(startCtx); err != nil {
@@ -509,7 +525,7 @@ func (m *Manager) StopProcess(ctx context.Context, name string) error {
 	)
 
 	// Stop the process with timeout
-	stopCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	stopCtx, cancel := context.WithTimeout(ctx, DefaultProcessStopTimeout)
 	defer cancel()
 
 	if err := sup.Stop(stopCtx); err != nil {
@@ -555,7 +571,7 @@ func (m *Manager) RestartProcess(ctx context.Context, name string) error {
 	}
 
 	// Stop with timeout
-	stopCtx, stopCancel := context.WithTimeout(ctx, 60*time.Second)
+	stopCtx, stopCancel := context.WithTimeout(ctx, DefaultProcessStopTimeout)
 	if err := sup.Stop(stopCtx); err != nil {
 		stopCancel()
 		m.logger.Error("Failed to stop process during restart",
@@ -585,8 +601,8 @@ func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale in
 	if name == "" {
 		return fmt.Errorf("process name cannot be empty")
 	}
-	if desiredScale > 100 {
-		return fmt.Errorf("desired scale %d exceeds maximum (100)", desiredScale)
+	if desiredScale > MaxProcessScale {
+		return fmt.Errorf("desired scale %d exceeds maximum (%d)", desiredScale, MaxProcessScale)
 	}
 
 	m.mu.RLock()
@@ -617,7 +633,7 @@ func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale in
 			return nil
 		}
 		m.logger.Info("Scale request to zero treated as stop", "name", name)
-		stopCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		stopCtx, cancel := context.WithTimeout(ctx, DefaultProcessStopTimeout)
 		defer cancel()
 		if err := sup.Stop(stopCtx); err != nil {
 			return fmt.Errorf("failed to stop process %s for scale 0: %w", name, err)
