@@ -9,7 +9,8 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
 		maxAttempts  int
-		backoff      time.Duration
+		initial      time.Duration
+		max          time.Duration
 		exitCode     int
 		restartCount int
 		wantRestart  bool
@@ -18,16 +19,18 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 		{
 			name:         "unlimited restarts",
 			maxAttempts:  0,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 10,
 			wantRestart:  true,
-			wantBackoff:  5 * time.Minute, // Capped at 5 minutes
+			wantBackoff:  1 * time.Minute, // Capped at configured max
 		},
 		{
 			name:         "within max attempts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 2,
 			wantRestart:  true,
@@ -36,7 +39,8 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 		{
 			name:         "exceeded max attempts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 3,
 			wantRestart:  false,
@@ -44,7 +48,8 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 		{
 			name:         "zero exit code still restarts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     0,
 			restartCount: 1,
 			wantRestart:  true,
@@ -53,7 +58,8 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 		{
 			name:         "exponential backoff first attempt",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 0,
 			wantRestart:  true,
@@ -63,7 +69,7 @@ func TestAlwaysRestartPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := NewAlwaysRestartPolicy(tt.maxAttempts, tt.backoff)
+			policy := NewAlwaysRestartPolicy(tt.maxAttempts, tt.initial, tt.max)
 
 			shouldRestart := policy.ShouldRestart(tt.exitCode, tt.restartCount)
 			if shouldRestart != tt.wantRestart {
@@ -84,7 +90,8 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
 		maxAttempts  int
-		backoff      time.Duration
+		initial      time.Duration
+		max          time.Duration
 		exitCode     int
 		restartCount int
 		wantRestart  bool
@@ -93,16 +100,18 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 		{
 			name:         "failure with unlimited attempts",
 			maxAttempts:  0,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 10,
 			wantRestart:  true,
-			wantBackoff:  5 * time.Minute, // Capped
+			wantBackoff:  1 * time.Minute, // Capped
 		},
 		{
 			name:         "clean exit does not restart",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     0,
 			restartCount: 0,
 			wantRestart:  false,
@@ -110,7 +119,8 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 		{
 			name:         "failure within max attempts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 2,
 			wantRestart:  true,
@@ -119,7 +129,8 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 		{
 			name:         "failure exceeded max attempts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     1,
 			restartCount: 3,
 			wantRestart:  false,
@@ -127,7 +138,8 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 		{
 			name:         "non-zero exit code restarts",
 			maxAttempts:  3,
-			backoff:      5 * time.Second,
+			initial:      5 * time.Second,
+			max:          1 * time.Minute,
 			exitCode:     137,
 			restartCount: 1,
 			wantRestart:  true,
@@ -137,7 +149,7 @@ func TestOnFailureRestartPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := NewOnFailureRestartPolicy(tt.maxAttempts, tt.backoff)
+			policy := NewOnFailureRestartPolicy(tt.maxAttempts, tt.initial, tt.max)
 
 			shouldRestart := policy.ShouldRestart(tt.exitCode, tt.restartCount)
 			if shouldRestart != tt.wantRestart {
@@ -199,42 +211,47 @@ func TestNewRestartPolicy(t *testing.T) {
 		name        string
 		policyType  string
 		maxAttempts int
-		backoff     time.Duration
+		initial     time.Duration
+		max         time.Duration
 		wantType    string
 	}{
 		{
 			name:        "always policy",
 			policyType:  "always",
 			maxAttempts: 3,
-			backoff:     5 * time.Second,
+			initial:     5 * time.Second,
+			max:         1 * time.Minute,
 			wantType:    "*process.AlwaysRestartPolicy",
 		},
 		{
 			name:        "on-failure policy",
 			policyType:  "on-failure",
 			maxAttempts: 3,
-			backoff:     5 * time.Second,
+			initial:     5 * time.Second,
+			max:         1 * time.Minute,
 			wantType:    "*process.OnFailureRestartPolicy",
 		},
 		{
 			name:        "never policy",
 			policyType:  "never",
 			maxAttempts: 3,
-			backoff:     5 * time.Second,
+			initial:     5 * time.Second,
+			max:         1 * time.Minute,
 			wantType:    "*process.NeverRestartPolicy",
 		},
 		{
 			name:        "unknown policy defaults to never",
 			policyType:  "unknown",
 			maxAttempts: 3,
-			backoff:     5 * time.Second,
+			initial:     5 * time.Second,
+			max:         1 * time.Minute,
 			wantType:    "*process.NeverRestartPolicy",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			policy := NewRestartPolicy(tt.policyType, tt.maxAttempts, tt.backoff)
+			policy := NewRestartPolicy(tt.policyType, tt.maxAttempts, tt.initial, tt.max)
 
 			if policy == nil {
 				t.Errorf("NewRestartPolicy() returned nil")
@@ -244,7 +261,7 @@ func TestNewRestartPolicy(t *testing.T) {
 }
 
 func TestBackoffCapping(t *testing.T) {
-	policy := NewAlwaysRestartPolicy(0, 1*time.Second)
+	policy := NewAlwaysRestartPolicy(0, 1*time.Second, 30*time.Second)
 
 	tests := []struct {
 		restartCount int
@@ -252,18 +269,18 @@ func TestBackoffCapping(t *testing.T) {
 	}{
 		{restartCount: 0, wantCapped: false}, // 1s
 		{restartCount: 5, wantCapped: false}, // 32s
-		{restartCount: 10, wantCapped: true}, // Would be 1024s, but capped at 300s
+		{restartCount: 10, wantCapped: true}, // Would be > 30s, but capped
 		{restartCount: 20, wantCapped: true}, // Way over cap
 	}
 
 	for _, tt := range tests {
 		backoff := policy.BackoffDuration(tt.restartCount)
 
-		if tt.wantCapped && backoff != 5*time.Minute {
-			t.Errorf("BackoffDuration(%d) = %v, want capped at %v", tt.restartCount, backoff, 5*time.Minute)
+		if tt.wantCapped && backoff != 30*time.Second {
+			t.Errorf("BackoffDuration(%d) = %v, want capped at %v", tt.restartCount, backoff, 30*time.Second)
 		}
 
-		if !tt.wantCapped && backoff > 5*time.Minute {
+		if !tt.wantCapped && backoff > 30*time.Second {
 			t.Errorf("BackoffDuration(%d) = %v, should not be capped", tt.restartCount, backoff)
 		}
 	}

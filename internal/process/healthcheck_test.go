@@ -39,7 +39,7 @@ func TestNewHealthChecker(t *testing.T) {
 			name: "http health check",
 			config: &config.HealthCheck{
 				Type:           "http",
-				URL:            "http://localhost:8080/health",
+				URL:            "http://localhost:9180/health",
 				ExpectedStatus: 200,
 			},
 			wantErr:  false,
