@@ -1,0 +1,21 @@
+version: "1.0"
+
+global:
+  shutdown_timeout: 30
+  log_level: info
+  log_format: text
+
+  # Enable distributed tracing (stdout exporter for testing)
+  tracing_enabled: true
+  tracing_exporter: stdout
+  tracing_sample_rate: 1.0
+  tracing_service_name: phpeek-pm-test
+
+processes:
+  test-process:
+    enabled: true
+    command: ["sleep", "5"]
+    type: longrun
+    restart: never
+    initial_state: running
+    scale: 1

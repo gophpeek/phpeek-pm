@@ -11,7 +11,7 @@ global:
   metrics_port: 9090
   metrics_path: /metrics
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
 
 processes:
   # Database backup - runs daily at 2 AM
@@ -19,7 +19,6 @@ processes:
     enabled: true
     command: ["/usr/local/bin/backup-database.sh"]
     schedule: "0 2 * * *"  # Standard cron format: min hour day month weekday
-    priority: 10
     restart: never  # Scheduled tasks run to completion
     env:
       BACKUP_PATH: /backups
@@ -46,7 +45,6 @@ processes:
     enabled: true
     command: ["php", "/var/www/artisan", "cache:warm"]
     schedule: "*/15 * * * *"  # Every 15 minutes
-    priority: 20
     restart: never
     env:
       APP_ENV: production
@@ -62,7 +60,6 @@ processes:
     enabled: true
     command: ["php", "/var/www/artisan", "reports:generate"]
     schedule: "0 9-17 * * 1-5"  # Every hour from 9 AM to 5 PM, Monday to Friday
-    priority: 30
     restart: never
     env:
       REPORT_TYPE: hourly
@@ -83,7 +80,6 @@ processes:
     enabled: true
     command: ["/usr/local/bin/rotate-logs.sh"]
     schedule: "0 0 * * *"  # Daily at midnight
-    priority: 40
     restart: never
     env:
       LOG_DIR: /var/log/app
@@ -101,7 +97,6 @@ processes:
     enabled: true
     command: ["curl", "-f", "http://localhost/health"]
     schedule: "*/5 * * * *"  # Every 5 minutes
-    priority: 50
     restart: never
     logging:
       stdout: false  # Reduce noise for frequent tasks
@@ -118,7 +113,6 @@ processes:
     enabled: true
     command: ["php", "/var/www/artisan", "data:sync"]
     schedule: "*/30 * * * *"  # Every 30 minutes
-    priority: 60
     restart: never
     env:
       SYNC_SOURCE: remote-api
@@ -141,7 +135,6 @@ processes:
     enabled: true
     command: ["/usr/local/bin/weekly-maintenance.sh"]
     schedule: "0 3 * * 0"  # Sunday at 3 AM
-    priority: 70
     restart: never
     env:
       MAINTENANCE_TYPE: full

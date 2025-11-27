@@ -13,7 +13,7 @@ global:
 
   # Management API (Phase 5)
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
   api_auth: "your-secure-token-here"  # Bearer token for API authentication
 
 # Global lifecycle hooks
@@ -40,7 +40,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     scale: 2  # Run 2 PHP-FPM instances for high availability
 
@@ -65,7 +64,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     restart: always
     scale: 1
     depends_on:
@@ -89,7 +87,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     restart: always
     scale: 1
     depends_on:
@@ -120,7 +117,6 @@ processes:
   queue-default:
     enabled: true
     command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
-    priority: 40
     restart: always
     scale: 3  # Run 3 workers for default queue
     depends_on:
@@ -137,7 +133,6 @@ processes:
   queue-high:
     enabled: true
     command: ["php", "artisan", "queue:work", "--queue=high", "--tries=3", "--max-time=1800"]
-    priority: 41
     restart: always
     scale: 2  # Run 2 workers for high priority
     depends_on:
@@ -151,7 +146,6 @@ processes:
   scheduler:
     enabled: true
     command: ["php", "artisan", "schedule:work"]
-    priority: 50
     restart: always
     scale: 1
     depends_on:

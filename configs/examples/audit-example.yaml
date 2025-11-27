@@ -1,0 +1,510 @@
+# PHPeek PM - Audit Logging Configuration Examples
+# =================================================
+#
+# This file demonstrates comprehensive audit logging configurations
+# for various deployment scenarios and compliance requirements.
+
+version: "1.0"
+
+# ============================================================================
+# Example 1: Basic Audit Logging (Development/Testing)
+# ============================================================================
+# Enable basic audit logging for development and testing environments
+
+global:
+  log_level: info
+  log_format: json  # JSON format required for audit log parsing
+  audit_enabled: true  # Enable audit logging
+  shutdown_timeout: 30
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 2
+
+---
+# ============================================================================
+# Example 2: Production Audit Logging with Security Focus
+# ============================================================================
+# Comprehensive audit logging for production with security event tracking
+
+version: "1.0"
+
+global:
+  log_level: info
+  log_format: json  # JSON format for SIEM integration
+  audit_enabled: true
+  shutdown_timeout: 30
+
+  # API Security with Audit
+  api_enabled: true
+  api_port: 9180
+  api_auth: "Bearer secret-token-here"
+
+  # IP ACL with Audit Integration
+  api_acl:
+    enabled: true
+    mode: "allow"  # Whitelist mode (secure by default)
+    allow_list:
+      - "10.0.0.0/8"      # Internal VPC
+      - "192.168.1.0/24"  # Office network
+    trust_proxy: true  # Log real client IPs behind proxy
+
+  # Metrics with Separate ACL
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.0.2.0/24"  # Prometheus subnet
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 5
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    restart: always
+    scale: 1
+
+---
+# ============================================================================
+# Example 3: Compliance-Focused Audit Configuration (PCI DSS, HIPAA, SOC 2)
+# ============================================================================
+# Maximum audit logging for compliance with regulatory requirements
+
+version: "1.0"
+
+global:
+  log_level: info
+  log_format: json  # Required for audit trail
+  audit_enabled: true  # CRITICAL: Required for compliance
+  shutdown_timeout: 60
+
+  # Secure API with Authentication
+  api_enabled: true
+  api_port: 9180
+  api_auth: "${API_BEARER_TOKEN}"  # Use environment variable
+  api_tls:
+    enabled: true
+    cert_file: "/etc/phpeek-pm/certs/server.crt"
+    key_file: "/etc/phpeek-pm/certs/server.key"
+
+  # Strict IP ACL (Whitelist Only)
+  api_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.0.1.10"      # Management server
+      - "10.0.1.11"      # Backup management server
+      - "10.0.1.0/28"    # Admin subnet (16 IPs)
+    trust_proxy: true
+
+  # Metrics Security
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_tls:
+    enabled: true
+    cert_file: "/etc/phpeek-pm/certs/metrics.crt"
+    key_file: "/etc/phpeek-pm/certs/metrics.key"
+  metrics_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.0.2.100"  # Prometheus server
+      - "10.0.2.101"  # Backup Prometheus
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 10
+    health_check:
+      type: tcp
+      port: 9000
+      interval: 10
+      timeout: 5
+      retries: 3
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    restart: always
+    scale: 1
+    depends_on: [php-fpm]
+
+  horizon:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "horizon"]
+    restart: always
+    scale: 1
+    shutdown:
+      pre_stop_hook:
+        name: "horizon-terminate"
+        command: ["php", "/var/www/html/artisan", "horizon:terminate"]
+        timeout: 60
+
+  queue-default:
+    enabled: true
+    command: ["php", "/var/www/html/artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
+    restart: always
+    scale: 5
+
+---
+# ============================================================================
+# Example 4: High-Security Environment with Multiple Security Layers
+# ============================================================================
+# Defense in depth: TLS + ACL + Authentication + Audit
+
+version: "1.0"
+
+global:
+  log_level: info
+  log_format: json
+  audit_enabled: true
+  shutdown_timeout: 90
+
+  # Multi-Layer API Security
+  api_enabled: true
+  api_port: 8443  # Non-standard port
+  api_auth: "${API_BEARER_TOKEN}"
+
+  # TLS with Strong Ciphers
+  api_tls:
+    enabled: true
+    cert_file: "/etc/phpeek-pm/certs/api-server.crt"
+    key_file: "/etc/phpeek-pm/certs/api-server.key"
+    client_ca_file: "/etc/phpeek-pm/certs/client-ca.crt"  # mTLS
+
+  # Strict IP Whitelist
+  api_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.0.1.0/24"  # Management subnet only
+    trust_proxy: false  # Direct connections only
+
+  # Metrics with Separate Security
+  metrics_enabled: true
+  metrics_port: 9443  # Non-standard port
+  metrics_tls:
+    enabled: true
+    cert_file: "/etc/phpeek-pm/certs/metrics-server.crt"
+    key_file: "/etc/phpeek-pm/certs/metrics-server.key"
+  metrics_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.0.2.0/24"  # Monitoring subnet only
+    trust_proxy: false
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: on-failure
+    scale: 20
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    restart: on-failure
+    scale: 2
+
+---
+# ============================================================================
+# Example 5: Development Environment with Minimal Audit
+# ============================================================================
+# Basic audit logging for development without strict security
+
+version: "1.0"
+
+global:
+  log_level: debug
+  log_format: text  # Human-readable for development
+  audit_enabled: true  # Enable to test audit logging
+  shutdown_timeout: 10
+
+  api_enabled: true
+  api_port: 9180
+  # No authentication in development
+
+  metrics_enabled: true
+  metrics_port: 9090
+  # No ACL in development (all access allowed)
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 2
+
+---
+# ============================================================================
+# Example 6: Container Orchestration with Audit (Kubernetes/Docker Swarm)
+# ============================================================================
+# Audit logging for containerized environments with service mesh
+
+version: "1.0"
+
+global:
+  log_level: info
+  log_format: json  # Required for log aggregation (ELK, Loki, etc.)
+  audit_enabled: true
+  shutdown_timeout: 30
+
+  # API behind Kubernetes Ingress
+  api_enabled: true
+  api_port: 9180
+  api_auth: "${K8S_API_TOKEN}"
+
+  # Trust proxy headers from ingress controller
+  api_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.244.0.0/16"  # Pod network CIDR
+    trust_proxy: true  # Trust X-Forwarded-For from Ingress
+
+  # Metrics for Prometheus Operator
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "10.244.0.0/16"  # Allow from pod network
+    trust_proxy: false
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 3
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    restart: always
+    scale: 1
+
+---
+# ============================================================================
+# Example 7: Audit Events Reference
+# ============================================================================
+# This example demonstrates what events are logged by audit logger
+
+# SYSTEM EVENTS:
+# - system.start: PHPeek PM startup (includes version)
+# - system.shutdown: PHPeek PM shutdown (includes reason, graceful flag)
+# - system.error: System-level errors
+
+# PROCESS EVENTS:
+# - process.start: Process instance started (includes PID, scale)
+# - process.stop: Process instance stopped (includes PID, reason)
+# - process.crash: Process crashed (includes PID, exit code, signal)
+# - process.restart: Process restarted (includes old PID, new PID, reason)
+# - process.scale: Process scaled up/down (includes old scale, new scale)
+
+# API EVENTS:
+# - api.request: API request received (includes IP, method, path)
+# - api.response: API response sent (includes status code, duration)
+# - auth.failure: Authentication failed (includes IP, path, reason)
+
+# SECURITY EVENTS:
+# - acl.deny: IP ACL denied access (includes IP, path, reason)
+# - rate_limit.exceed: Rate limit exceeded (includes IP, path)
+# - tls.handshake: TLS handshake events
+
+# CONFIGURATION EVENTS:
+# - config.load: Configuration loaded (includes file path, process count)
+# - config.change: Configuration changed
+# - config.reload: Configuration reloaded
+
+# Audit Log Format (JSON):
+# {
+#   "timestamp": "2025-11-23T00:00:00Z",
+#   "event_type": "process.start",
+#   "actor": {
+#     "type": "system",
+#     "id": "process_manager",
+#     "ip": ""
+#   },
+#   "action": "start",
+#   "resource": {
+#     "type": "process",
+#     "id": "php-fpm",
+#     "name": "php-fpm"
+#   },
+#   "status": "success",
+#   "message": "Process started",
+#   "context": {
+#     "pid": 12345,
+#     "scale": 5
+#   }
+# }
+
+---
+# ============================================================================
+# Example 8: Log Aggregation Integration
+# ============================================================================
+# Configuration for sending audit logs to centralized logging systems
+
+version: "1.0"
+
+global:
+  log_level: info
+  log_format: json  # JSON for structured log parsing
+  audit_enabled: true
+  shutdown_timeout: 30
+
+  # API and Metrics (audit logs will capture all access)
+  api_enabled: true
+  api_port: 9180
+  api_auth: "${API_TOKEN}"
+
+  metrics_enabled: true
+  metrics_port: 9090
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 5
+
+# Log Collection Methods:
+#
+# 1. Docker Logs (stdout/stderr):
+#    docker logs phpeek-pm --follow | jq 'select(.msg == "audit_event")'
+#
+# 2. Kubernetes Logging:
+#    kubectl logs -f deployment/phpeek-pm | jq 'select(.msg == "audit_event")'
+#
+# 3. ELK Stack (Elasticsearch, Logstash, Kibana):
+#    - Configure log driver: json-file or fluentd
+#    - Filter: msg == "audit_event"
+#    - Index: phpeek-audit-*
+#
+# 4. Loki/Grafana:
+#    - Label: {app="phpeek-pm", level="audit"}
+#    - Query: {msg="audit_event"}
+#
+# 5. Splunk:
+#    - Source type: _json
+#    - Search: msg="audit_event"
+#
+# 6. AWS CloudWatch Logs:
+#    - Log group: /ecs/phpeek-pm
+#    - Filter pattern: { $.msg = "audit_event" }
+#
+# 7. File-based (for on-premise SIEM):
+#    docker logs phpeek-pm > /var/log/phpeek-pm/audit.json
+
+---
+# ============================================================================
+# Example 9: Audit Query Examples
+# ============================================================================
+# How to query and analyze audit logs
+
+# Extract all audit events:
+# cat audit.log | jq 'select(.msg == "audit_event")'
+
+# Filter by event type:
+# cat audit.log | jq 'select(.event_type == "process.start")'
+# cat audit.log | jq 'select(.event_type == "acl.deny")'
+# cat audit.log | jq 'select(.event_type == "auth.failure")'
+
+# Filter by status:
+# cat audit.log | jq 'select(.status == "failure")'
+# cat audit.log | jq 'select(.status == "error")'
+
+# Extract specific fields:
+# cat audit.log | jq 'select(.msg == "audit_event") | {time: .time, event: .event_type, actor: .actor, status: .status}'
+
+# Count events by type:
+# cat audit.log | jq -r 'select(.msg == "audit_event") | .event_type' | sort | uniq -c
+
+# Find security events:
+# cat audit.log | jq 'select(.event_type | startswith("auth.") or startswith("acl."))'
+
+# Find failed operations:
+# cat audit.log | jq 'select(.status == "failure" or .status == "error")'
+
+# Process lifecycle timeline:
+# cat audit.log | jq 'select(.event_type | startswith("process.")) | {time: .time, event: .event_type, resource: .resource, context: .context}'
+
+# API access patterns:
+# cat audit.log | jq 'select(.event_type == "api.request") | {time: .time, ip: .actor.ip, method: .action, path: .resource.id}'
+
+# Failed authentication attempts:
+# cat audit.log | jq 'select(.event_type == "auth.failure") | {time: .time, ip: .actor.ip, path: .resource.id, reason: .context.reason}'
+
+# ACL denials by IP:
+# cat audit.log | jq -r 'select(.event_type == "acl.deny") | .actor.ip' | sort | uniq -c | sort -rn
+
+---
+# ============================================================================
+# Best Practices for Audit Logging
+# ============================================================================
+
+# 1. Always Enable in Production:
+#    audit_enabled: true  # REQUIRED for compliance and security monitoring
+
+# 2. Use JSON Format:
+#    log_format: json  # Required for SIEM integration and log parsing
+
+# 3. Secure Audit Logs:
+#    - Store audit logs in immutable storage (S3, Azure Blob with retention)
+#    - Implement log rotation with retention policies
+#    - Restrict access to audit logs (read-only for auditors)
+#    - Consider log signing for tamper-proof trails
+
+# 4. Monitor Audit Events:
+#    - Set up alerts for security events (auth failures, ACL denials)
+#    - Create dashboards for audit event visualization
+#    - Regular review of process crash patterns
+#    - Track system shutdown events for availability monitoring
+
+# 5. Retention Policies:
+#    - Compliance: 1-7 years (depending on regulations)
+#    - Development: 7-30 days
+#    - Production: 90-365 days minimum
+
+# 6. Log Aggregation:
+#    - Use centralized logging (ELK, Loki, Splunk, CloudWatch)
+#    - Enable log compression for storage efficiency
+#    - Implement log shipping with buffering
+
+# 7. Performance Considerations:
+#    - Audit logging adds <0.1ms overhead per event
+#    - JSON parsing in log aggregation is efficient
+#    - Use asynchronous log shipping for high-volume systems
+
+# 8. Compliance Requirements:
+#    - PCI DSS: Audit all API access, process changes, config changes
+#    - HIPAA: Track all access to PHI-related processes
+#    - SOC 2: Comprehensive audit trail for security controls
+#    - GDPR: Log data processing activities
+
+# 9. Testing Audit Logging:
+#    - Verify audit events are logged in development
+#    - Test log aggregation pipeline
+#    - Validate SIEM alert rules
+#    - Perform security event simulation
+
+# 10. Documentation:
+#     - Document audit log format and event types
+#     - Create runbooks for security event response
+#     - Train team on audit log analysis
+#     - Regular audit log reviews

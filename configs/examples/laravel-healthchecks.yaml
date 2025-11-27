@@ -17,7 +17,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     scale: 2
     health_check:
@@ -32,7 +31,6 @@ processes:
   redis:
     enabled: true
     command: ["redis-server", "--port", "6379"]
-    priority: 15
     restart: always
     health_check:
       type: tcp
@@ -46,7 +44,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     depends_on: [php-fpm]
     restart: always
     health_check:
@@ -66,7 +63,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "/var/www/html/artisan", "horizon"]
-    priority: 30
     depends_on: [php-fpm, redis]
     restart: on-failure
     health_check:
@@ -85,7 +81,6 @@ processes:
   queue-default:
     enabled: true
     command: ["php", "/var/www/html/artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
-    priority: 40
     depends_on: [php-fpm, redis]
     restart: always
     scale: 3
@@ -97,7 +92,6 @@ processes:
   queue-high:
     enabled: true
     command: ["php", "/var/www/html/artisan", "queue:work", "--queue=high", "--tries=3", "--max-time=3600"]
-    priority: 40
     depends_on: [php-fpm, redis]
     restart: always
     scale: 2
@@ -109,7 +103,6 @@ processes:
   reverb:
     enabled: true
     command: ["php", "/var/www/html/artisan", "reverb:start"]
-    priority: 50
     depends_on: [php-fpm, redis]
     restart: always
     health_check:

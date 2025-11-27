@@ -1,0 +1,189 @@
+version: "1.0"
+
+# IP-Based Access Control List (ACL) Configuration Example
+# This example demonstrates IP ACL for API and metrics endpoints
+
+global:
+  shutdown_timeout: 30
+  log_level: info
+  log_format: json
+
+  # API Configuration with IP ACL
+  api_enabled: true
+  api_port: 9180
+  api_auth: "your-secret-token-here"
+
+  # IP ACL for API Server (Whitelist Mode)
+  # Only allow specific IPs or CIDR ranges to access the API
+  api_acl:
+    enabled: true
+    mode: "allow"  # "allow" = whitelist (deny all except listed), "deny" = blacklist (allow all except listed)
+    allow_list:
+      - "127.0.0.1"           # localhost
+      - "192.168.1.100"       # specific internal IP
+      - "10.0.0.0/8"          # entire 10.x.x.x range
+      - "172.16.0.0/12"       # 172.16.x.x - 172.31.x.x range
+      - "2001:db8::1"         # IPv6 address
+    deny_list: []             # empty in allow mode
+    trust_proxy: false        # Set to true if behind proxy/load balancer to use X-Forwarded-For
+
+  # TLS Configuration for API (optional - combine with ACL)
+  api_tls:
+    enabled: false
+    # cert_file: "/etc/phpeek-pm/certs/server.crt"
+    # key_file: "/etc/phpeek-pm/certs/server.key"
+
+  # Metrics Configuration with IP ACL
+  metrics_enabled: true
+  metrics_port: 9090
+  metrics_path: "/metrics"
+
+  # IP ACL for Metrics Server (Same or different from API)
+  metrics_acl:
+    enabled: true
+    mode: "allow"
+    allow_list:
+      - "127.0.0.1"           # localhost
+      - "192.168.1.0/24"      # monitoring subnet
+      - "10.0.0.50"           # Prometheus server
+    deny_list: []
+    trust_proxy: false
+
+  # TLS Configuration for Metrics (optional)
+  metrics_tls:
+    enabled: false
+
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+    restart: always
+    scale: 1
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    restart: always
+    scale: 1
+    depends_on: [php-fpm]
+
+# ========================================
+# Additional ACL Configuration Examples
+# ========================================
+
+# Example 1: Blacklist Mode (Allow all except specific IPs)
+# Useful when you want to block specific bad actors
+#
+# api_acl:
+#   enabled: true
+#   mode: "deny"
+#   allow_list: []
+#   deny_list:
+#     - "203.0.113.0/24"     # Known malicious subnet
+#     - "198.51.100.50"      # Specific attacker IP
+#     - "2001:db8:bad::/48"  # IPv6 range to block
+#   trust_proxy: false
+
+# Example 2: Behind Load Balancer / Proxy
+# When behind AWS ELB, Nginx, or other proxy/load balancer
+#
+# api_acl:
+#   enabled: true
+#   mode: "allow"
+#   allow_list:
+#     - "10.0.0.0/8"         # Internal VPC range
+#   deny_list: []
+#   trust_proxy: true        # IMPORTANT: Trust X-Forwarded-For header
+
+# Example 3: Development Environment (Allow localhost only)
+#
+# api_acl:
+#   enabled: true
+#   mode: "allow"
+#   allow_list:
+#     - "127.0.0.1"
+#     - "::1"                # IPv6 localhost
+#   deny_list: []
+#   trust_proxy: false
+
+# Example 4: Production with Multiple Subnets
+#
+# api_acl:
+#   enabled: true
+#   mode: "allow"
+#   allow_list:
+#     - "10.0.0.0/8"         # Primary VPC
+#     - "172.16.0.0/12"      # Secondary VPC
+#     - "192.168.1.0/24"     # Office network
+#     - "203.0.113.10"       # Specific management IP
+#   deny_list: []
+#   trust_proxy: false
+
+# Example 5: Combined with TLS and mTLS
+# Maximum security: IP ACL + TLS + Client Certificates
+#
+# api_acl:
+#   enabled: true
+#   mode: "allow"
+#   allow_list:
+#     - "10.0.0.0/8"
+#   trust_proxy: false
+#
+# api_tls:
+#   enabled: true
+#   cert_file: "/etc/phpeek-pm/certs/server.crt"
+#   key_file: "/etc/phpeek-pm/certs/server.key"
+#   ca_file: "/etc/phpeek-pm/certs/ca.crt"
+#   client_auth: "verify"   # Require client certificates
+#   min_version: "TLS 1.3"
+
+# ========================================
+# Testing ACL Configuration
+# ========================================
+
+# Test allowed IP (should succeed):
+# curl http://localhost:8080/api/v1/health -H "Authorization: Bearer your-token"
+
+# Test from different IP (if behind proxy):
+# curl http://localhost:8080/api/v1/health \
+#   -H "Authorization: Bearer your-token" \
+#   -H "X-Forwarded-For: 192.168.1.100"
+
+# Test denied IP (should get 403 Forbidden):
+# curl http://localhost:8080/api/v1/health \
+#   -H "Authorization: Bearer your-token" \
+#   --resolve localhost:8080:203.0.113.50
+
+# ========================================
+# Security Best Practices
+# ========================================
+
+# 1. Use Whitelist Mode for Production
+#    - mode: "allow" is more secure than "deny"
+#    - Explicitly list allowed IPs/ranges
+#    - Deny by default, allow by exception
+
+# 2. Combine ACL with TLS
+#    - Use both IP ACL and TLS for defense in depth
+#    - ACL protects at network layer
+#    - TLS protects data in transit
+
+# 3. Trust Proxy Carefully
+#    - Only enable trust_proxy if behind verified proxy
+#    - Untrusted proxies can spoof X-Forwarded-For
+#    - Validate proxy is properly configured
+
+# 4. Use CIDR Notation for Ranges
+#    - More efficient than listing individual IPs
+#    - Easier to manage subnets
+#    - Example: 10.0.0.0/8 covers 10.0.0.0 - 10.255.255.255
+
+# 5. Monitor and Log
+#    - Enable structured logging (log_format: json)
+#    - Monitor 403 Forbidden responses
+#    - Alert on unusual access patterns
+
+# 6. Regular Review
+#    - Periodically review ACL rules
+#    - Remove stale IP addresses
+#    - Update for infrastructure changes

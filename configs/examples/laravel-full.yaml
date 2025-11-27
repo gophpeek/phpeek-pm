@@ -20,7 +20,7 @@ global:
   metrics_enabled: true
   metrics_port: 9090
   api_enabled: false
-  api_port: 8080
+  api_port: 9180
 
 # Lifecycle hooks for Laravel optimization
 hooks:
@@ -57,7 +57,6 @@ processes:
   php-fpm:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
-    priority: 10
     restart: always
     health_check:
       type: tcp
@@ -81,7 +80,6 @@ processes:
   nginx:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
-    priority: 20
     restart: always
     depends_on:
       - php-fpm  # Will wait for php-fpm to pass readiness checks before starting
@@ -108,7 +106,6 @@ processes:
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
-    priority: 30
     restart: always
     depends_on:
       - php-fpm  # Will wait for php-fpm readiness before starting
@@ -138,7 +135,6 @@ processes:
   reverb:
     enabled: false  # Enable if using real-time features
     command: ["php", "artisan", "reverb:start"]
-    priority: 30
     restart: always
     depends_on:
       - php-fpm
@@ -167,7 +163,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--queue=default", "--tries=3", "--max-time=3600"]
     scale: 2  # Number of worker instances
-    priority: 40
     restart: on-failure
     depends_on:
       - php-fpm
@@ -187,7 +182,6 @@ processes:
     enabled: false  # Enable if using priority queues
     command: ["php", "artisan", "queue:work", "--queue=high", "--tries=5", "--max-time=300"]
     scale: 1
-    priority: 35  # Start before default workers
     restart: always
     shutdown:
       signal: SIGTERM
@@ -205,7 +199,6 @@ processes:
     enabled: true
     command: ["php", "artisan", "schedule:run"]
     schedule: "* * * * *"  # Run every minute (Laravel's scheduler handles task timing internally)
-    priority: 50
     restart: never  # Scheduled tasks don't auto-restart
     depends_on:
       - php-fpm

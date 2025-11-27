@@ -1,0 +1,105 @@
+version: "1.0"
+global:
+    shutdown_timeout: 30
+    health_check_interval: 10
+    restart_policy: always
+    max_restart_attempts: 3
+    restart_backoff: 5
+    autotune_memory_threshold: 0
+    log_format: text
+    log_level: info
+    log_timestamps: true
+    metrics_enabled: false
+    metrics_port: 9090
+    metrics_path: /metrics
+    api_enabled: true
+    api_port: 9180
+    api_socket: /tmp/phpeek-pm.sock
+    api_auth: ""
+    api_tls: null
+    api_acl: null
+    metrics_tls: null
+    metrics_acl: null
+    resource_metrics_enabled: true
+    resource_metrics_interval: 2
+    resource_metrics_max_samples: 720
+    audit_enabled: false
+hooks:
+    pre-start: []
+    post-start: []
+    pre-stop: []
+    post-stop: []
+processes:
+    test-process-1:
+        enabled: true
+        type: longrun
+        initial_state: running
+        command:
+            - sleep
+            - "3600"
+        restart: always
+        scale: 2
+        scale_locked: false
+        depends_on: []
+        env: {}
+        health_check: null
+        shutdown: null
+        logging:
+            stdout: true
+            stderr: true
+            labels:
+                process: test-process-1
+            min_level: info
+            redaction: null
+            multiline: null
+            json: null
+            level_detection: null
+            filters: null
+        schedule: ""
+        heartbeat: null
+    test-process-2:
+        enabled: true
+        type: longrun
+        initial_state: running
+        command:
+            - sh
+            - -c
+            - while true; do echo 'Process 2 running'; sleep 5; done
+        restart: always
+        scale: 1
+        scale_locked: false
+        depends_on: []
+        env: {}
+        health_check: null
+        shutdown: null
+        logging:
+            stdout: true
+            stderr: true
+            labels:
+                process: test-process-2
+            min_level: info
+            redaction: null
+            multiline: null
+            json: null
+            level_detection: null
+            filters: null
+        schedule: ""
+        heartbeat: null
+    test-queue:
+        enabled: true
+        type: ""
+        initial_state: ""
+        command:
+            - php
+            - artisan
+            - queue:work
+        restart: always
+        scale: 2
+        scale_locked: false
+        depends_on: []
+        env: {}
+        health_check: null
+        shutdown: null
+        logging: null
+        schedule: ""
+        heartbeat: null
