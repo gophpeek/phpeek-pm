@@ -123,8 +123,8 @@ if [ -f /tmp/phpeek-test.pid ]; then
     PHPEEK_PID=$(cat /tmp/phpeek-test.pid)
 
     run_test "Metrics Endpoint" "curl -sf http://localhost:9090/metrics > /dev/null"
-    run_test "API Health Endpoint" "curl -sf http://localhost:8080/api/v1/health | grep -q healthy"
-    run_test "API Processes Endpoint" "curl -sf http://localhost:8080/api/v1/processes | grep -q sleeper"
+    run_test "API Health Endpoint" "curl -sf http://localhost:9180/api/v1/health | grep -q healthy"
+    run_test "API Processes Endpoint" "curl -sf http://localhost:9180/api/v1/processes | grep -q sleeper"
 
     run_test "Graceful Shutdown" "
         kill -TERM \$PHPEEK_PID

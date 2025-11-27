@@ -44,11 +44,11 @@ RUN mkdir -p /etc/phpeek-pm && \
 USER phpeek
 
 # Expose ports
-EXPOSE 9090 8080
+EXPOSE 9090 9180
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
-    CMD wget -q -O- http://localhost:8080/api/v1/health || exit 1
+    CMD wget -q -O- http://localhost:9180/api/v1/health || exit 1
 
 # Run phpeek-pm
 ENTRYPOINT ["/usr/local/bin/phpeek-pm"]

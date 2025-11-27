@@ -129,7 +129,7 @@ jobs:
           docker run -d \
             --name phpeek-pm-workload-${{ matrix.distro }} \
             -p 9090:9090 \
-            -p 8080:8080 \
+            -p 9180:9180 \
             phpeek-pm-test-${{ matrix.distro }}
 
           # Wait for startup
@@ -139,7 +139,7 @@ jobs:
           curl -f http://localhost:9090/metrics || exit 1
 
           # Test API endpoint
-          curl -f http://localhost:8080/api/v1/health || exit 1
+          curl -f http://localhost:9180/api/v1/health || exit 1
 
           # Cleanup
           docker stop phpeek-pm-workload-${{ matrix.distro }}

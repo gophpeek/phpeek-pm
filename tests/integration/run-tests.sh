@@ -81,7 +81,7 @@ fi
 echo ""
 echo "✓ Test 8: API Endpoint"
 if command -v curl > /dev/null 2>&1; then
-    if curl -s --max-time 2 http://localhost:8080/api/v1/health | grep -q "healthy"; then
+    if curl -s --max-time 2 http://localhost:9180/api/v1/health | grep -q "healthy"; then
         echo "  API endpoint is responding"
     else
         echo "  ⚠ API endpoint not responding (non-fatal)"

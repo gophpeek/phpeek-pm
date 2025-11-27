@@ -11,14 +11,13 @@ global:
   metrics_path: /metrics
 
   api_enabled: true
-  api_port: 8080
+  api_port: 9180
 
 processes:
   # Simple sleep process for testing (short duration for tests)
   sleeper:
     enabled: true
     command: ["sleep", "5"]
-    priority: 10
     restart: never
     scale: 2
 
