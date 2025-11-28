@@ -45,8 +45,9 @@ type GlobalConfig struct {
 	TracingServiceName        string        `yaml:"tracing_service_name" json:"tracing_service_name"`                 // Service name for traces (default: phpeek-pm)
 	TracingUseTLS             bool          `yaml:"tracing_use_tls" json:"tracing_use_tls"`                           // Enable TLS for production (default: false)
 	ScheduleHistorySize       int           `yaml:"schedule_history_size" json:"schedule_history_size"`               // Max execution history entries per job (default: 100)
-	OneshotHistoryMaxEntries  int           `yaml:"oneshot_history_max_entries" json:"oneshot_history_max_entries"`   // Max oneshot history entries per process (default: 5000)
-	OneshotHistoryMaxAge      time.Duration `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
+	OneshotHistoryMaxEntries  int              `yaml:"oneshot_history_max_entries" json:"oneshot_history_max_entries"`   // Max oneshot history entries per process (default: 5000)
+	OneshotHistoryMaxAge      time.Duration   `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
+	Readiness                 *ReadinessConfig `yaml:"readiness" json:"readiness"`                                       // Container readiness file config for K8s
 }
 
 // HooksConfig contains lifecycle hooks
@@ -76,6 +77,8 @@ type Process struct {
 	InitialState string            `yaml:"initial_state" json:"initial_state"` // running | stopped (default: running)
 	Command      []string          `yaml:"command" json:"command"`
 	WorkingDir   string            `yaml:"working_dir" json:"working_dir"`   // Working directory override
+	User         string            `yaml:"user" json:"user"`                 // Run as user (name or uid)
+	Group        string            `yaml:"group" json:"group"`               // Run as group (name or gid)
 	Stdout       *bool             `yaml:"stdout" json:"stdout"`             // Legacy shorthand for logging.stdout
 	Stderr       *bool             `yaml:"stderr" json:"stderr"`             // Legacy shorthand for logging.stderr
 	Restart      string            `yaml:"restart" json:"restart"`           // always | on-failure | never
@@ -200,6 +203,15 @@ type ACLConfig struct {
 	AllowList  []string `yaml:"allow_list" json:"allow_list"`   // Allowed IP addresses/CIDRs
 	DenyList   []string `yaml:"deny_list" json:"deny_list"`     // Denied IP addresses/CIDRs
 	TrustProxy bool     `yaml:"trust_proxy" json:"trust_proxy"` // Trust X-Forwarded-For header (default: false)
+}
+
+// ReadinessConfig configures container readiness file for Kubernetes integration
+type ReadinessConfig struct {
+	Enabled  bool     `yaml:"enabled" json:"enabled"`   // Enable readiness file creation
+	Path     string   `yaml:"path" json:"path"`         // Path to readiness file (default: /tmp/phpeek-ready)
+	Mode     string   `yaml:"mode" json:"mode"`         // Readiness mode: "all_healthy" | "all_running" (default: all_healthy)
+	Content  string   `yaml:"content" json:"content"`   // Optional content to write to the file
+	Processes []string `yaml:"processes" json:"processes"` // Specific processes to check (empty = all enabled longrun)
 }
 
 // SetDefaults sets sensible default values for the configuration
@@ -344,6 +356,15 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Global.OneshotHistoryMaxAge == 0 {
 		c.Global.OneshotHistoryMaxAge = 24 * time.Hour // Default: 24 hours
+	}
+	// Readiness file defaults (for K8s integration)
+	if c.Global.Readiness != nil {
+		if c.Global.Readiness.Path == "" {
+			c.Global.Readiness.Path = "/tmp/phpeek-ready"
+		}
+		if c.Global.Readiness.Mode == "" {
+			c.Global.Readiness.Mode = "all_healthy"
+		}
 	}
 
 	// Process defaults

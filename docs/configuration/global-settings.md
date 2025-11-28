@@ -180,6 +180,39 @@ See [Management API](../observability/api) for complete API documentation.
 
 > **Note:** The API is enabled by default to support the TUI and remote management. Set `api_enabled: false` (or `PHPEEK_PM_GLOBAL_API_ENABLED=false`) to disable it entirely.
 
+### Container Readiness Configuration
+
+For Kubernetes integration, PHPeek PM can manage a readiness file that indicates when all processes are healthy:
+
+```yaml
+global:
+  readiness:
+    enabled: true
+    path: "/tmp/phpeek-ready"
+    mode: "all_healthy"
+    processes:
+      - php-fpm
+      - nginx
+```
+
+**Settings:**
+- `enabled` - Enable/disable readiness file management (default: `false`)
+- `path` - Path to the readiness file (default: `/tmp/phpeek-ready`)
+- `mode` - Readiness evaluation mode: `all_healthy` or `all_running` (default: `all_healthy`)
+- `content` - Custom file content when ready (optional)
+- `processes` - Specific processes to track (empty = all processes)
+
+**Kubernetes readinessProbe example:**
+```yaml
+readinessProbe:
+  exec:
+    command: ["test", "-f", "/tmp/phpeek-ready"]
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
+
+See [Container Readiness](../features/container-readiness) for complete documentation.
+
 ## Environment Variable Overrides
 
 All global settings can be overridden via environment variables:
@@ -225,6 +258,15 @@ global:
   api_port: 9180
   api_auth: "your-secure-token-here"
 
+  # Kubernetes Integration
+  readiness:
+    enabled: true
+    path: "/tmp/phpeek-ready"
+    mode: "all_healthy"
+    processes:
+      - php-fpm
+      - nginx
+
 processes:
   # ... process configurations
 ```
@@ -233,5 +275,6 @@ processes:
 
 - [Process Configuration](processes) - Process-specific settings
 - [Environment Variables](environment-variables) - ENV var reference
+- [Container Readiness](../features/container-readiness) - K8s readiness probes
 - [Prometheus Metrics](../observability/metrics) - Metrics documentation
 - [Management API](../observability/api) - API documentation

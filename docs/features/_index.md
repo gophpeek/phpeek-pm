@@ -12,6 +12,7 @@ PHPeek PM provides production-grade process management features designed specifi
 
 - [Dependency Management](dependency-management) - DAG-based startup ordering
 - [Health Checks](health-checks) - TCP, HTTP, and exec-based monitoring
+- [Container Readiness](container-readiness) - File-based K8s readiness probes
 - [Scheduled Tasks](scheduled-tasks) - Built-in cron scheduler
 - [Process Scaling](process-scaling) - Multi-instance worker management
 - [Restart Policies](restart-policies) - Always, on-failure, never strategies

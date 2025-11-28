@@ -236,6 +236,34 @@ func (c *Config) validateGlobalSettings(result *ValidationResult) {
 			result.AddSuggestion("global.metrics_acl", "Metrics endpoint without ACL exposes monitoring data", "Consider adding IP ACL to restrict access")
 		}
 	}
+
+	// Readiness file configuration (for Kubernetes integration)
+	if c.Global.Readiness != nil && c.Global.Readiness.Enabled {
+		// Validate mode
+		validReadinessModes := []string{"all_healthy", "all_running"}
+		if !contains(validReadinessModes, c.Global.Readiness.Mode) {
+			result.AddError("global.readiness.mode", fmt.Sprintf("Invalid readiness mode: %s", c.Global.Readiness.Mode), fmt.Sprintf("Must be one of: %s", strings.Join(validReadinessModes, ", ")))
+		}
+
+		// Validate path
+		if c.Global.Readiness.Path == "" {
+			result.AddError("global.readiness.path", "Readiness file path is required when enabled", "Set path like /tmp/phpeek-ready")
+		}
+
+		// Validate processes list if specified
+		if len(c.Global.Readiness.Processes) > 0 {
+			for _, procName := range c.Global.Readiness.Processes {
+				if _, exists := c.Processes[procName]; !exists {
+					result.AddWarning("global.readiness.processes", fmt.Sprintf("Process '%s' not found in process list", procName), "Ensure the process name matches a defined process")
+				}
+			}
+		}
+
+		// Suggestion for K8s deployment
+		if !strings.HasPrefix(c.Global.Readiness.Path, "/tmp/") && !strings.HasPrefix(c.Global.Readiness.Path, "/var/run/") {
+			result.AddSuggestion("global.readiness.path", "Readiness file path is not in standard temp directory", "Consider using /tmp/ or /var/run/ for K8s compatibility")
+		}
+	}
 }
 
 // validateProcesses validates all process configurations
@@ -426,6 +454,20 @@ func (c *Config) lintProcessSecurity(name string, proc *Process, result *Validat
 				result.AddProcessWarning(name, fmt.Sprintf("env.%s", key), "Possible hardcoded secret in environment variable", "Use environment variable interpolation (e.g., ${SECRET_FROM_RUNTIME})")
 			}
 		}
+	}
+
+	// Check user/group switching configuration
+	if proc.User != "" || proc.Group != "" {
+		// Warn if not running as root - user switching requires root privileges
+		if os.Getuid() != 0 {
+			result.AddProcessWarning(name, "user/group", fmt.Sprintf("User switching configured (user=%q, group=%q) but not running as root", proc.User, proc.Group), "Run phpeek-pm as root to enable per-process user switching")
+		} else {
+			// Running as root - good security practice to run processes as non-root
+			result.AddProcessSuggestion(name, "user", fmt.Sprintf("Process configured to run as user=%q", proc.User), "Good security practice: running processes with reduced privileges")
+		}
+	} else if os.Getuid() == 0 {
+		// Running as root but no user configured - security suggestion
+		result.AddProcessSuggestion(name, "user", "No user specified for process running under root", "Consider setting user/group to run with least privilege (e.g., user: www-data)")
 	}
 }
 
