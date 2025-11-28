@@ -277,8 +277,8 @@ func (c *Config) validateProcesses(result *ValidationResult) {
 			result.AddProcessWarning(name, "scale", fmt.Sprintf("High scale (%d) may consume significant resources", proc.Scale), "Verify resource limits can accommodate all instances")
 		}
 
-		if proc.ScaleLocked && proc.Scale != 1 {
-			result.AddProcessError(name, "scale_locked", "Scale locked but scale != 1", "Set scale: 1 for locked processes")
+		if proc.MaxScale > 0 && proc.Scale > proc.MaxScale {
+			result.AddProcessError(name, "max_scale", fmt.Sprintf("Scale (%d) exceeds max_scale (%d)", proc.Scale, proc.MaxScale), "Set scale <= max_scale")
 		}
 
 		// Oneshot-specific validation

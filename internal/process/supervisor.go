@@ -58,6 +58,7 @@ type Supervisor struct {
 	healthStatus      <-chan HealthStatus
 	restartPolicy     RestartPolicy
 	resourceCollector *metrics.ResourceCollector // Shared resource collector (can be nil)
+	oneshotHistory    *OneshotHistory            // Shared oneshot history (can be nil)
 	deathNotifier     func(string)               // Callback when all instances are dead
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -71,17 +72,18 @@ type Supervisor struct {
 
 // Instance represents a single process instance
 type Instance struct {
-	id           string
-	cmd          *exec.Cmd
-	state        ProcessState
-	pid          int
-	started      time.Time
-	restartCount int
-	doneCh       chan struct{} // Closed when process exits (monitored by monitorInstance)
-	stdoutWriter *logger.ProcessWriter
-	stderrWriter *logger.ProcessWriter
-	allowRestart bool
-	mu           sync.RWMutex
+	id             string
+	cmd            *exec.Cmd
+	state          ProcessState
+	pid            int
+	started        time.Time
+	restartCount   int
+	doneCh         chan struct{} // Closed when process exits (monitored by monitorInstance)
+	stdoutWriter   *logger.ProcessWriter
+	stderrWriter   *logger.ProcessWriter
+	allowRestart   bool
+	oneshotExecID  int64 // Tracks oneshot execution history entry ID (0 if not oneshot)
+	mu             sync.RWMutex
 }
 
 // NewSupervisor creates a new process supervisor
@@ -124,6 +126,13 @@ func (s *Supervisor) SetDeathNotifier(notifier func(string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deathNotifier = notifier
+}
+
+// SetOneshotHistory sets the shared oneshot history for tracking executions
+func (s *Supervisor) SetOneshotHistory(history *OneshotHistory) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.oneshotHistory = history
 }
 
 // streamEnabled determines if stdout/stderr streaming is enabled for this process
@@ -342,6 +351,11 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 		allowRestart: true,
 	}
 
+	// Record oneshot execution in history
+	if s.config.Type == "oneshot" && s.oneshotHistory != nil {
+		instance.oneshotExecID = s.oneshotHistory.Record(s.name, instanceID, "startup")
+	}
+
 	s.logger.Info("Process instance started",
 		"instance_id", instanceID,
 		"pid", instance.pid,
@@ -398,6 +412,7 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 	if isOneshot {
 		// Oneshot services don't restart - they run once and complete
 		instance.mu.Lock()
+		execID := instance.oneshotExecID
 		if exitCode == 0 {
 			instance.state = StateCompleted
 			s.logger.Info("Oneshot process completed successfully",
@@ -413,6 +428,11 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 		}
 		instance.mu.Unlock()
 
+		// Record completion in oneshot history
+		if execID > 0 && s.oneshotHistory != nil {
+			s.oneshotHistory.Complete(execID, exitCode, err)
+		}
+
 		// Signal readiness if completed successfully (allows dependents to proceed)
 		if exitCode == 0 {
 			s.markReady("oneshot completed successfully")
@@ -423,21 +443,36 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 		return
 	}
 
-	// Longrun service handling
-	if err != nil {
-		s.logger.Error("Process instance exited with error",
-			"instance_id", instance.id,
-			"exit_code", exitCode,
-			"restart_count", restartCount,
-			"error", err,
-		)
+	// Check restart flag first to determine if this is intentional stop
+	instance.mu.RLock()
+	allowRestart := instance.allowRestart
+	instance.mu.RUnlock()
 
-		// Log crash to audit trail
-		signal := ""
-		if instance.cmd.ProcessState != nil && instance.cmd.ProcessState.Sys() != nil {
-			signal = instance.cmd.ProcessState.String()
+	// Longrun service handling - log appropriately based on whether stop was intentional
+	if err != nil {
+		if !allowRestart {
+			// Intentional stop (shutdown/scale down) - not an error
+			s.logger.Debug("Process instance terminated during shutdown",
+				"instance_id", instance.id,
+				"exit_code", exitCode,
+				"signal", err.Error(),
+			)
+		} else {
+			// Unexpected exit - log as error
+			s.logger.Error("Process instance exited with error",
+				"instance_id", instance.id,
+				"exit_code", exitCode,
+				"restart_count", restartCount,
+				"error", err,
+			)
+
+			// Log crash to audit trail only for unexpected exits
+			signal := ""
+			if instance.cmd.ProcessState != nil && instance.cmd.ProcessState.Sys() != nil {
+				signal = instance.cmd.ProcessState.String()
+			}
+			s.auditLogger.LogProcessCrash(s.name, instance.pid, exitCode, signal)
 		}
-		s.auditLogger.LogProcessCrash(s.name, instance.pid, exitCode, signal)
 	} else {
 		s.logger.Info("Process instance exited",
 			"instance_id", instance.id,
@@ -445,10 +480,6 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 			"restart_count", restartCount,
 		)
 	}
-
-	instance.mu.RLock()
-	allowRestart := instance.allowRestart
-	instance.mu.RUnlock()
 
 	// Skip restart if disabled (e.g., intentional stop/scale down)
 	if !allowRestart {

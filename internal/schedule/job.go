@@ -1,0 +1,328 @@
+package schedule
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/robfig/cron/v3"
+)
+
+// JobState represents the current state of a scheduled job
+type JobState int
+
+const (
+	// JobStateIdle - job is waiting for next scheduled run
+	JobStateIdle JobState = iota
+	// JobStateExecuting - job is currently running
+	JobStateExecuting
+	// JobStatePaused - job is paused (skips triggers)
+	JobStatePaused
+)
+
+// String returns the string representation of JobState
+func (s JobState) String() string {
+	switch s {
+	case JobStateIdle:
+		return "idle"
+	case JobStateExecuting:
+		return "executing"
+	case JobStatePaused:
+		return "paused"
+	default:
+		return "unknown"
+	}
+}
+
+// JobExecutor is the interface for executing a scheduled job
+type JobExecutor interface {
+	// Execute runs the job and returns when complete
+	// Returns exit code and error
+	Execute(ctx context.Context, processName string) (int, error)
+}
+
+// ScheduledJob represents a single scheduled job with state management
+type ScheduledJob struct {
+	Name           string
+	Schedule       string
+	Timezone       string
+	State          JobState
+	History        *ExecutionHistory
+	LastRun        time.Time
+	NextRun        time.Time
+	CurrentExecID  int64 // ID of currently running execution
+
+	// Execution control
+	Timeout       time.Duration // Execution timeout (0 = no timeout)
+	MaxConcurrent int           // Max concurrent executions (0/1 = no overlap, >1 = allow parallel)
+
+	// Internal
+	cronID         cron.EntryID
+	schedule       cron.Schedule
+	executor       JobExecutor
+	logger         *slog.Logger
+	mu             sync.Mutex
+	executionMu    sync.Mutex // Separate mutex for execution to allow state reads during execution
+}
+
+// JobOptions contains optional configuration for a scheduled job
+type JobOptions struct {
+	Timeout       time.Duration // Execution timeout (0 = no timeout)
+	MaxConcurrent int           // Max concurrent executions (0/1 = no overlap)
+}
+
+// NewScheduledJob creates a new ScheduledJob
+func NewScheduledJob(name, scheduleExpr, timezone string, historySize int, executor JobExecutor, logger *slog.Logger) (*ScheduledJob, error) {
+	return NewScheduledJobWithOptions(name, scheduleExpr, timezone, historySize, executor, logger, JobOptions{})
+}
+
+// NewScheduledJobWithOptions creates a new ScheduledJob with additional options
+func NewScheduledJobWithOptions(name, scheduleExpr, timezone string, historySize int, executor JobExecutor, logger *slog.Logger, opts JobOptions) (*ScheduledJob, error) {
+	// Parse the schedule expression
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(scheduleExpr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid schedule expression: %w", err)
+	}
+
+	return &ScheduledJob{
+		Name:          name,
+		Schedule:      scheduleExpr,
+		Timezone:      timezone,
+		State:         JobStateIdle,
+		History:       NewExecutionHistory(historySize),
+		Timeout:       opts.Timeout,
+		MaxConcurrent: opts.MaxConcurrent,
+		schedule:      schedule,
+		executor:      executor,
+		logger:        logger.With("job", name),
+	}, nil
+}
+
+// GetState returns the current job state (thread-safe)
+func (j *ScheduledJob) GetState() JobState {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.State
+}
+
+// SetCronID sets the cron entry ID for this job
+func (j *ScheduledJob) SetCronID(id cron.EntryID) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.cronID = id
+}
+
+// GetCronID returns the cron entry ID
+func (j *ScheduledJob) GetCronID() cron.EntryID {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.cronID
+}
+
+// UpdateNextRun updates the next run time
+func (j *ScheduledJob) UpdateNextRun(t time.Time) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.NextRun = t
+}
+
+// GetNextRun returns the next scheduled run time
+func (j *ScheduledJob) GetNextRun() time.Time {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.NextRun
+}
+
+// GetLastRun returns the last execution time
+func (j *ScheduledJob) GetLastRun() time.Time {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.LastRun
+}
+
+// Pause pauses the job (it will skip scheduled triggers)
+func (j *ScheduledJob) Pause() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.State == JobStateExecuting {
+		return fmt.Errorf("cannot pause job while executing")
+	}
+	if j.State == JobStatePaused {
+		return nil // Already paused
+	}
+
+	j.State = JobStatePaused
+	j.logger.Info("job paused")
+	return nil
+}
+
+// Resume resumes a paused job
+func (j *ScheduledJob) Resume() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.State != JobStatePaused {
+		return fmt.Errorf("job is not paused (current state: %s)", j.State)
+	}
+
+	j.State = JobStateIdle
+	j.logger.Info("job resumed")
+	return nil
+}
+
+// IsPaused returns true if the job is paused
+func (j *ScheduledJob) IsPaused() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.State == JobStatePaused
+}
+
+// IsExecuting returns true if the job is currently executing
+func (j *ScheduledJob) IsExecuting() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.State == JobStateExecuting
+}
+
+// CanExecute returns true if the job can be executed now
+func (j *ScheduledJob) CanExecute() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.State == JobStateIdle
+}
+
+// Run is called by the cron scheduler when the schedule triggers
+// It implements the cron.Job interface
+func (j *ScheduledJob) Run() {
+	j.execute(context.Background(), "schedule")
+}
+
+// Trigger manually triggers execution (returns error if already running or paused)
+func (j *ScheduledJob) Trigger(ctx context.Context) error {
+	state := j.GetState()
+	if state == JobStatePaused {
+		return fmt.Errorf("cannot trigger paused job")
+	}
+	if state == JobStateExecuting {
+		return fmt.Errorf("job is already executing")
+	}
+
+	go j.execute(ctx, "manual")
+	return nil
+}
+
+// TriggerSync triggers execution and waits for completion
+func (j *ScheduledJob) TriggerSync(ctx context.Context) (int, error) {
+	state := j.GetState()
+	if state == JobStatePaused {
+		return -1, fmt.Errorf("cannot trigger paused job")
+	}
+	if state == JobStateExecuting {
+		return -1, fmt.Errorf("job is already executing")
+	}
+
+	return j.executeSync(ctx, "manual")
+}
+
+// execute runs the job (internal)
+func (j *ScheduledJob) execute(ctx context.Context, triggered string) {
+	j.executeSync(ctx, triggered)
+}
+
+// executeSync runs the job synchronously and returns the result
+func (j *ScheduledJob) executeSync(ctx context.Context, triggered string) (int, error) {
+	// Use execution mutex to prevent concurrent executions
+	j.executionMu.Lock()
+	defer j.executionMu.Unlock()
+
+	// Check state and transition to executing
+	j.mu.Lock()
+	if j.State == JobStatePaused {
+		j.mu.Unlock()
+		j.logger.Debug("skipping execution - job paused")
+		return -1, fmt.Errorf("job is paused")
+	}
+	if j.State == JobStateExecuting {
+		j.mu.Unlock()
+		j.logger.Debug("skipping execution - already running (overlap policy: skip)")
+		return -1, fmt.Errorf("job is already executing")
+	}
+
+	j.State = JobStateExecuting
+	j.LastRun = time.Now()
+	execID := j.History.StartExecution(triggered)
+	j.CurrentExecID = execID
+	j.mu.Unlock()
+
+	j.logger.Info("job execution started",
+		"execution_id", execID,
+		"triggered", triggered,
+	)
+
+	// Apply timeout if configured
+	execCtx := ctx
+	var cancel context.CancelFunc
+	if j.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, j.Timeout)
+		defer cancel()
+		j.logger.Debug("job execution with timeout", "timeout", j.Timeout)
+	}
+
+	// Execute the job
+	exitCode, execErr := j.executor.Execute(execCtx, j.Name)
+
+	// Transition back to idle and record result
+	j.mu.Lock()
+	j.State = JobStateIdle
+	j.CurrentExecID = 0
+	j.mu.Unlock()
+
+	success := execErr == nil && exitCode == 0
+	errMsg := ""
+	if execErr != nil {
+		errMsg = execErr.Error()
+	}
+	j.History.EndExecution(execID, exitCode, success, errMsg)
+
+	j.logger.Info("job execution completed",
+		"execution_id", execID,
+		"exit_code", exitCode,
+		"success", success,
+		"duration", j.History.GetRecent(1)[0].Duration(),
+	)
+
+	return exitCode, execErr
+}
+
+// Status returns the current status of the job
+type JobStatus struct {
+	Name          string        `json:"name"`
+	Schedule      string        `json:"schedule"`
+	Timezone      string        `json:"timezone"`
+	State         string        `json:"state"`
+	LastRun       time.Time     `json:"last_run"`
+	NextRun       time.Time     `json:"next_run"`
+	CurrentExecID int64         `json:"current_execution_id,omitempty"`
+	Stats         HistoryStats  `json:"stats"`
+}
+
+// Status returns the current job status
+func (j *ScheduledJob) Status() JobStatus {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	return JobStatus{
+		Name:          j.Name,
+		Schedule:      j.Schedule,
+		Timezone:      j.Timezone,
+		State:         j.State.String(),
+		LastRun:       j.LastRun,
+		NextRun:       j.NextRun,
+		CurrentExecID: j.CurrentExecID,
+		Stats:         j.History.Stats(),
+	}
+}

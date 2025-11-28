@@ -23,11 +23,71 @@ type processDisplayRow struct {
 	scale        string
 	currentScale int
 	desiredScale int
-	scaleLocked  bool
+	maxScale     int
 	cpuUsage     string
 	memoryUsage  string
 	uptime       string
 	restarts     string
+	// Schedule fields (kept for backward compat)
+	isScheduled   bool
+	schedule      string
+	scheduleState string
+	nextRun       int64
+	lastRun       int64
+}
+
+// scheduledDisplayRow represents a scheduled/cron job for the Scheduled tab
+type scheduledDisplayRow struct {
+	name          string
+	nameStyle     lipgloss.Style
+	schedule      string // Cron expression e.g. "*/5 * * * *"
+	state         string // Formatted state for display (e.g. "⏸ Paused")
+	stateStyle    lipgloss.Style
+	rawState      string // Raw schedule state (idle, executing, paused)
+	lastRun       string // Formatted last run time
+	lastRunStyle  lipgloss.Style
+	nextRun       string // Formatted next run time
+	nextRunStyle  lipgloss.Style
+	lastExitCode  string // Exit code of last run
+	exitCodeStyle lipgloss.Style
+	runCount      int    // Total executions
+	successRate   string // Success rate percentage
+	// Raw values for sorting/filtering
+	rawLastRun int64
+	rawNextRun int64
+}
+
+// ExecutionHistoryEntry represents a single execution in the history
+type ExecutionHistoryEntry struct {
+	ID        int64  `json:"id"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+	Duration  string `json:"duration"`
+	ExitCode  int    `json:"exit_code"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error"`
+	Triggered string `json:"triggered"` // "schedule" or "manual"
+}
+
+// oneshotDisplayRow represents a oneshot execution for the Oneshot tab
+type oneshotDisplayRow struct {
+	id            int64
+	processName   string
+	nameStyle     lipgloss.Style
+	instanceID    string
+	startedAt     string
+	startedStyle  lipgloss.Style
+	finishedAt    string
+	finishedStyle lipgloss.Style
+	duration      string
+	exitCode      string
+	exitStyle     lipgloss.Style
+	status        string // "✓ Success", "✗ Failed", "⏳ Running"
+	statusStyle   lipgloss.Style
+	triggerType   string // "startup", "manual", "api"
+	error         string
+	// Raw values for sorting
+	rawStartedAt int64
 }
 
 // setupProcessTable initializes the process table
@@ -93,9 +153,21 @@ func (m *Model) setupInstanceTable() {
 	m.instanceTable = t
 }
 
+// defaultColumns returns columns for the Processes tab (longrun/oneshot)
 func (m *Model) defaultColumns() []table.Column {
 	titles := []string{"NAME", "TYPE", "STATE", "HEALTH", "SCALE", "CPU", "RAM", "UPTIME", "RESTARTS"}
 	widths := []int{18, 10, 14, 12, 10, 8, 10, 12, 10}
+	columns := make([]table.Column, len(titles))
+	for i, title := range titles {
+		columns[i] = table.Column{Title: title, Width: widths[i]}
+	}
+	return columns
+}
+
+// scheduledColumns returns columns for the Scheduled tab (cron jobs)
+func (m *Model) scheduledColumns() []table.Column {
+	titles := []string{"NAME", "SCHEDULE", "STATE", "LAST RUN", "NEXT RUN", "EXIT", "RUNS", "SUCCESS"}
+	widths := []int{18, 14, 12, 16, 16, 6, 6, 8}
 	columns := make([]table.Column, len(titles))
 	for i, title := range titles {
 		columns[i] = table.Column{Title: title, Width: widths[i]}
@@ -146,10 +218,23 @@ func (m *Model) computeInstanceColumns() []table.Column {
 }
 
 // updateProcessTable updates the cached table data and column widths
+// This now only handles longrun/oneshot processes (Processes tab)
+// Scheduled processes are handled by updateScheduledTable (Scheduled tab)
 func (m *Model) updateProcessTable(processes []process.ProcessInfo) {
+	// Also update scheduled table for the Scheduled tab
+	m.updateScheduledTable(processes)
+
+	// Filter out scheduled processes - they go to the Scheduled tab
+	regularProcs := make([]process.ProcessInfo, 0)
+	for _, proc := range processes {
+		if proc.Type != "scheduled" {
+			regularProcs = append(regularProcs, proc)
+		}
+	}
+
 	// Sort processes alphabetically by name for stable display order
-	sort.Slice(processes, func(i, j int) bool {
-		return processes[i].Name < processes[j].Name
+	sort.Slice(regularProcs, func(i, j int) bool {
+		return regularProcs[i].Name < regularProcs[j].Name
 	})
 
 	headers := []string{"NAME", "TYPE", "STATE", "HEALTH", "SCALE", "CPU", "RAM", "UPTIME", "RESTARTS"}
@@ -159,81 +244,89 @@ func (m *Model) updateProcessTable(processes []process.ProcessInfo) {
 		colWidths[i] = lipgloss.Width(header)
 	}
 
-	displayRows := make([]processDisplayRow, 0, len(processes))
-	cursorRows := make([]table.Row, 0, len(processes))
+	displayRows := make([]processDisplayRow, 0, len(regularProcs))
+	cursorRows := make([]table.Row, 0, len(regularProcs))
 
-	for _, proc := range processes {
-		currentInstances := len(proc.Instances)
-		totalRestarts := 0
-		oldestStart := int64(0)
-		allHealthy := true
-		hasFailed := false
+	for _, proc := range regularProcs {
+		var row processDisplayRow
 
-		for _, inst := range proc.Instances {
-			totalRestarts += inst.RestartCount
-			if oldestStart == 0 || inst.StartedAt < oldestStart {
-				oldestStart = inst.StartedAt
-			}
-			if inst.State != "running" {
-				allHealthy = false
-				if inst.State == "failed" {
-					hasFailed = true
+		// Regular process handling (longrun/oneshot)
+		{
+			// Regular process handling
+			currentInstances := len(proc.Instances)
+			totalRestarts := 0
+			oldestStart := int64(0)
+			allHealthy := true
+			hasFailed := false
+
+			for _, inst := range proc.Instances {
+				totalRestarts += inst.RestartCount
+				if oldestStart == 0 || inst.StartedAt < oldestStart {
+					oldestStart = inst.StartedAt
+				}
+				if inst.State != "running" {
+					allHealthy = false
+					if inst.State == "failed" {
+						hasFailed = true
+					}
 				}
 			}
-		}
 
-		stateText, stateStyle := stateDisplay(proc.State)
-		healthy := allHealthy && currentInstances > 0
-		var healthText string
-		var healthStyle lipgloss.Style
-		switch {
-		case proc.State != string(process.StateRunning) && proc.State != "running":
-			healthText = "–"
-			healthStyle = dimStyle
-		case hasFailed:
-			healthText, healthStyle = healthDisplay(false)
-		case currentInstances != proc.DesiredScale:
-			healthText = "⟳ Scaling"
-			healthStyle = highlightStyle
-		case !allHealthy:
-			healthText = "⟳ Scaling"
-			healthStyle = highlightStyle
-		default:
-			healthText, healthStyle = healthDisplay(healthy)
-		}
+			stateText, stateStyle := stateDisplay(proc.State)
+			healthy := allHealthy && currentInstances > 0
+			var healthText string
+			var healthStyle lipgloss.Style
+			switch {
+			case proc.State != string(process.StateRunning) && proc.State != "running":
+				healthText = "–"
+				healthStyle = dimStyle
+			case hasFailed:
+				healthText, healthStyle = healthDisplay(false)
+			case currentInstances != proc.DesiredScale:
+				healthText = "⟳ Scaling"
+				healthStyle = highlightStyle
+			case !allHealthy:
+				healthText = "⟳ Scaling"
+				healthStyle = highlightStyle
+			default:
+				healthText, healthStyle = healthDisplay(healthy)
+			}
 
-		var nameStyle lipgloss.Style
-		switch proc.State {
-		case "running":
-			nameStyle = successStyle
-		case "failed":
-			nameStyle = errorStyle
-		default:
-			nameStyle = warnStyle
-		}
+			var nameStyle lipgloss.Style
+			switch proc.State {
+			case "running":
+				nameStyle = successStyle
+			case "failed":
+				nameStyle = errorStyle
+			default:
+				nameStyle = warnStyle
+			}
 
-		scaleText := fmt.Sprintf("%d/%d", currentInstances, proc.DesiredScale)
-		if proc.ScaleLocked {
-			scaleText = "🔒 " + scaleText
-		}
+			var scaleText string
+			if proc.MaxScale > 0 {
+				scaleText = fmt.Sprintf("%d/%d/%d", currentInstances, proc.DesiredScale, proc.MaxScale)
+			} else {
+				scaleText = fmt.Sprintf("%d/%d/-", currentInstances, proc.DesiredScale)
+			}
 
-		row := processDisplayRow{
-			name:         proc.Name,
-			nameStyle:    nameStyle,
-			procType:     proc.Type,
-			state:        stateText,
-			rawState:     proc.State,
-			stateStyle:   stateStyle,
-			health:       healthText,
-			healthStyle:  healthStyle,
-			scale:        scaleText,
-			currentScale: currentInstances,
-			desiredScale: proc.DesiredScale,
-			scaleLocked:  proc.ScaleLocked,
-			cpuUsage:     formatCPUUsage(proc.CPUPercent),
-			memoryUsage:  formatMemoryUsage(proc.MemoryRSSBytes),
-			uptime:       formatUptime(oldestStart),
-			restarts:     fmt.Sprintf("%d", totalRestarts),
+			row = processDisplayRow{
+				name:         proc.Name,
+				nameStyle:    nameStyle,
+				procType:     proc.Type,
+				state:        stateText,
+				rawState:     proc.State,
+				stateStyle:   stateStyle,
+				health:       healthText,
+				healthStyle:  healthStyle,
+				scale:        scaleText,
+				currentScale: currentInstances,
+				desiredScale: proc.DesiredScale,
+				maxScale:     proc.MaxScale,
+				cpuUsage:     formatCPUUsage(proc.CPUPercent),
+				memoryUsage:  formatMemoryUsage(proc.MemoryRSSBytes),
+				uptime:       formatUptime(oldestStart),
+				restarts:     fmt.Sprintf("%d", totalRestarts),
+			}
 		}
 
 		displayRows = append(displayRows, row)
@@ -523,4 +616,357 @@ func formatMemoryUsage(bytes uint64) string {
 	default:
 		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(kilobyte))
 	}
+}
+
+// scheduleStateDisplay returns formatted state text and style for scheduled jobs
+func scheduleStateDisplay(state string) (string, lipgloss.Style) {
+	switch state {
+	case "idle":
+		return "⏰ Scheduled", highlightStyle
+	case "executing":
+		return "▶ Running", successStyle
+	case "paused":
+		return "⏸ Paused", warnStyle
+	default:
+		return state, dimStyle
+	}
+}
+
+// formatNextRun formats a Unix timestamp as relative time until next run
+func formatNextRun(nextRun int64) string {
+	if nextRun <= 0 {
+		return "-"
+	}
+
+	nextTime := time.Unix(nextRun, 0)
+	until := time.Until(nextTime)
+
+	if until < 0 {
+		return "now"
+	}
+
+	if until < time.Minute {
+		return fmt.Sprintf("in %ds", int(until.Seconds()))
+	}
+
+	if until < time.Hour {
+		return fmt.Sprintf("in %dm", int(until.Minutes()))
+	}
+
+	if until < 24*time.Hour {
+		hours := int(until.Hours())
+		mins := int(until.Minutes()) % 60
+		return fmt.Sprintf("in %dh%dm", hours, mins)
+	}
+
+	days := int(until.Hours()) / 24
+	hours := int(until.Hours()) % 24
+	return fmt.Sprintf("in %dd%dh", days, hours)
+}
+
+// formatLastRun formats a Unix timestamp as relative time since last run
+func formatLastRun(lastRun int64) string {
+	if lastRun <= 0 {
+		return "never"
+	}
+
+	lastTime := time.Unix(lastRun, 0)
+	since := time.Since(lastTime)
+
+	if since < time.Minute {
+		return fmt.Sprintf("%ds ago", int(since.Seconds()))
+	}
+
+	if since < time.Hour {
+		return fmt.Sprintf("%dm ago", int(since.Minutes()))
+	}
+
+	if since < 24*time.Hour {
+		hours := int(since.Hours())
+		mins := int(since.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm ago", hours, mins)
+	}
+
+	days := int(since.Hours()) / 24
+	hours := int(since.Hours()) % 24
+	return fmt.Sprintf("%dd%dh ago", days, hours)
+}
+
+// updateScheduledTable updates the scheduled jobs data for the Scheduled tab
+func (m *Model) updateScheduledTable(processes []process.ProcessInfo) {
+	// Filter only scheduled processes
+	scheduled := make([]process.ProcessInfo, 0)
+	for _, proc := range processes {
+		if proc.Type == "scheduled" {
+			scheduled = append(scheduled, proc)
+		}
+	}
+
+	// Sort by name for stable order
+	sort.Slice(scheduled, func(i, j int) bool {
+		return scheduled[i].Name < scheduled[j].Name
+	})
+
+	displayRows := make([]scheduledDisplayRow, 0, len(scheduled))
+
+	for _, proc := range scheduled {
+		stateText, stateStyle := scheduleStateDisplay(proc.ScheduleState)
+
+		var nameStyle lipgloss.Style
+		switch proc.ScheduleState {
+		case "executing":
+			nameStyle = successStyle
+		case "paused":
+			nameStyle = warnStyle
+		default:
+			nameStyle = highlightStyle
+		}
+
+		// Format last run time
+		lastRunText := formatLastRun(proc.LastRun)
+		var lastRunStyle lipgloss.Style
+		if proc.LastRun <= 0 {
+			lastRunStyle = dimStyle
+		} else {
+			lastRunStyle = successStyle
+		}
+
+		// Format next run time
+		nextRunText := formatNextRun(proc.NextRun)
+		var nextRunStyle lipgloss.Style
+		if proc.ScheduleState == "paused" {
+			nextRunStyle = warnStyle
+			nextRunText = "paused"
+		} else if proc.NextRun <= 0 {
+			nextRunStyle = dimStyle
+		} else {
+			nextRunStyle = highlightStyle
+		}
+
+		// Exit code from last run (placeholder - would need history API)
+		exitCodeText := "-"
+		var exitCodeStyle lipgloss.Style = dimStyle
+		if proc.LastRun > 0 {
+			// If we have last run info, show exit code
+			exitCodeText = "0" // Default to success - TODO: get from history
+			exitCodeStyle = successStyle
+		}
+
+		row := scheduledDisplayRow{
+			name:          proc.Name,
+			nameStyle:     nameStyle,
+			schedule:      proc.Schedule,
+			state:         stateText,
+			stateStyle:    stateStyle,
+			rawState:      proc.ScheduleState,
+			lastRun:       lastRunText,
+			lastRunStyle:  lastRunStyle,
+			nextRun:       nextRunText,
+			nextRunStyle:  nextRunStyle,
+			lastExitCode:  exitCodeText,
+			exitCodeStyle: exitCodeStyle,
+			runCount:      0, // TODO: get from history
+			successRate:   "-",
+			rawLastRun:    proc.LastRun,
+			rawNextRun:    proc.NextRun,
+		}
+
+		displayRows = append(displayRows, row)
+	}
+
+	m.scheduledData = displayRows
+
+	// Update selection bounds
+	if len(m.scheduledData) == 0 {
+		m.scheduledIndex = 0
+	} else if m.scheduledIndex >= len(m.scheduledData) {
+		m.scheduledIndex = len(m.scheduledData) - 1
+	}
+	if m.scheduledIndex < 0 {
+		m.scheduledIndex = 0
+	}
+}
+
+// renderScheduledTable renders the scheduled jobs table for the Scheduled tab
+func (m Model) renderScheduledTable() string {
+	if len(m.scheduledData) == 0 {
+		return "No scheduled jobs found"
+	}
+
+	headers := []string{"NAME", "SCHEDULE", "STATE", "LAST RUN", "NEXT RUN", "EXIT", "RUNS", "SUCCESS"}
+	alignLeft := []bool{true, true, false, false, false, false, false, false}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = lipgloss.Width(header)
+	}
+
+	for _, row := range m.scheduledData {
+		values := []string{row.name, row.schedule, row.state, row.lastRun, row.nextRun, row.lastExitCode, fmt.Sprintf("%d", row.runCount), row.successRate}
+		for i, value := range values {
+			if w := lipgloss.Width(value); w > colWidths[i] {
+				colWidths[i] = w
+			}
+		}
+	}
+
+	usePlain := m.showScaleDialog || m.showConfirmation
+
+	var b strings.Builder
+
+	// Header
+	headerStyles := buildHeaderStyles(len(headers), usePlain)
+	headerLine := formatRow(headers, headerStyles, colWidths, alignLeft)
+	if usePlain {
+		b.WriteString(headerLine)
+	} else {
+		b.WriteString(tableHeaderStyle.Render(headerLine))
+	}
+	b.WriteString("\n")
+
+	// Rows
+	height := m.defaultTableHeight()
+	start := m.scheduledOffset
+	end := start + height
+	if end > len(m.scheduledData) {
+		end = len(m.scheduledData)
+	}
+
+	for i := start; i < end; i++ {
+		row := m.scheduledData[i]
+		rowStyles := []lipgloss.Style{row.nameStyle, dimStyle, row.stateStyle, row.lastRunStyle, row.nextRunStyle, row.exitCodeStyle, dimStyle, dimStyle}
+		if usePlain {
+			rowStyles = nil
+		}
+		line := formatRow(
+			[]string{row.name, row.schedule, row.state, row.lastRun, row.nextRun, row.lastExitCode, fmt.Sprintf("%d", row.runCount), row.successRate},
+			rowStyles,
+			colWidths,
+			alignLeft,
+		)
+
+		if i == m.scheduledIndex {
+			if usePlain {
+				if len(line) >= 2 {
+					line = "> " + line[2:]
+				} else {
+					line = "> " + line
+				}
+			} else {
+				line = tableSelectedStyle.Render(line)
+			}
+		}
+
+		b.WriteString(line)
+		if i != end-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+// getSelectedScheduledName returns the name of the currently selected scheduled job
+func (m *Model) getSelectedScheduledName() string {
+	if m.scheduledIndex >= 0 && m.scheduledIndex < len(m.scheduledData) {
+		return m.scheduledData[m.scheduledIndex].name
+	}
+	return ""
+}
+
+// renderOneshotTable renders the oneshot execution history table
+func (m Model) renderOneshotTable() string {
+	if len(m.oneshotData) == 0 {
+		return "No oneshot executions recorded"
+	}
+
+	headers := []string{"PROCESS", "INSTANCE", "STARTED", "DURATION", "STATUS", "EXIT", "TRIGGER"}
+	alignLeft := []bool{true, true, false, false, false, false, true}
+
+	// Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, header := range headers {
+		colWidths[i] = lipgloss.Width(header)
+	}
+
+	for _, row := range m.oneshotData {
+		values := []string{row.processName, row.instanceID, row.startedAt, row.duration, row.status, row.exitCode, row.triggerType}
+		for i, value := range values {
+			if w := lipgloss.Width(value); w > colWidths[i] {
+				colWidths[i] = w
+			}
+		}
+	}
+
+	usePlain := m.showScaleDialog || m.showConfirmation
+
+	var b strings.Builder
+
+	// Header
+	headerStyles := buildHeaderStyles(len(headers), usePlain)
+	headerLine := formatRow(headers, headerStyles, colWidths, alignLeft)
+	if usePlain {
+		b.WriteString(headerLine)
+	} else {
+		b.WriteString(tableHeaderStyle.Render(headerLine))
+	}
+	b.WriteString("\n")
+
+	// Rows
+	height := m.defaultTableHeight()
+	start := m.oneshotOffset
+	end := start + height
+	if end > len(m.oneshotData) {
+		end = len(m.oneshotData)
+	}
+
+	for i := start; i < end; i++ {
+		row := m.oneshotData[i]
+		rowStyles := []lipgloss.Style{row.nameStyle, dimStyle, row.startedStyle, dimStyle, row.statusStyle, row.exitStyle, dimStyle}
+		if usePlain {
+			rowStyles = nil
+		}
+		line := formatRow(
+			[]string{row.processName, row.instanceID, row.startedAt, row.duration, row.status, row.exitCode, row.triggerType},
+			rowStyles,
+			colWidths,
+			alignLeft,
+		)
+
+		if i == m.oneshotIndex {
+			if usePlain {
+				if len(line) >= 2 {
+					line = "> " + line[2:]
+				} else {
+					line = "> " + line
+				}
+			} else {
+				line = tableSelectedStyle.Render(line)
+			}
+		}
+
+		b.WriteString(line)
+		if i != end-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+// getSelectedOneshotID returns the ID of the currently selected oneshot execution
+func (m *Model) getSelectedOneshotID() int64 {
+	if m.oneshotIndex >= 0 && m.oneshotIndex < len(m.oneshotData) {
+		return m.oneshotData[m.oneshotIndex].id
+	}
+	return 0
+}
+
+// getSelectedOneshotProcess returns the process name of the currently selected oneshot execution
+func (m *Model) getSelectedOneshotProcess() string {
+	if m.oneshotIndex >= 0 && m.oneshotIndex < len(m.oneshotData) {
+		return m.oneshotData[m.oneshotIndex].processName
+	}
+	return ""
 }

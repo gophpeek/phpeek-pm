@@ -19,7 +19,7 @@ processes:
     command: ["php-fpm", "-F", "-R"]
     restart: always
     scale: 1
-    scale_locked: true  # Fixed port :9000, cannot scale
+    max_scale: 1  # Fixed port :9000, cannot scale
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -33,7 +33,7 @@ processes:
     command: ["nginx", "-g", "daemon off;"]
     restart: always
     scale: 1
-    scale_locked: true  # Fixed ports :80, :443, cannot scale
+    max_scale: 1  # Fixed ports :80, :443, cannot scale
     depends_on: [php-fpm]
     health_check:
       type: http

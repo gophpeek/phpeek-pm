@@ -144,6 +144,23 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleProcessListKeys handles keys in process list view
 func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	// Tab switching (k9s-style)
+	case "1":
+		m.activeTab = tabProcesses
+		return m, nil
+
+	case "2":
+		m.activeTab = tabScheduled
+		return m, nil
+
+	case "3":
+		m.activeTab = tabOneshot
+		return m, nil
+
+	case "4":
+		m.activeTab = tabSystem
+		return m, nil
+
 	case "k", "up":
 		m.moveSelection(-1)
 		return m, nil
@@ -157,12 +174,18 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "G":
-		if count := len(m.tableData); count > 0 {
+		count := m.getCurrentTabCount()
+		if count > 0 {
 			m.setSelection(count - 1)
 		}
 		return m, nil
 
 	case "enter":
+		// Handle System tab actions
+		if m.activeTab == tabSystem {
+			return m, m.executeSystemAction()
+		}
+		// Handle other tabs
 		procName := m.getSelectedProcess()
 		if procName == "" {
 			m.showToast("✗ No process selected", 3*time.Second)
@@ -178,9 +201,6 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.openLogView(logScopeProcess, procName, "")
-
-	case "L":
-		return m, m.openLogView(logScopeStack, "", "")
 
 	case "e":
 		procName := m.getSelectedProcess()
@@ -207,18 +227,7 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s":
-		info := m.getSelectedProcessInfo()
-		if info == nil {
-			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
-		}
-		if strings.Contains(strings.ToLower(info.rawState), "stop") {
-			m.showToast("Process already stopped", 3*time.Second)
-			return m, nil
-		}
-		return m, m.triggerAction(actionStop, info.name)
-
-	case "x":
+		// Start process
 		info := m.getSelectedProcessInfo()
 		if info == nil {
 			m.showToast("✗ No process selected", 3*time.Second)
@@ -229,6 +238,19 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.triggerAction(actionStart, info.name)
+
+	case "x":
+		// Stop process
+		info := m.getSelectedProcessInfo()
+		if info == nil {
+			m.showToast("✗ No process selected", 3*time.Second)
+			return m, nil
+		}
+		if strings.Contains(strings.ToLower(info.rawState), "stop") {
+			m.showToast("Process already stopped", 3*time.Second)
+			return m, nil
+		}
+		return m, m.triggerAction(actionStop, info.name)
 
 	case "+", "=":
 		return m.handleQuickScale(1)
@@ -242,15 +264,58 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showToast("✗ No process selected", 3*time.Second)
 			return m, nil
 		}
-		if info.scaleLocked {
-			m.showToast("✗ Process is scale-locked", 3*time.Second)
-			return m, nil
-		}
 		m.openScaleDialog(info.name)
 
 	case "a":
 		// Add process wizard
 		m.startWizard()
+		return m, nil
+
+	case "p":
+		// Pause/Resume schedule
+		info := m.getSelectedProcessInfo()
+		if info == nil {
+			m.showToast("✗ No process selected", 3*time.Second)
+			return m, nil
+		}
+		if !info.isScheduled {
+			m.showToast("✗ Not a scheduled process", 3*time.Second)
+			return m, nil
+		}
+		if info.scheduleState == "paused" {
+			return m, m.triggerAction(actionScheduleResume, info.name)
+		}
+		return m, m.triggerAction(actionSchedulePause, info.name)
+
+	case "t":
+		// Trigger scheduled execution now
+		info := m.getSelectedProcessInfo()
+		if info == nil {
+			m.showToast("✗ No process selected", 3*time.Second)
+			return m, nil
+		}
+		if !info.isScheduled {
+			m.showToast("✗ Not a scheduled process", 3*time.Second)
+			return m, nil
+		}
+		if info.scheduleState == "executing" {
+			m.showToast("✗ Already executing", 3*time.Second)
+			return m, nil
+		}
+		return m, m.triggerAction(actionScheduleTrigger, info.name)
+
+	case "R":
+		// Reload configuration (System tab shortcut)
+		if m.activeTab == tabSystem {
+			return m, m.reloadConfigCmd()
+		}
+		return m, nil
+
+	case "S":
+		// Save configuration (System tab shortcut)
+		if m.activeTab == tabSystem {
+			return m, m.saveConfigCmd()
+		}
 		return m, nil
 	}
 
@@ -258,6 +323,20 @@ func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) moveSelection(delta int) {
+	// Tab-aware navigation
+	switch m.activeTab {
+	case tabScheduled:
+		m.moveScheduledSelection(delta)
+		return
+	case tabOneshot:
+		m.moveOneshotSelection(delta)
+		return
+	case tabSystem:
+		m.moveSystemSelection(delta)
+		return
+	}
+
+	// Processes tab
 	if len(m.tableData) == 0 {
 		m.selectedIndex = 0
 		m.processTable.SetCursor(0)
@@ -273,7 +352,36 @@ func (m *Model) moveSelection(delta int) {
 	m.setSelection(newIdx)
 }
 
+func (m *Model) moveScheduledSelection(delta int) {
+	if len(m.scheduledData) == 0 {
+		m.scheduledIndex = 0
+		return
+	}
+	newIdx := m.scheduledIndex + delta
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx >= len(m.scheduledData) {
+		newIdx = len(m.scheduledData) - 1
+	}
+	m.setScheduledSelection(newIdx)
+}
+
 func (m *Model) setSelection(index int) {
+	// Tab-aware selection
+	switch m.activeTab {
+	case tabScheduled:
+		m.setScheduledSelection(index)
+		return
+	case tabOneshot:
+		m.setOneshotSelection(index)
+		return
+	case tabSystem:
+		m.setSystemSelection(index)
+		return
+	}
+
+	// Processes tab
 	if len(m.tableData) == 0 {
 		m.selectedIndex = 0
 		m.processTable.SetCursor(0)
@@ -289,6 +397,146 @@ func (m *Model) setSelection(index int) {
 	m.processTable.SetCursor(index)
 	m.ensureCursorVisible()
 }
+
+func (m *Model) setScheduledSelection(index int) {
+	if len(m.scheduledData) == 0 {
+		m.scheduledIndex = 0
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(m.scheduledData) {
+		index = len(m.scheduledData) - 1
+	}
+	m.scheduledIndex = index
+	m.ensureScheduledCursorVisible()
+}
+
+func (m *Model) ensureScheduledCursorVisible() {
+	height := m.defaultTableHeight()
+	if height <= 0 {
+		height = 1
+	}
+
+	maxOffset := len(m.scheduledData) - height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.scheduledOffset > maxOffset {
+		m.scheduledOffset = maxOffset
+	}
+
+	cursor := m.scheduledIndex
+	if cursor < m.scheduledOffset {
+		m.scheduledOffset = cursor
+	} else if cursor >= m.scheduledOffset+height {
+		m.scheduledOffset = cursor - height + 1
+		if m.scheduledOffset > maxOffset {
+			m.scheduledOffset = maxOffset
+		}
+	}
+	if m.scheduledOffset < 0 {
+		m.scheduledOffset = 0
+	}
+}
+
+// Oneshot tab selection functions
+func (m *Model) moveOneshotSelection(delta int) {
+	if len(m.oneshotData) == 0 {
+		m.oneshotIndex = 0
+		return
+	}
+	newIdx := m.oneshotIndex + delta
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx >= len(m.oneshotData) {
+		newIdx = len(m.oneshotData) - 1
+	}
+	m.setOneshotSelection(newIdx)
+}
+
+func (m *Model) setOneshotSelection(index int) {
+	if len(m.oneshotData) == 0 {
+		m.oneshotIndex = 0
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(m.oneshotData) {
+		index = len(m.oneshotData) - 1
+	}
+	m.oneshotIndex = index
+	m.ensureOneshotCursorVisible()
+}
+
+func (m *Model) ensureOneshotCursorVisible() {
+	height := m.defaultTableHeight()
+	if height <= 0 {
+		height = 1
+	}
+
+	maxOffset := len(m.oneshotData) - height
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.oneshotOffset > maxOffset {
+		m.oneshotOffset = maxOffset
+	}
+
+	cursor := m.oneshotIndex
+	if cursor < m.oneshotOffset {
+		m.oneshotOffset = cursor
+	} else if cursor >= m.oneshotOffset+height {
+		m.oneshotOffset = cursor - height + 1
+		if m.oneshotOffset > maxOffset {
+			m.oneshotOffset = maxOffset
+		}
+	}
+	if m.oneshotOffset < 0 {
+		m.oneshotOffset = 0
+	}
+}
+
+// System tab selection functions
+func (m *Model) moveSystemSelection(delta int) {
+	newIdx := m.systemMenuIndex + delta
+	if newIdx < 0 {
+		newIdx = 0
+	}
+	if newIdx >= systemMenuItemCount {
+		newIdx = systemMenuItemCount - 1
+	}
+	m.systemMenuIndex = newIdx
+}
+
+func (m *Model) setSystemSelection(index int) {
+	if index < 0 {
+		index = 0
+	}
+	if index >= systemMenuItemCount {
+		index = systemMenuItemCount - 1
+	}
+	m.systemMenuIndex = index
+}
+
+// getCurrentTabCount returns the number of items in the current tab
+func (m *Model) getCurrentTabCount() int {
+	switch m.activeTab {
+	case tabScheduled:
+		return len(m.scheduledData)
+	case tabOneshot:
+		return len(m.oneshotData)
+	case tabSystem:
+		return systemMenuItemCount
+	}
+	return len(m.tableData)
+}
+
+// systemMenuItemCount is the number of items in the system menu
+const systemMenuItemCount = 2 // Reload Config, Save Config
 
 // handleProcessDetailKeys handles keys when viewing a single process
 func (m Model) handleProcessDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -366,6 +614,61 @@ func (m Model) handleHelpKeys(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// executeSystemAction executes the currently selected system menu action
+func (m *Model) executeSystemAction() tea.Cmd {
+	switch m.systemMenuIndex {
+	case 0: // Reload Configuration
+		return m.reloadConfigCmd()
+	case 1: // Save Configuration
+		return m.saveConfigCmd()
+	}
+	return nil
+}
+
+// reloadConfigCmd returns a command to reload configuration from disk
+func (m *Model) reloadConfigCmd() tea.Cmd {
+	return func() tea.Msg {
+		var err error
+
+		if m.isRemote {
+			err = m.client.ReloadConfig()
+		} else if m.manager != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			err = m.manager.ReloadConfig(ctx)
+		} else {
+			return actionResultMsg{success: false, message: "✗ No manager available"}
+		}
+
+		if err != nil {
+			return actionResultMsg{success: false, message: fmt.Sprintf("✗ Reload failed: %v", err)}
+		}
+
+		return actionResultMsg{success: true, message: "✓ Configuration reloaded"}
+	}
+}
+
+// saveConfigCmd returns a command to save running configuration to file
+func (m *Model) saveConfigCmd() tea.Cmd {
+	return func() tea.Msg {
+		var err error
+
+		if m.isRemote {
+			err = m.client.SaveConfig()
+		} else if m.manager != nil {
+			err = m.manager.SaveConfig()
+		} else {
+			return actionResultMsg{success: false, message: "✗ No manager available"}
+		}
+
+		if err != nil {
+			return actionResultMsg{success: false, message: fmt.Sprintf("✗ Save failed: %v", err)}
+		}
+
+		return actionResultMsg{success: true, message: "✓ Configuration saved"}
+	}
+}
+
 // updateComponentSizes updates component dimensions on terminal resize
 func (m *Model) updateComponentSizes() {
 	// Reserve space for header (3 lines) and footer (2 lines)
@@ -385,8 +688,11 @@ func (m *Model) updateComponentSizes() {
 	}
 }
 
-// getSelectedProcess returns the name of the currently selected process
+// getSelectedProcess returns the name of the currently selected process (tab-aware)
 func (m *Model) getSelectedProcess() string {
+	if m.activeTab == tabScheduled {
+		return m.getSelectedScheduledName()
+	}
 	if m.selectedIndex >= 0 && m.selectedIndex < len(m.tableData) {
 		return m.tableData[m.selectedIndex].name
 	}
@@ -394,6 +700,29 @@ func (m *Model) getSelectedProcess() string {
 }
 
 func (m *Model) getSelectedProcessInfo() *processDisplayRow {
+	// For Scheduled tab, we need to convert scheduled row to process row for compatibility
+	if m.activeTab == tabScheduled {
+		if m.scheduledIndex >= 0 && m.scheduledIndex < len(m.scheduledData) {
+			sched := m.scheduledData[m.scheduledIndex]
+			// Create a process display row with scheduled process info
+			return &processDisplayRow{
+				name:          sched.name,
+				nameStyle:     sched.nameStyle,
+				procType:      "scheduled",
+				state:         sched.state,
+				rawState:      sched.rawState,
+				stateStyle:    sched.stateStyle,
+				isScheduled:   true,
+				schedule:      sched.schedule,
+				scheduleState: sched.rawState,
+				nextRun:       sched.rawNextRun,
+				lastRun:       sched.rawLastRun,
+			}
+		}
+		return nil
+	}
+
+	// Processes tab
 	idx := m.selectedIndex
 	if idx >= 0 && idx < len(m.tableData) {
 		return &m.tableData[idx]
@@ -556,6 +885,16 @@ func (m *Model) refreshLogs() {
 	m.logBuffer = make([]string, 0, len(logs))
 	for i := len(logs) - 1; i >= 0; i-- {
 		entry := logs[i]
+
+		// Handle event entries as dividers
+		if entry.Level == "event" {
+			// Create a visual divider for lifecycle events
+			timestamp := entry.Timestamp.Format("15:04:05")
+			divider := eventDividerStyle.Render(fmt.Sprintf("──── %s %s ────", timestamp, entry.Message))
+			m.logBuffer = append(m.logBuffer, divider)
+			continue
+		}
+
 		// Format: [timestamp] [level] [stream] [instance] message
 		timestamp := entry.Timestamp.Format("15:04:05.000")
 		levelStr := m.formatLogLevel(entry.Level)
@@ -687,8 +1026,8 @@ func (m Model) handleWizardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab", "enter":
 		// Advance to next step (with validation)
-		if m.wizardStep == 5 {
-			// Final step - create process
+		if m.wizardStep == 4 {
+			// Final step (Preview) - create/update process
 			return m, m.executeWizardSubmit()
 		}
 		m.advanceWizardStep()
@@ -724,16 +1063,41 @@ func (m Model) handleWizardNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
+	text := m.wizardName
+	cursor := m.wizardCursor
+
+	// Clamp cursor
+	if cursor > len(text) {
+		cursor = len(text)
+	}
 
 	switch key {
+	case "left":
+		if cursor > 0 {
+			m.wizardCursor--
+		}
+	case "right":
+		if cursor < len(text) {
+			m.wizardCursor++
+		}
+	case "home":
+		m.wizardCursor = 0
+	case "end":
+		m.wizardCursor = len(text)
 	case "backspace":
-		if len(m.wizardName) > 0 {
-			m.wizardName = m.wizardName[:len(m.wizardName)-1]
+		if cursor > 0 {
+			m.wizardName = text[:cursor-1] + text[cursor:]
+			m.wizardCursor--
+		}
+	case "delete":
+		if cursor < len(text) {
+			m.wizardName = text[:cursor] + text[cursor+1:]
 		}
 	default:
-		// Add character if printable
+		// Add character if printable (no spaces for name)
 		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 && key[0] != ' ' {
-			m.wizardName += key
+			m.wizardName = text[:cursor] + key + text[cursor:]
+			m.wizardCursor++
 		}
 	}
 
@@ -743,18 +1107,44 @@ func (m Model) handleWizardNameInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleWizardCommandInput handles input for command step
 func (m Model) handleWizardCommandInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	text := m.wizardCommandLine
+	cursor := m.wizardCursor
+
+	// Clamp cursor
+	if cursor > len(text) {
+		cursor = len(text)
+	}
 
 	switch key {
-	case "backspace":
-		if len(m.wizardCommandLine) > 0 {
-			m.wizardCommandLine = m.wizardCommandLine[:len(m.wizardCommandLine)-1]
+	case "left":
+		if cursor > 0 {
+			m.wizardCursor--
 		}
-
+	case "right":
+		if cursor < len(text) {
+			m.wizardCursor++
+		}
+	case "home":
+		m.wizardCursor = 0
+	case "end":
+		m.wizardCursor = len(text)
+	case "backspace":
+		if cursor > 0 {
+			m.wizardCommandLine = text[:cursor-1] + text[cursor:]
+			m.wizardCursor--
+		}
+	case "delete":
+		if cursor < len(text) {
+			m.wizardCommandLine = text[:cursor] + text[cursor+1:]
+		}
 	default:
+		// Add character if printable (spaces allowed for command)
 		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
-			m.wizardCommandLine += key
+			m.wizardCommandLine = text[:cursor] + key + text[cursor:]
+			m.wizardCursor++
 		} else if key == " " {
-			m.wizardCommandLine += " "
+			m.wizardCommandLine = text[:cursor] + " " + text[cursor:]
+			m.wizardCursor++
 		}
 	}
 
@@ -825,13 +1215,20 @@ func (m *Model) executeWizardSubmit() tea.Cmd {
 		return nil
 	}
 
+	// Capture all values BEFORE resetting wizard (closure would see reset values otherwise)
 	cfg := m.wizardProcessConfig()
 	targetName := m.wizardName
 	if m.wizardMode == wizardModeEdit && m.wizardOriginal != "" {
 		targetName = m.wizardOriginal
 	}
-
+	isEditMode := m.wizardMode == wizardModeEdit
 	commandParts := splitCommandLine(m.wizardCommandLine)
+	scale := m.wizardScale
+	restart := m.wizardRestart
+	enabled := m.wizardEnabled
+	isRemote := m.isRemote
+	client := m.client
+	manager := m.manager
 
 	// Return to process list
 	m.currentView = viewProcessList
@@ -844,18 +1241,17 @@ func (m *Model) executeWizardSubmit() tea.Cmd {
 		var err error
 		var successMsg string
 
-		switch m.wizardMode {
-		case wizardModeEdit:
+		if isEditMode {
 			successMsg = fmt.Sprintf("✓ Updated %s", targetName)
-			if m.isRemote {
-				err = m.client.UpdateProcess(targetName, cfg)
+			if isRemote {
+				err = client.UpdateProcess(targetName, cfg)
 			} else {
-				err = m.manager.UpdateProcess(ctx, targetName, cfg)
+				err = manager.UpdateProcess(ctx, targetName, cfg)
 			}
-		default:
+		} else {
 			successMsg = fmt.Sprintf("✓ Process %s created successfully", targetName)
-			if m.isRemote {
-				err = m.client.AddProcess(ctx, m.wizardName, commandParts, m.wizardScale, m.wizardRestart, m.wizardEnabled)
+			if isRemote {
+				err = client.AddProcess(ctx, targetName, commandParts, scale, restart, enabled)
 			} else {
 				// Embedded mode - create config and add process
 				return actionResultMsg{success: false, message: "✗ Wizard not supported in embedded mode yet"}
@@ -967,6 +1363,9 @@ func (m *Model) applyProcessListResult(msg processListResultMsg) {
 		m.processCache[proc.Name] = proc
 	}
 
+	// Refresh oneshot history data
+	m.refreshOneshotData()
+
 	if m.detailProc != "" {
 		if info, exists := m.processCache[m.detailProc]; exists {
 			procCopy := info
@@ -985,6 +1384,93 @@ func (m *Model) applyProcessListResult(msg processListResultMsg) {
 			m.showToast("Process logs unavailable (process removed)", 3*time.Second)
 		}
 	}
+}
+
+// refreshOneshotData fetches and populates oneshot execution history
+func (m *Model) refreshOneshotData() {
+	var executions []process.OneshotExecution
+
+	if m.isRemote {
+		// Remote mode: fetch via API
+		if m.client == nil {
+			return
+		}
+		var err error
+		executions, err = m.client.GetOneshotHistory(100)
+		if err != nil {
+			// Silently fail - oneshot history is optional
+			return
+		}
+	} else {
+		// Embedded mode: fetch from manager
+		if m.manager == nil {
+			return
+		}
+		executions = m.manager.GetAllOneshotExecutions(100)
+	}
+
+	// Convert to display rows
+	m.oneshotData = make([]oneshotDisplayRow, 0, len(executions))
+	for _, exec := range executions {
+		row := m.convertOneshotExecution(exec)
+		m.oneshotData = append(m.oneshotData, row)
+	}
+
+	// Ensure selection is valid
+	if m.oneshotIndex >= len(m.oneshotData) {
+		if len(m.oneshotData) > 0 {
+			m.oneshotIndex = len(m.oneshotData) - 1
+		} else {
+			m.oneshotIndex = 0
+		}
+	}
+}
+
+// convertOneshotExecution converts a process.OneshotExecution to an oneshotDisplayRow
+func (m *Model) convertOneshotExecution(exec process.OneshotExecution) oneshotDisplayRow {
+	row := oneshotDisplayRow{
+		id:           exec.ID,
+		processName:  exec.ProcessName,
+		instanceID:   exec.InstanceID,
+		triggerType:  exec.TriggerType,
+		rawStartedAt: exec.StartedAt.Unix(),
+	}
+
+	// Format started time
+	row.startedAt = exec.StartedAt.Format("15:04:05")
+	row.startedStyle = dimStyle
+
+	// Calculate duration and status
+	if exec.FinishedAt.IsZero() {
+		// Still running
+		row.status = "Running"
+		row.statusStyle = highlightStyle
+		row.duration = time.Since(exec.StartedAt).Truncate(time.Second).String()
+		row.exitCode = "-"
+		row.finishedAt = "-"
+	} else {
+		row.finishedAt = exec.FinishedAt.Format("15:04:05")
+		row.finishedStyle = dimStyle
+		row.duration = exec.Duration // Already a formatted string
+
+		if exec.ExitCode == 0 {
+			row.status = "Success"
+			row.statusStyle = successStyle
+			row.exitCode = "0"
+			row.exitStyle = successStyle
+		} else {
+			row.status = "Failed"
+			row.statusStyle = errorStyle
+			row.exitCode = fmt.Sprintf("%d", exec.ExitCode)
+			row.exitStyle = errorStyle
+		}
+
+		if exec.Error != "" {
+			row.error = exec.Error
+		}
+	}
+
+	return row
 }
 
 func (m *Model) scaleProcess(target string, desired int) tea.Cmd {

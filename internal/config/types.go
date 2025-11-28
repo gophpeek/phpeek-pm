@@ -44,6 +44,9 @@ type GlobalConfig struct {
 	TracingSampleRate         float64       `yaml:"tracing_sample_rate" json:"tracing_sample_rate"`                   // 0.0-1.0 (default: 1.0 = 100%)
 	TracingServiceName        string        `yaml:"tracing_service_name" json:"tracing_service_name"`                 // Service name for traces (default: phpeek-pm)
 	TracingUseTLS             bool          `yaml:"tracing_use_tls" json:"tracing_use_tls"`                           // Enable TLS for production (default: false)
+	ScheduleHistorySize       int           `yaml:"schedule_history_size" json:"schedule_history_size"`               // Max execution history entries per job (default: 100)
+	OneshotHistoryMaxEntries  int           `yaml:"oneshot_history_max_entries" json:"oneshot_history_max_entries"`   // Max oneshot history entries per process (default: 5000)
+	OneshotHistoryMaxAge      time.Duration `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
 }
 
 // HooksConfig contains lifecycle hooks
@@ -77,12 +80,24 @@ type Process struct {
 	Stderr       *bool             `yaml:"stderr" json:"stderr"`             // Legacy shorthand for logging.stderr
 	Restart      string            `yaml:"restart" json:"restart"`           // always | on-failure | never
 	Scale        int               `yaml:"scale" json:"scale"`               // Number of instances
-	ScaleLocked  bool              `yaml:"scale_locked" json:"scale_locked"` // Prevent scaling (port conflicts)
+	MaxScale     int               `yaml:"max_scale" json:"max_scale"`       // Maximum instances (0 = no limit)
 	DependsOn    []string          `yaml:"depends_on" json:"depends_on"`     // Process dependencies
 	Env          map[string]string `yaml:"env" json:"env"`
 	HealthCheck  *HealthCheck      `yaml:"health_check" json:"health_check"`
 	Shutdown     *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
-	Logging *LoggingConfig `yaml:"logging" json:"logging"`
+	Logging          *LoggingConfig `yaml:"logging" json:"logging"`
+	Schedule              string           `yaml:"schedule" json:"schedule"`                               // Cron expression: "*/5 * * * *"
+	ScheduleTimezone      string           `yaml:"schedule_timezone" json:"schedule_timezone"`             // Timezone: "UTC" (default) | "Local"
+	ScheduleTimeout       string           `yaml:"schedule_timeout" json:"schedule_timeout"`               // Execution timeout: "30s", "5m", "1h" (default: no timeout)
+	ScheduleMaxConcurrent int              `yaml:"schedule_max_concurrent" json:"schedule_max_concurrent"` // Max concurrent: 1=no overlap, 0=unlimited (default: 0)
+	Heartbeat             *HeartbeatConfig `yaml:"heartbeat" json:"heartbeat"`                             // Heartbeat monitoring config
+}
+
+// HeartbeatConfig configures heartbeat monitoring for scheduled jobs
+type HeartbeatConfig struct {
+	Enabled  bool `yaml:"enabled" json:"enabled"`   // Enable heartbeat monitoring
+	Interval int  `yaml:"interval" json:"interval"` // Expected interval in seconds
+	Grace    int  `yaml:"grace" json:"grace"`       // Grace period before alert in seconds
 }
 
 // HealthCheck configuration
@@ -319,6 +334,17 @@ func (c *Config) SetDefaults() {
 			c.Global.TracingEndpoint = "http://localhost:9411/api/v2/spans"
 		}
 	}
+	// Schedule history defaults
+	if c.Global.ScheduleHistorySize == 0 {
+		c.Global.ScheduleHistorySize = 100 // Default: 100 entries per job
+	}
+	// Oneshot history defaults
+	if c.Global.OneshotHistoryMaxEntries == 0 {
+		c.Global.OneshotHistoryMaxEntries = 5000 // Default: 5000 entries per process
+	}
+	if c.Global.OneshotHistoryMaxAge == 0 {
+		c.Global.OneshotHistoryMaxAge = 24 * time.Hour // Default: 24 hours
+	}
 
 	// Process defaults
 	for name, proc := range c.Processes {
@@ -337,6 +363,11 @@ func (c *Config) SetDefaults() {
 		}
 		if proc.Scale == 0 {
 			proc.Scale = 1
+		}
+
+		// Schedule defaults
+		if proc.Schedule != "" && proc.ScheduleTimezone == "" {
+			proc.ScheduleTimezone = "UTC" // Default: UTC timezone
 		}
 
 		// Health check defaults
@@ -488,30 +519,124 @@ func (p *Process) Equal(other *Process) bool {
 
 	// Compare basic fields
 	if p.Enabled != other.Enabled ||
+		p.Type != other.Type ||
+		p.InitialState != other.InitialState ||
 		p.Scale != other.Scale ||
+		p.MaxScale != other.MaxScale ||
 		p.Restart != other.Restart ||
-		len(p.Command) != len(other.Command) ||
-		len(p.DependsOn) != len(other.DependsOn) {
+		p.WorkingDir != other.WorkingDir ||
+		p.Schedule != other.Schedule ||
+		p.ScheduleTimezone != other.ScheduleTimezone {
 		return false
 	}
 
 	// Compare command slices
-	for i := range p.Command {
-		if p.Command[i] != other.Command[i] {
-			return false
-		}
+	if !stringSliceEqual(p.Command, other.Command) {
+		return false
 	}
 
 	// Compare depends_on slices
-	for i := range p.DependsOn {
-		if p.DependsOn[i] != other.DependsOn[i] {
+	if !stringSliceEqual(p.DependsOn, other.DependsOn) {
+		return false
+	}
+
+	// Compare environment variables
+	if !stringMapEqual(p.Env, other.Env) {
+		return false
+	}
+
+	// Compare health check config
+	if !healthCheckEqual(p.HealthCheck, other.HealthCheck) {
+		return false
+	}
+
+	// Compare shutdown config
+	if !shutdownConfigEqual(p.Shutdown, other.Shutdown) {
+		return false
+	}
+
+	return true
+}
+
+// stringSliceEqual compares two string slices for equality
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
-
-	// For simplicity, if both configurations have different complex nested structs,
-	// consider them different (health checks, shutdown config, logging, etc.)
-	// In production, you'd want more detailed comparison
-
 	return true
+}
+
+// stringMapEqual compares two string maps for equality
+func stringMapEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
+}
+
+// healthCheckEqual compares two HealthCheck configs
+func healthCheckEqual(a, b *HealthCheck) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Type == b.Type &&
+		a.Address == b.Address &&
+		a.URL == b.URL &&
+		a.InitialDelay == b.InitialDelay &&
+		a.Period == b.Period &&
+		a.Timeout == b.Timeout &&
+		a.FailureThreshold == b.FailureThreshold &&
+		a.SuccessThreshold == b.SuccessThreshold &&
+		a.ExpectedStatus == b.ExpectedStatus &&
+		a.Mode == b.Mode &&
+		stringSliceEqual(a.Command, b.Command)
+}
+
+// shutdownConfigEqual compares two ShutdownConfig configs
+func shutdownConfigEqual(a, b *ShutdownConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Signal != b.Signal ||
+		a.Timeout != b.Timeout ||
+		a.KillSignal != b.KillSignal ||
+		a.Graceful != b.Graceful {
+		return false
+	}
+	// Compare pre-stop hook
+	return hookEqual(a.PreStopHook, b.PreStopHook)
+}
+
+// hookEqual compares two Hook configs
+func hookEqual(a, b *Hook) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Name == b.Name &&
+		a.Timeout == b.Timeout &&
+		a.Retry == b.Retry &&
+		a.RetryDelay == b.RetryDelay &&
+		a.ContinueOnError == b.ContinueOnError &&
+		a.WorkingDir == b.WorkingDir &&
+		stringSliceEqual(a.Command, b.Command) &&
+		stringMapEqual(a.Env, b.Env)
 }

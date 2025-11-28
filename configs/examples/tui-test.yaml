@@ -5,6 +5,8 @@ global:
     restart_policy: always
     max_restart_attempts: 3
     restart_backoff: 5
+    restart_backoff_initial: 5s
+    restart_backoff_max: 1m0s
     autotune_memory_threshold: 0
     log_format: text
     log_level: info
@@ -24,12 +26,102 @@ global:
     resource_metrics_interval: 2
     resource_metrics_max_samples: 720
     audit_enabled: false
+    tracing_enabled: false
+    tracing_exporter: stdout
+    tracing_endpoint: ""
+    tracing_sample_rate: 1
+    tracing_service_name: phpeek-pm
+    tracing_use_tls: false
+    schedule_history_size: 100
+    oneshot_history_max_entries: 5000
+    oneshot_history_max_age: 24h0m0s
 hooks:
     pre-start: []
     post-start: []
     pre-stop: []
     post-stop: []
 processes:
+    test-cron:
+        enabled: true
+        type: oneshot
+        initial_state: running
+        command:
+            - sh
+            - -c
+            - |
+              echo "[CRON $(date '+%H:%M:%S')] Running scheduled task..."
+              sleep 2
+              echo "[CRON $(date '+%H:%M:%S')] Task completed successfully!"
+        working_dir: ""
+        stdout: null
+        stderr: null
+        restart: never
+        scale: 1
+        max_scale: 1
+        depends_on: []
+        env: {}
+        health_check: null
+        shutdown: null
+        logging:
+            stdout: true
+            stderr: true
+            labels:
+                process: test-cron
+                type: scheduled
+            min_level: info
+            redaction: null
+            multiline: null
+            json: null
+            level_detection: null
+            filters: null
+        schedule: '* * * * *'
+        schedule_timezone: Local
+        schedule_timeout: 30s
+        schedule_max_concurrent: 1
+        heartbeat: null
+    test-oneshot:
+        enabled: true
+        type: oneshot
+        initial_state: stopped
+        command:
+            - sh
+            - -c
+            - |
+              echo "========================================="
+              echo "[ONESHOT] Starting one-time task..."
+              echo "[ONESHOT] Step 1: Initializing..."
+              sleep 1
+              echo "[ONESHOT] Step 2: Processing data..."
+              sleep 1
+              echo "[ONESHOT] Step 3: Finalizing..."
+              sleep 1
+              echo "[ONESHOT] Task completed successfully!"
+              echo "========================================="
+        working_dir: ""
+        stdout: null
+        stderr: null
+        restart: never
+        scale: 1
+        max_scale: 1
+        depends_on: []
+        env: {}
+        health_check: null
+        shutdown: null
+        logging:
+            stdout: true
+            stderr: true
+            labels:
+                process: test-oneshot
+                type: oneshot
+            min_level: info
+            redaction: null
+            multiline: null
+            json: null
+            level_detection: null
+            filters: null
+        schedule: ""
+        schedule_timezone: ""
+        heartbeat: null
     test-process-1:
         enabled: true
         type: longrun
@@ -37,9 +129,12 @@ processes:
         command:
             - sleep
             - "3600"
+        working_dir: ""
+        stdout: null
+        stderr: null
         restart: always
         scale: 2
-        scale_locked: false
+        max_scale: 0
         depends_on: []
         env: {}
         health_check: null
@@ -56,6 +151,7 @@ processes:
             level_detection: null
             filters: null
         schedule: ""
+        schedule_timezone: ""
         heartbeat: null
     test-process-2:
         enabled: true
@@ -65,9 +161,12 @@ processes:
             - sh
             - -c
             - while true; do echo 'Process 2 running'; sleep 5; done
+        working_dir: ""
+        stdout: null
+        stderr: null
         restart: always
         scale: 1
-        scale_locked: false
+        max_scale: 0
         depends_on: []
         env: {}
         health_check: null
@@ -84,22 +183,37 @@ processes:
             level_detection: null
             filters: null
         schedule: ""
+        schedule_timezone: ""
         heartbeat: null
     test-queue:
         enabled: true
-        type: ""
-        initial_state: ""
+        type: longrun
+        initial_state: running
         command:
             - php
             - artisan
             - queue:work
+        working_dir: ""
+        stdout: null
+        stderr: null
         restart: always
         scale: 2
-        scale_locked: false
+        max_scale: 0
         depends_on: []
         env: {}
         health_check: null
         shutdown: null
-        logging: null
+        logging:
+            stdout: true
+            stderr: true
+            labels:
+                process: test-queue
+            min_level: info
+            redaction: null
+            multiline: null
+            json: null
+            level_detection: null
+            filters: null
         schedule: ""
+        schedule_timezone: ""
         heartbeat: null

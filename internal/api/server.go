@@ -223,6 +223,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/v1/config/reload", s.wrapHandler(s.handleConfigReload, true))
 	// Metrics endpoints
 	mux.HandleFunc("/api/v1/metrics/history", s.wrapHandler(s.handleMetricsHistory, true))
+	// Oneshot history endpoint
+	mux.HandleFunc("/api/v1/oneshot/history", s.wrapHandler(s.handleOneshotHistory, true))
 
 	// Wrap mux with ACL middleware if enabled (applied to all routes, TCP only)
 	var tcpHandler http.Handler = mux
@@ -594,10 +596,16 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		// GET /api/v1/processes/{name} - get process config
 		// GET /api/v1/processes/{name}/logs - get process logs
+		// GET /api/v1/processes/{name}/schedule - get schedule status
+		// GET /api/v1/processes/{name}/schedule/history - get execution history
 		if action == "" {
 			s.handleGetProcess(w, r, processName)
 		} else if action == "logs" {
 			s.handleGetLogs(w, r, processName)
+		} else if action == "schedule" {
+			s.handleGetScheduleStatus(w, r, processName)
+		} else if action == "schedule/history" {
+			s.handleGetScheduleHistory(w, r, processName)
 		} else {
 			s.respondError(w, http.StatusBadRequest, "unknown GET action")
 		}
@@ -631,8 +639,14 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 			s.handleStart(w, r, processName)
 		case "scale":
 			s.handleScale(w, r, processName)
+		case "schedule/pause":
+			s.handleSchedulePause(w, r, processName)
+		case "schedule/resume":
+			s.handleScheduleResume(w, r, processName)
+		case "schedule/trigger":
+			s.handleScheduleTrigger(w, r, processName)
 		default:
-			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("unknown action: %s (valid: start|stop|restart|scale)", action))
+			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("unknown action: %s (valid: start|stop|restart|scale|schedule/pause|schedule/resume|schedule/trigger)", action))
 		}
 	}
 }
@@ -728,6 +742,107 @@ func (s *Server) handleScale(w http.ResponseWriter, r *http.Request, processName
 		"status":  "scaled",
 		"process": processName,
 		"desired": req.Desired,
+	})
+}
+
+// handleSchedulePause pauses a scheduled job
+func (s *Server) handleSchedulePause(w http.ResponseWriter, r *http.Request, processName string) {
+	if err := s.manager.PauseSchedule(processName); err != nil {
+		s.respondError(w, httpStatusFromError(err), fmt.Sprintf("pause failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "paused",
+		"process": processName,
+	})
+}
+
+// handleScheduleResume resumes a paused scheduled job
+func (s *Server) handleScheduleResume(w http.ResponseWriter, r *http.Request, processName string) {
+	if err := s.manager.ResumeSchedule(processName); err != nil {
+		s.respondError(w, httpStatusFromError(err), fmt.Sprintf("resume failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "resumed",
+		"process": processName,
+	})
+}
+
+// handleScheduleTrigger manually triggers a scheduled job
+func (s *Server) handleScheduleTrigger(w http.ResponseWriter, r *http.Request, processName string) {
+	// Parse optional "sync" parameter - if true, wait for execution to complete
+	sync := r.URL.Query().Get("sync") == "true"
+
+	if sync {
+		// Synchronous trigger - wait for execution
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+		defer cancel()
+
+		exitCode, err := s.manager.TriggerScheduleSync(ctx, processName)
+		if err != nil {
+			s.respondError(w, httpStatusFromError(err), fmt.Sprintf("trigger failed: %v", err))
+			return
+		}
+
+		s.respondJSON(w, http.StatusOK, map[string]interface{}{
+			"status":    "completed",
+			"process":   processName,
+			"exit_code": exitCode,
+		})
+		return
+	}
+
+	// Asynchronous trigger - return immediately
+	ctx := r.Context()
+	if err := s.manager.TriggerSchedule(ctx, processName); err != nil {
+		s.respondError(w, httpStatusFromError(err), fmt.Sprintf("trigger failed: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusAccepted, map[string]string{
+		"status":  "triggered",
+		"process": processName,
+	})
+}
+
+// handleGetScheduleStatus returns the schedule status for a process
+func (s *Server) handleGetScheduleStatus(w http.ResponseWriter, r *http.Request, processName string) {
+	status, err := s.manager.GetScheduleStatus(processName)
+	if err != nil {
+		s.respondError(w, httpStatusFromError(err), fmt.Sprintf("failed to get schedule status: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+		"process":  processName,
+		"schedule": status,
+	})
+}
+
+// handleGetScheduleHistory returns execution history for a scheduled job
+func (s *Server) handleGetScheduleHistory(w http.ResponseWriter, r *http.Request, processName string) {
+	// Parse optional limit parameter
+	limit := 100 // Default
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	history, err := s.manager.GetScheduleHistory(processName, limit)
+	if err != nil {
+		s.respondError(w, httpStatusFromError(err), fmt.Sprintf("failed to get schedule history: %v", err))
+		return
+	}
+
+	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+		"process": processName,
+		"limit":   limit,
+		"count":   len(history),
+		"history": history,
 	})
 }
 
@@ -1021,4 +1136,32 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleOneshotHistory returns oneshot execution history
+// GET /api/v1/oneshot/history?limit=N
+func (s *Server) handleOneshotHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse optional limit parameter
+	limit := 100 // default limit
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || limit <= 0 || limit > 10000 {
+			s.respondError(w, http.StatusBadRequest, "Invalid limit parameter (must be 1-10000)")
+			return
+		}
+	}
+
+	// Get oneshot executions from manager
+	executions := s.manager.GetAllOneshotExecutions(limit)
+
+	// Build response
+	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+		"executions": executions,
+		"count":      len(executions),
+		"limit":      limit,
+	})
 }

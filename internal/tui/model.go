@@ -24,6 +24,20 @@ const (
 	viewWizard
 )
 
+// tabType represents the k9s-style tabs
+type tabType int
+
+const (
+	tabProcesses tabType = iota // Regular longrun/oneshot processes
+	tabScheduled                // Cron/scheduled jobs
+	tabOneshot                  // Oneshot execution history
+	tabSystem                   // System controls (reload, save config)
+)
+
+// Tab definitions for UI rendering
+var tabNames = []string{"Processes", "Scheduled", "Oneshot", "System"}
+var tabShortcuts = []string{"1", "2", "3", "4"}
+
 // logScope determines whether logs are shown for entire stack or specific process
 type logScope int
 
@@ -49,6 +63,9 @@ const (
 	actionStart
 	actionScale
 	actionDelete
+	actionSchedulePause
+	actionScheduleResume
+	actionScheduleTrigger
 )
 
 // Model is the main Bubbletea model for the TUI
@@ -57,6 +74,7 @@ type Model struct {
 	client       *APIClient       // For remote mode
 	isRemote     bool             // true if using API client
 	currentView  viewMode
+	activeTab    tabType // k9s-style tab selection
 	processTable table.Model
 	logViewport  viewport.Model
 	selectedProc string
@@ -98,6 +116,7 @@ type Model struct {
 	wizardOriginal    string
 	wizardNameLocked  bool
 	wizardBaseConfig  *config.Process
+	wizardCursor      int // cursor position in current input field
 
 	// Table rendering state
 	tableData         []processDisplayRow
@@ -107,6 +126,24 @@ type Model struct {
 	instanceTable     table.Model
 	instanceColumns   []table.Column
 	logInstance       string
+
+	// k9s-style tab data
+	// Processes tab uses: tableData, selectedIndex, tableOffset (existing fields)
+	// Scheduled tab uses: scheduledData, scheduledIndex, scheduledOffset
+	scheduledData       []scheduledDisplayRow // Scheduled/cron jobs
+	scheduledIndex      int
+	scheduledOffset     int
+	scheduledColWidths  []int
+	executionHistory    []ExecutionHistoryEntry // Execution history for selected scheduled job
+
+	// Oneshot tab data
+	oneshotData       []oneshotDisplayRow // Oneshot execution history
+	oneshotIndex      int
+	oneshotOffset     int
+	oneshotColWidths  []int
+
+	// System tab data
+	systemMenuIndex int // Currently selected system menu option
 }
 
 // NewModel creates a new TUI model for embedded mode
@@ -264,6 +301,32 @@ func (m *Model) executeAction() tea.Cmd {
 				defer cancel()
 				err = m.manager.RemoveProcess(ctx, target)
 			}
+
+		case actionSchedulePause:
+			successMsg = fmt.Sprintf("✓ Paused schedule %s", target)
+			if m.isRemote {
+				err = m.client.PauseSchedule(target)
+			} else {
+				err = m.manager.PauseSchedule(target)
+			}
+
+		case actionScheduleResume:
+			successMsg = fmt.Sprintf("✓ Resumed schedule %s", target)
+			if m.isRemote {
+				err = m.client.ResumeSchedule(target)
+			} else {
+				err = m.manager.ResumeSchedule(target)
+			}
+
+		case actionScheduleTrigger:
+			successMsg = fmt.Sprintf("✓ Triggered %s", target)
+			if m.isRemote {
+				err = m.client.TriggerSchedule(target)
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				err = m.manager.TriggerSchedule(ctx, target)
+			}
 		}
 
 		if err != nil {
@@ -308,6 +371,7 @@ func (m *Model) resetWizard() {
 	m.wizardOriginal = ""
 	m.wizardNameLocked = false
 	m.wizardBaseConfig = nil
+	m.wizardCursor = 0
 }
 
 // startWizard initializes and opens the wizard
@@ -327,6 +391,7 @@ func (m *Model) startEditWizard(name string, procCfg *config.Process) {
 	m.wizardBaseConfig = cloneProcessConfig(procCfg)
 	if procCfg != nil {
 		m.wizardCommandLine = strings.Join(procCfg.Command, " ")
+		m.wizardCursor = len(m.wizardCommandLine) // cursor at end
 		if procCfg.Scale > 0 {
 			m.wizardScale = procCfg.Scale
 			m.wizardScaleInput = fmt.Sprintf("%d", procCfg.Scale)
@@ -405,6 +470,8 @@ func (m *Model) advanceWizardStep() {
 
 	if m.wizardStep < 4 {
 		m.wizardStep++
+		// Set cursor to end of new step's content
+		m.setCursorForCurrentStep()
 	}
 }
 
@@ -413,5 +480,20 @@ func (m *Model) previousWizardStep() {
 	if m.wizardStep > 0 {
 		m.wizardStep--
 		m.wizardError = ""
+		// Set cursor to end of new step's content
+		m.setCursorForCurrentStep()
+	}
+}
+
+// setCursorForCurrentStep sets cursor position based on current wizard step
+func (m *Model) setCursorForCurrentStep() {
+	switch m.wizardStep {
+	case 0: // Name step
+		m.wizardCursor = len(m.wizardName)
+	case 1: // Command step
+		m.wizardCursor = len(m.wizardCommandLine)
+	default:
+		// Steps 2-4 don't use text cursor
+		m.wizardCursor = 0
 	}
 }

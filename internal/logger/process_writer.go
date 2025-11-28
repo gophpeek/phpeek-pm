@@ -266,3 +266,20 @@ func (pw *ProcessWriter) GetRecentLogs(n int) []LogEntry {
 	}
 	return pw.logBuffer.GetRecent(n)
 }
+
+// AddEvent adds a lifecycle event to the log buffer
+// Events use Level "event" to distinguish them from regular log output
+// These are rendered as dividers in the TUI log view
+func (pw *ProcessWriter) AddEvent(message string) {
+	if pw.logBuffer == nil {
+		return
+	}
+	pw.logBuffer.Add(LogEntry{
+		Timestamp:   time.Now(),
+		ProcessName: pw.ProcessName,
+		InstanceID:  pw.InstanceID,
+		Stream:      "event",
+		Message:     message,
+		Level:       "event",
+	})
+}

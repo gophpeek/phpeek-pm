@@ -15,6 +15,7 @@ import (
 	"github.com/gophpeek/phpeek-pm/internal/hooks"
 	"github.com/gophpeek/phpeek-pm/internal/logger"
 	"github.com/gophpeek/phpeek-pm/internal/metrics"
+	"github.com/gophpeek/phpeek-pm/internal/schedule"
 	"github.com/gophpeek/phpeek-pm/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -43,11 +44,15 @@ type Manager struct {
 	logger            *slog.Logger
 	auditLogger       *audit.Logger
 	processes         map[string]*Supervisor
+	scheduler         *schedule.Scheduler       // Cron scheduler for scheduled processes
+	scheduleExecutor  *schedule.ProcessExecutor // Executor for scheduled processes
 	resourceCollector *metrics.ResourceCollector // Shared resource metrics collector
+	oneshotHistory    *OneshotHistory           // History for oneshot process executions
 	mu                sync.RWMutex
 	shutdownCh        chan struct{}
 	shutdownOnce      sync.Once // Ensures shutdownCh is closed only once
 	allDeadCh         chan struct{}
+	allDeadOnce       sync.Once // Ensures allDeadCh is closed only once
 	processDeathCh    chan string
 	startTime         time.Time
 }
@@ -69,12 +74,25 @@ func NewManager(cfg *config.Config, logger *slog.Logger, auditLogger *audit.Logg
 		)
 	}
 
+	// Initialize schedule executor and scheduler
+	scheduleExecutor := schedule.NewProcessExecutor(logger)
+	scheduler := schedule.NewScheduler(scheduleExecutor, cfg.Global.ScheduleHistorySize, logger)
+
+	// Initialize oneshot history
+	oneshotHistory := NewOneshotHistory(
+		cfg.Global.OneshotHistoryMaxEntries,
+		cfg.Global.OneshotHistoryMaxAge,
+	)
+
 	return &Manager{
 		config:            cfg,
 		logger:            logger,
 		auditLogger:       auditLogger,
 		processes:         make(map[string]*Supervisor),
+		scheduler:         scheduler,
+		scheduleExecutor:  scheduleExecutor,
 		resourceCollector: resourceCollector,
+		oneshotHistory:    oneshotHistory,
 		shutdownCh:        make(chan struct{}),
 		allDeadCh:         make(chan struct{}),
 		processDeathCh:    make(chan string, 10),
@@ -165,6 +183,53 @@ func (m *Manager) Start(ctx context.Context) error {
 
 		m.logger.Debug("About to start process", "name", name)
 
+		// Handle scheduled processes separately
+		if procCfg.Schedule != "" {
+			m.logger.Info("Registering scheduled process",
+				"name", name,
+				"schedule", procCfg.Schedule,
+				"timezone", procCfg.ScheduleTimezone,
+			)
+
+			// Parse timeout duration if configured
+			var timeout time.Duration
+			if procCfg.ScheduleTimeout != "" {
+				var err error
+				timeout, err = time.ParseDuration(procCfg.ScheduleTimeout)
+				if err != nil {
+					return fmt.Errorf("invalid schedule_timeout for process %s: %w", name, err)
+				}
+			}
+
+			// Register with executor (includes log capture)
+			if err := m.scheduleExecutor.RegisterProcess(name, schedule.ProcessConfig{
+				Command:    procCfg.Command,
+				WorkingDir: procCfg.WorkingDir,
+				Env:        procCfg.Env,
+				Timeout:    timeout,
+				Logging:    procCfg.Logging,
+			}); err != nil {
+				return fmt.Errorf("failed to register scheduled process %s: %w", name, err)
+			}
+
+			// Add to scheduler with options
+			jobOpts := schedule.JobOptions{
+				Timeout:       timeout,
+				MaxConcurrent: procCfg.ScheduleMaxConcurrent,
+			}
+			if err := m.scheduler.AddJobWithOptions(name, procCfg.Schedule, procCfg.ScheduleTimezone, jobOpts); err != nil {
+				return fmt.Errorf("failed to schedule process %s: %w", name, err)
+			}
+
+			m.logger.Info("Process scheduled successfully",
+				"name", name,
+				"schedule", procCfg.Schedule,
+				"timeout", timeout,
+				"max_concurrent", procCfg.ScheduleMaxConcurrent,
+			)
+			continue // Skip normal process startup
+		}
+
 		m.logger.Info("Starting process",
 			"name", name,
 			"command", procCfg.Command,
@@ -177,6 +242,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		// Create supervisor for this process
 		sup := NewSupervisor(name, procCfg, &m.config.Global, m.logger, m.auditLogger, m.resourceCollector)
 		sup.SetDeathNotifier(m.NotifyProcessDeath)
+		sup.SetOneshotHistory(m.oneshotHistory)
 		m.processes[name] = sup
 
 		// Start the process only if initial_state is "running"
@@ -203,6 +269,15 @@ func (m *Manager) Start(ctx context.Context) error {
 				"initial_state", procCfg.InitialState,
 			)
 		}
+	}
+
+	// Start the scheduler for scheduled processes
+	schedulerStats := m.scheduler.Stats()
+	if schedulerStats.TotalJobs > 0 {
+		m.scheduler.Start()
+		m.logger.Info("Scheduler started",
+			"scheduled_jobs", schedulerStats.TotalJobs,
+		)
 	}
 
 	m.logger.Debug("Finished starting all processes, checking for post-start hooks",
@@ -250,6 +325,14 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.shutdownOnce.Do(func() {
 		close(m.shutdownCh)
 	})
+
+	// Stop the scheduler first (prevents new job executions)
+	if m.scheduler.IsStarted() {
+		m.logger.Info("Stopping scheduler")
+		schedulerCtx := m.scheduler.Stop()
+		<-schedulerCtx.Done() // Wait for scheduler to stop
+		m.logger.Info("Scheduler stopped")
+	}
 
 	// Execute pre-stop hooks
 	if len(m.config.Hooks.PreStop) > 0 {
@@ -350,15 +433,20 @@ func (m *Manager) getShutdownOrder() []string {
 // ProcessInfo represents process status information
 type ProcessInfo struct {
 	Name           string                `json:"name"`
-	Type           string                `json:"type"` // oneshot | longrun
+	Type           string                `json:"type"` // oneshot | longrun | scheduled
 	State          string                `json:"state"`
 	Scale          int                   `json:"scale"`
 	DesiredScale   int                   `json:"desired_scale"`
-	ScaleLocked    bool                  `json:"scale_locked"`
+	MaxScale       int                   `json:"max_scale"`
 	CPUPercent     float64               `json:"cpu_percent"`
 	MemoryRSSBytes uint64                `json:"memory_rss_bytes"`
 	MemoryPercent  float64               `json:"memory_percent"`
 	Instances      []ProcessInstanceInfo `json:"instances"`
+	// Schedule fields (only for scheduled processes)
+	Schedule       string `json:"schedule,omitempty"`        // Cron expression
+	ScheduleState  string `json:"schedule_state,omitempty"`  // idle | executing | paused
+	NextRun        int64  `json:"next_run,omitempty"`        // Unix timestamp of next scheduled run
+	LastRun        int64  `json:"last_run,omitempty"`        // Unix timestamp of last run
 }
 
 // ProcessInstanceInfo represents instance status
@@ -390,10 +478,10 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 		}
 
 		var desiredScale int
-		var scaleLocked bool
+		var maxScale int
 		if cfg != nil {
 			desiredScale = cfg.Scale
-			scaleLocked = cfg.ScaleLocked
+			maxScale = cfg.MaxScale
 		}
 
 		info := ProcessInfo{
@@ -402,7 +490,7 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 			State:        string(sup.GetState()),
 			Scale:        len(sup.GetInstances()),
 			DesiredScale: desiredScale,
-			ScaleLocked:  scaleLocked,
+			MaxScale:     maxScale,
 			Instances:    make([]ProcessInstanceInfo, 0),
 		}
 
@@ -439,6 +527,43 @@ func (m *Manager) ListProcesses() []ProcessInfo {
 		info.MemoryPercent = totalMemPct
 
 		processes = append(processes, info)
+	}
+
+	// Add scheduled processes from scheduler
+	if m.scheduler != nil {
+		// Update NextRun times from cron before getting statuses
+		m.scheduler.UpdateNextRunTimes()
+		for name, job := range m.scheduler.GetAllJobs() {
+			status := job.Status()
+
+			// Map job state to process state
+			var state string
+			switch status.State {
+			case "idle":
+				state = "scheduled"
+			case "executing":
+				state = "running"
+			case "paused":
+				state = "paused"
+			default:
+				state = status.State
+			}
+
+			info := ProcessInfo{
+				Name:          name,
+				Type:          "scheduled",
+				State:         state,
+				Scale:         0,
+				DesiredScale:  0,
+				MaxScale:      0,
+				Instances:     []ProcessInstanceInfo{},
+				Schedule:      status.Schedule,
+				ScheduleState: status.State,
+				NextRun:       status.NextRun.Unix(),
+				LastRun:       status.LastRun.Unix(),
+			}
+			processes = append(processes, info)
+		}
 	}
 
 	return processes
@@ -479,11 +604,9 @@ func (m *Manager) StartProcess(ctx context.Context, name string) error {
 		"previous_state", currentState,
 	)
 
-	// Start the process with timeout
-	startCtx, cancel := context.WithTimeout(ctx, DefaultProcessStartTimeout)
-	defer cancel()
-
-	if err := sup.Start(startCtx); err != nil {
+	// Use background context for supervisor lifetime (not the request context)
+	// The supervisor should live independently of the API request that started it
+	if err := sup.Start(context.Background()); err != nil {
 		m.logger.Error("Failed to start process",
 			"name", name,
 			"error", err,
@@ -614,9 +737,9 @@ func (m *Manager) ScaleProcess(ctx context.Context, name string, desiredScale in
 		return fmt.Errorf("process %s not found", name)
 	}
 
-	// Check if scale is locked
-	if procCfg.ScaleLocked {
-		return fmt.Errorf("process %s is scale-locked (likely binds to fixed port - cannot scale)", name)
+	// Check if scale exceeds max_scale limit
+	if procCfg.MaxScale > 0 && desiredScale > procCfg.MaxScale {
+		return fmt.Errorf("process %s cannot scale above max_scale=%d", name, procCfg.MaxScale)
 	}
 
 	// Check if process type supports scaling
@@ -746,11 +869,9 @@ func (m *Manager) AdjustScale(ctx context.Context, name string, delta int) error
 		target = 0
 	}
 
-	// For scale-locked processes allow only 1->0 and 0->1 transitions
-	if cfg.ScaleLocked {
-		if !((currentScale == 1 && target == 0) || (currentScale == 0 && target == 1)) {
-			return fmt.Errorf("process %s is scale-locked (only 0/1 transitions allowed)", name)
-		}
+	// Enforce max_scale limit
+	if cfg.MaxScale > 0 && target > cfg.MaxScale {
+		return fmt.Errorf("process %s cannot scale above max_scale=%d", name, cfg.MaxScale)
 	}
 
 	if target == currentScale {
@@ -831,12 +952,10 @@ func (m *Manager) checkAllProcessesDead() {
 
 	if allDead && len(m.processes) > 0 {
 		m.logger.Warn("All managed processes have died - initiating shutdown")
-		select {
-		case <-m.allDeadCh:
-			// Already closed
-		default:
+		// CRITICAL: Use sync.Once to prevent double-close panic from concurrent calls
+		m.allDeadOnce.Do(func() {
 			close(m.allDeadCh)
-		}
+		})
 	}
 }
 
@@ -878,7 +997,9 @@ func (m *Manager) AddProcess(ctx context.Context, name string, procCfg *config.P
 		m.logger.Info("Starting new process", "name", name, "command", procCfg.Command, "scale", procCfg.Scale)
 
 		supervisor := NewSupervisor(name, procCfg, &m.config.Global, m.logger, m.auditLogger, m.resourceCollector)
-		if err := supervisor.Start(ctx); err != nil {
+		supervisor.SetOneshotHistory(m.oneshotHistory)
+		// Use background context for supervisor lifetime (independent of API request)
+		if err := supervisor.Start(context.Background()); err != nil {
 			// Remove from config on failure
 			delete(m.config.Processes, name)
 			return fmt.Errorf("failed to start process: %w", err)
@@ -977,7 +1098,9 @@ func (m *Manager) updateProcessLocked(ctx context.Context, name string, procCfg 
 		// If new config is enabled, start with new config
 		if procCfg.Enabled {
 			newSupervisor := NewSupervisor(name, procCfg, &m.config.Global, m.logger, m.auditLogger, m.resourceCollector)
-			if err := newSupervisor.Start(ctx); err != nil {
+			newSupervisor.SetOneshotHistory(m.oneshotHistory)
+			// Use background context for supervisor lifetime (independent of API request)
+			if err := newSupervisor.Start(context.Background()); err != nil {
 				// Rollback config change on error
 				m.config.Processes[name] = oldCfg
 				return fmt.Errorf("failed to start process with new config: %w", err)
@@ -995,7 +1118,9 @@ func (m *Manager) updateProcessLocked(ctx context.Context, name string, procCfg 
 		m.logger.Info("Starting previously disabled process", "name", name)
 
 		supervisor := NewSupervisor(name, procCfg, &m.config.Global, m.logger, m.auditLogger, m.resourceCollector)
-		if err := supervisor.Start(ctx); err != nil {
+		supervisor.SetOneshotHistory(m.oneshotHistory)
+		// Use background context for supervisor lifetime (independent of API request)
+		if err := supervisor.Start(context.Background()); err != nil {
 			// Rollback config change on error
 			m.config.Processes[name] = oldCfg
 			return fmt.Errorf("failed to start process: %w", err)
@@ -1127,7 +1252,9 @@ func (m *Manager) ReloadConfig(ctx context.Context) error {
 		if procCfg.Enabled {
 			m.logger.Info("Starting new process", "name", name)
 			supervisor := NewSupervisor(name, procCfg, &newCfg.Global, m.logger, m.auditLogger, m.resourceCollector)
-			if err := supervisor.Start(ctx); err != nil {
+			supervisor.SetOneshotHistory(m.oneshotHistory)
+			// Use background context for supervisor lifetime (independent of reload request)
+			if err := supervisor.Start(context.Background()); err != nil {
 				m.logger.Error("Failed to start new process during reload", "name", name, "error", err)
 				continue
 			}
@@ -1149,7 +1276,9 @@ func (m *Manager) ReloadConfig(ctx context.Context) error {
 
 			if procCfg.Enabled {
 				newSupervisor := NewSupervisor(name, procCfg, &newCfg.Global, m.logger, m.auditLogger, m.resourceCollector)
-				if err := newSupervisor.Start(ctx); err != nil {
+				newSupervisor.SetOneshotHistory(m.oneshotHistory)
+				// Use background context for supervisor lifetime (independent of reload request)
+				if err := newSupervisor.Start(context.Background()); err != nil {
 					m.logger.Error("Failed to start updated process", "name", name, "error", err)
 					continue
 				}
@@ -1160,7 +1289,9 @@ func (m *Manager) ReloadConfig(ctx context.Context) error {
 		} else if procCfg.Enabled {
 			m.logger.Info("Starting previously disabled process", "name", name)
 			supervisor := NewSupervisor(name, procCfg, &newCfg.Global, m.logger, m.auditLogger, m.resourceCollector)
-			if err := supervisor.Start(ctx); err != nil {
+			supervisor.SetOneshotHistory(m.oneshotHistory)
+			// Use background context for supervisor lifetime (independent of reload request)
+			if err := supervisor.Start(context.Background()); err != nil {
 				m.logger.Error("Failed to start process during reload", "name", name, "error", err)
 				continue
 			}
@@ -1223,19 +1354,102 @@ func (m *Manager) GetResourceCollector() *metrics.ResourceCollector {
 	return m.resourceCollector
 }
 
+// GetScheduler returns the scheduler for scheduled processes
+func (m *Manager) GetScheduler() *schedule.Scheduler {
+	return m.scheduler
+}
+
+// GetOneshotHistory returns the oneshot execution history storage
+func (m *Manager) GetOneshotHistory() *OneshotHistory {
+	return m.oneshotHistory
+}
+
+// GetOneshotExecutions returns oneshot execution history for a specific process
+func (m *Manager) GetOneshotExecutions(processName string, limit int) []OneshotExecution {
+	if m.oneshotHistory == nil {
+		return nil
+	}
+	if limit <= 0 {
+		return m.oneshotHistory.GetAll(processName)
+	}
+	return m.oneshotHistory.GetRecent(processName, limit)
+}
+
+// GetAllOneshotExecutions returns oneshot execution history across all processes
+func (m *Manager) GetAllOneshotExecutions(limit int) []OneshotExecution {
+	if m.oneshotHistory == nil {
+		return nil
+	}
+	if limit <= 0 {
+		return m.oneshotHistory.GetAllProcesses()
+	}
+	return m.oneshotHistory.GetRecentAll(limit)
+}
+
+// GetOneshotStats returns aggregate statistics for oneshot executions
+func (m *Manager) GetOneshotStats() OneshotHistoryStats {
+	if m.oneshotHistory == nil {
+		return OneshotHistoryStats{
+			ByProcess: make(map[string]OneshotProcessStats),
+		}
+	}
+	return m.oneshotHistory.Stats()
+}
+
+// GetScheduleStatus returns the status of a scheduled job
+func (m *Manager) GetScheduleStatus(name string) (schedule.JobStatus, error) {
+	return m.scheduler.GetJobStatus(name)
+}
+
+// GetAllScheduleStatuses returns the status of all scheduled jobs
+func (m *Manager) GetAllScheduleStatuses() map[string]schedule.JobStatus {
+	return m.scheduler.GetAllJobStatuses()
+}
+
+// GetScheduleHistory returns the execution history of a scheduled job
+func (m *Manager) GetScheduleHistory(name string, limit int) ([]schedule.ExecutionEntry, error) {
+	return m.scheduler.GetJobHistory(name, limit)
+}
+
+// PauseSchedule pauses a scheduled job
+func (m *Manager) PauseSchedule(name string) error {
+	return m.scheduler.PauseJob(name)
+}
+
+// ResumeSchedule resumes a paused scheduled job
+func (m *Manager) ResumeSchedule(name string) error {
+	return m.scheduler.ResumeJob(name)
+}
+
+// TriggerSchedule manually triggers a scheduled job (async)
+func (m *Manager) TriggerSchedule(ctx context.Context, name string) error {
+	return m.scheduler.TriggerJob(ctx, name)
+}
+
+// TriggerScheduleSync manually triggers a scheduled job and waits for completion
+func (m *Manager) TriggerScheduleSync(ctx context.Context, name string) (int, error) {
+	return m.scheduler.TriggerJobSync(ctx, name)
+}
+
 // GetLogs returns log entries for a specific process
 // If limit > 0, returns only the most recent 'limit' entries
 // Returns error if process doesn't exist
+// Supports both regular processes (supervisors) and scheduled processes
 func (m *Manager) GetLogs(processName string, limit int) ([]logger.LogEntry, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	sup, exists := m.processes[processName]
-	if !exists {
-		return nil, fmt.Errorf("process not found: %s", processName)
+	m.mu.RUnlock()
+
+	if exists {
+		return sup.GetLogs(limit), nil
 	}
 
-	return sup.GetLogs(limit), nil
+	// Check if it's a scheduled process
+	if m.scheduleExecutor != nil && m.scheduleExecutor.HasProcess(processName) {
+		return m.scheduleExecutor.GetLogs(processName, limit), nil
+	}
+
+	return nil, fmt.Errorf("process not found: %s", processName)
 }
 
 // GetStackLogs aggregates logs from all processes in the manager

@@ -512,6 +512,7 @@ func TestHandleWizardNameInput(t *testing.T) {
 			m := Model{
 				wizardName:       tt.initialName,
 				wizardNameLocked: tt.nameLocked,
+				wizardCursor:     len(tt.initialName), // cursor at end
 			}
 
 			msg := createKeyMsg(tt.key)
@@ -569,6 +570,7 @@ func TestHandleWizardCommandInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := Model{
 				wizardCommandLine: tt.initialCommand,
+				wizardCursor:      len(tt.initialCommand), // cursor at end
 			}
 
 			msg := createKeyMsg(tt.key)

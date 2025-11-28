@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,8 +60,8 @@ func (c *Config) Validate() error {
 		if proc.Scale < 1 {
 			return fmt.Errorf("process %s has invalid scale: %d", name, proc.Scale)
 		}
-		if proc.ScaleLocked && proc.Scale > 1 {
-			return fmt.Errorf("process %s is scale_locked but has scale > 1 (set scale: 1 for locked processes)", name)
+		if proc.MaxScale > 0 && proc.Scale > proc.MaxScale {
+			return fmt.Errorf("process %s has scale (%d) exceeding max_scale (%d)", name, proc.Scale, proc.MaxScale)
 		}
 
 		// Oneshot validation
@@ -86,6 +88,28 @@ func (c *Config) Validate() error {
 			}
 			if hc.Type == "exec" && len(hc.Command) == 0 {
 				return fmt.Errorf("process %s has exec health check but no command", name)
+			}
+		}
+
+		// Validate schedule expression
+		if proc.Schedule != "" {
+			parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+			if _, err := parser.Parse(proc.Schedule); err != nil {
+				return fmt.Errorf("process %s has invalid schedule expression %q: %w", name, proc.Schedule, err)
+			}
+			// Validate timezone
+			if proc.ScheduleTimezone != "" && proc.ScheduleTimezone != "UTC" && proc.ScheduleTimezone != "Local" {
+				return fmt.Errorf("process %s has invalid schedule_timezone: %s (must be UTC or Local)", name, proc.ScheduleTimezone)
+			}
+			// Validate timeout duration
+			if proc.ScheduleTimeout != "" {
+				if _, err := time.ParseDuration(proc.ScheduleTimeout); err != nil {
+					return fmt.Errorf("process %s has invalid schedule_timeout %q: %w", name, proc.ScheduleTimeout, err)
+				}
+			}
+			// Validate max_concurrent
+			if proc.ScheduleMaxConcurrent < 0 {
+				return fmt.Errorf("process %s has invalid schedule_max_concurrent: %d (must be >= 0)", name, proc.ScheduleMaxConcurrent)
 			}
 		}
 	}

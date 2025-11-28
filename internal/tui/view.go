@@ -29,18 +29,44 @@ func (m Model) View() string {
 	}
 }
 
+// renderTabBar renders the k9s-style tab bar
+func (m Model) renderTabBar() string {
+	var tabs []string
+	for i, name := range tabNames {
+		shortcut := tabShortcuts[i]
+		tabText := fmt.Sprintf("[%s] %s", shortcut, name)
+		if tabType(i) == m.activeTab {
+			tabs = append(tabs, tabActiveStyle.Render(tabText))
+		} else {
+			tabs = append(tabs, tabInactiveStyle.Render(tabText))
+		}
+	}
+	return strings.Join(tabs, "  ")
+}
+
 // renderProcessList renders the main process dashboard
 func (m Model) renderProcessList() string {
 	var b strings.Builder
 
-	// Header
+	// Header with title
 	header := titleStyle.Render("PHPeek PM v1.0.0")
-	status := fmt.Sprintf("Processes: %d | Press ? for help", len(m.processTable.Rows()))
-	b.WriteString(header + " " + dimStyle.Render(status) + "\n")
+	b.WriteString(header + "\n")
+
+	// Tab bar
+	b.WriteString(m.renderTabBar() + "\n")
 	b.WriteString(strings.Repeat("─", m.width) + "\n")
 
-	// Process table
-	b.WriteString(m.renderProcessTable())
+	// Render content based on active tab
+	switch m.activeTab {
+	case tabProcesses:
+		b.WriteString(m.renderProcessesTab())
+	case tabScheduled:
+		b.WriteString(m.renderScheduledTab())
+	case tabOneshot:
+		b.WriteString(m.renderOneshotTab())
+	case tabSystem:
+		b.WriteString(m.renderSystemTab())
+	}
 	b.WriteString("\n")
 
 	// Error display
@@ -55,8 +81,25 @@ func (m Model) renderProcessList() string {
 		b.WriteString(toast + "\n")
 	}
 
-	// Footer with shortcuts
-	footer := dimStyle.Render("<Enter> Process | <l> Logs | <L> Stack Logs | <e> Edit | <d> Delete | <a> Add | <r> Restart | <s> Stop | <x> Start | <+/-> Scale | <q> Quit")
+	// Footer with shortcuts based on active tab
+	var footer string
+	switch m.activeTab {
+	case tabScheduled:
+		// Show Pause or Resume based on selected schedule's state
+		pauseResumeText := "Pause"
+		if m.scheduledIndex >= 0 && m.scheduledIndex < len(m.scheduledData) {
+			if m.scheduledData[m.scheduledIndex].rawState == "paused" {
+				pauseResumeText = "Resume"
+			}
+		}
+		footer = dimStyle.Render(fmt.Sprintf("<1-4> Tabs | <l> History | <p> %s | <t> Trigger | <Enter> Details | <q> Quit | <?> Help", pauseResumeText))
+	case tabOneshot:
+		footer = dimStyle.Render("<1-4> Tabs | <↑/↓> Navigate | <q> Quit | <?> Help")
+	case tabSystem:
+		footer = dimStyle.Render("<1-4> Tabs | <↑/↓> Navigate | <Enter> Execute | <q> Quit | <?> Help")
+	default:
+		footer = dimStyle.Render("<1-4> Tabs | <l> Logs | <r> Restart | <s> Start | <x> Stop | <+/-> Scale | <a> Add | <q> Quit | <?> Help")
+	}
 	b.WriteString(footer)
 
 	// Overlay dialogs
@@ -71,6 +114,69 @@ func (m Model) renderProcessList() string {
 	}
 
 	return m.padViewHeight(view)
+}
+
+// renderProcessesTab renders the Processes tab content (longrun/oneshot)
+func (m Model) renderProcessesTab() string {
+	count := len(m.tableData)
+	if count == 0 {
+		return dimStyle.Render("No processes found")
+	}
+	return m.renderProcessTable()
+}
+
+// renderScheduledTab renders the Scheduled tab content (cron jobs)
+func (m Model) renderScheduledTab() string {
+	count := len(m.scheduledData)
+	if count == 0 {
+		return dimStyle.Render("No scheduled jobs found")
+	}
+	return m.renderScheduledTable()
+}
+
+// renderOneshotTab renders the Oneshot tab content (execution history)
+func (m Model) renderOneshotTab() string {
+	count := len(m.oneshotData)
+	if count == 0 {
+		return dimStyle.Render("No oneshot executions found\n\n" +
+			"Oneshot processes run once and complete.\n" +
+			"Execution history will appear here as oneshot processes run.")
+	}
+	return m.renderOneshotTable()
+}
+
+// renderSystemTab renders the System tab content (reload/save)
+func (m Model) renderSystemTab() string {
+	var b strings.Builder
+
+	b.WriteString(highlightStyle.Render("System Controls") + "\n\n")
+
+	// Menu options
+	options := []struct {
+		key   string
+		label string
+		desc  string
+	}{
+		{"R", "Reload Configuration", "Reload configuration from disk"},
+		{"S", "Save Configuration", "Save current running configuration to file"},
+	}
+
+	for i, opt := range options {
+		prefix := "  "
+		if i == m.systemMenuIndex {
+			prefix = "▶ "
+			b.WriteString(highlightStyle.Render(prefix+"["+opt.key+"] "+opt.label) + "\n")
+			b.WriteString("    " + dimStyle.Render(opt.desc) + "\n\n")
+		} else {
+			b.WriteString(prefix + dimStyle.Render("["+opt.key+"] "+opt.label) + "\n\n")
+		}
+	}
+
+	// Status section
+	b.WriteString("\n" + strings.Repeat("─", 50) + "\n")
+	b.WriteString(dimStyle.Render("Status: Ready") + "\n")
+
+	return b.String()
 }
 
 // renderProcessDetail renders the detail view for a single process
@@ -167,26 +273,47 @@ func (m Model) renderHelp() string {
 	help := `
 PHPeek PM - Keyboard Shortcuts
 
-Process List View:
+Tab Navigation:
+  1             Processes tab (longrun services)
+  2             Scheduled tab (cron jobs)
+  3             Oneshot tab (execution history)
+  4             System tab (reload/save config)
+
+Processes Tab (1):
   ↑/k, ↓/j      Navigate up/down
   g, G          Go to top/bottom
   Enter         View process details
   l             View selected process logs
-  L             View stack logs
+  a             Add new process (wizard)
   e             Edit process configuration
   d             Delete process (confirmation)
   r             Restart process (with confirmation)
-  s             Stop process (with confirmation)
-  x             Start process (with confirmation)
+  s             Start process (with confirmation)
+  x             Stop process (with confirmation)
   +/=           Scale process up (opens dialog)
   -/_           Scale process down (opens dialog)
-  ?             Show this help
-  q             Quit
+
+Scheduled Tab (2):
+  ↑/k, ↓/j      Navigate up/down
+  l             View execution history
+  p             Pause/Resume schedule
+  t             Trigger schedule now
+  Enter         View details
+
+Oneshot Tab (3):
+  ↑/k, ↓/j      Navigate execution history
+  (View-only - shows past oneshot executions)
+
+System Tab (4):
+  ↑/k, ↓/j      Navigate menu
+  Enter         Execute selected action
+  R             Reload configuration from disk
+  S             Save running config to file
 
 Process Detail View:
   l             View process logs
   r             Restart process
-  s             Stop process
+  x             Stop process
   ESC           Return to list
 
 Log Viewer:
@@ -194,18 +321,11 @@ Log Viewer:
   ↑/k, ↓/j      Scroll up/down
   Ctrl+U/D      Page up/down
   g, G          Jump to top/bottom
-  ESC           Return to process list
+  ESC           Return to previous view
+
+Global:
+  ?             Show this help
   q             Quit
-
-Confirmation Dialog:
-  y/Enter       Confirm action
-  n/ESC         Cancel action
-
-Scale Dialog:
-  0-9           Enter scale value
-  Backspace     Delete digit
-  Enter         Apply scale
-  ESC           Cancel
 
 Press any key to return...
 `
@@ -233,6 +353,12 @@ func (m Model) renderConfirmationOverlay() string {
 		actionText = "Stop"
 	case actionStart:
 		actionText = "Start"
+	case actionSchedulePause:
+		actionText = "Pause Schedule"
+	case actionScheduleResume:
+		actionText = "Resume Schedule"
+	case actionScheduleTrigger:
+		actionText = "Trigger Schedule"
 	default:
 		actionText = "Execute"
 	}
@@ -319,7 +445,7 @@ func (m Model) renderWizard() string {
 		title = fmt.Sprintf("Edit Process: %s", m.wizardOriginal)
 	}
 	header := titleStyle.Render(title)
-	stepInfo := dimStyle.Render(fmt.Sprintf(" [Step %d/6]", m.wizardStep+1))
+	stepInfo := dimStyle.Render(fmt.Sprintf(" [Step %d/5]", m.wizardStep+1))
 	b.WriteString(header + stepInfo + "\n")
 	b.WriteString(strings.Repeat("─", m.width) + "\n\n")
 
@@ -380,18 +506,11 @@ func (m Model) renderWizardStepName() string {
 	b.WriteString(highlightStyle.Render("Process Name") + "\n\n")
 	if m.wizardNameLocked {
 		b.WriteString("Editing existing process. Name cannot be changed.\n\n")
+		b.WriteString("  Name: " + highlightStyle.Render(m.wizardName) + "\n\n")
 	} else {
 		b.WriteString("Enter a unique name for this process (no spaces):\n\n")
-	}
-
-	// Input field
-	input := m.wizardName
-	if input == "" {
-		input = dimStyle.Render("_")
-	}
-	b.WriteString("  Name: " + highlightStyle.Render(input) + "\n\n")
-
-	if !m.wizardNameLocked {
+		// Input field with cursor at position
+		b.WriteString("  Name: " + renderInputWithCursor(m.wizardName, m.wizardCursor) + "\n\n")
 		b.WriteString(dimStyle.Render("Examples: php-fpm, nginx, horizon, queue-worker"))
 	}
 
@@ -405,11 +524,8 @@ func (m Model) renderWizardStepCommand() string {
 	b.WriteString(highlightStyle.Render("Process Command") + "\n\n")
 	b.WriteString("Enter the full command exactly as you would run it:\n\n")
 
-	input := m.wizardCommandLine
-	if input == "" {
-		input = dimStyle.Render("_")
-	}
-	b.WriteString("  Command: " + highlightStyle.Render(input) + "\n\n")
+	// Input field with cursor at position
+	b.WriteString("  Command: " + renderInputWithCursor(m.wizardCommandLine, m.wizardCursor) + "\n\n")
 
 	b.WriteString(dimStyle.Render("Tip: type the command normally (e.g. php artisan queue:work --tries=3)\n"))
 	b.WriteString(dimStyle.Render("It will be split into parts automatically."))
@@ -424,12 +540,12 @@ func (m Model) renderWizardStepScale() string {
 	b.WriteString(highlightStyle.Render("Process Scale") + "\n\n")
 	b.WriteString("How many instances should run simultaneously?\n\n")
 
-	// Input field
+	// Input field with cursor (scale is simple, cursor at end)
 	input := m.wizardScaleInput
 	if input == "" {
 		input = "1"
 	}
-	b.WriteString("  Scale: " + highlightStyle.Render(input) + " instance(s)\n\n")
+	b.WriteString("  Scale: " + highlightStyle.Render(input) + cursorStyle.Render("█") + " instance(s)\n\n")
 
 	b.WriteString(dimStyle.Render("Recommended: 1 for single services, 2+ for workers"))
 
@@ -484,8 +600,37 @@ func (m Model) renderWizardStepPreview() string {
 	b.WriteString("  " + highlightStyle.Render("Restart:") + "  " + m.wizardRestart + "\n")
 	b.WriteString("  " + highlightStyle.Render("Enabled:") + "  " + fmt.Sprintf("%v", m.wizardEnabled) + "\n\n")
 
-	b.WriteString(successStyle.Render("✓ Ready to create process\n"))
-	b.WriteString(dimStyle.Render("Press Enter to create, Shift+Tab to go back"))
+	if m.wizardMode == wizardModeEdit {
+		b.WriteString(successStyle.Render("✓ Ready to update process\n"))
+		b.WriteString(dimStyle.Render("Press Enter to save, Shift+Tab to go back"))
+	} else {
+		b.WriteString(successStyle.Render("✓ Ready to create process\n"))
+		b.WriteString(dimStyle.Render("Press Enter to create, Shift+Tab to go back"))
+	}
 
 	return b.String()
+}
+
+// renderInputWithCursor renders text with cursor at specified position
+func renderInputWithCursor(text string, cursor int) string {
+	// Clamp cursor position
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(text) {
+		cursor = len(text)
+	}
+
+	// Split text at cursor position
+	before := text[:cursor]
+	after := text[cursor:]
+
+	// Show character under cursor with inverted style, or space if at end
+	cursorChar := " "
+	if cursor < len(text) {
+		cursorChar = string(text[cursor])
+		after = text[cursor+1:]
+	}
+
+	return highlightStyle.Render(before) + cursorStyle.Render(cursorChar) + highlightStyle.Render(after)
 }

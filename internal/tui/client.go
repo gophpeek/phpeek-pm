@@ -461,3 +461,110 @@ func (c *APIClient) GetProcessConfig(name string) (*config.Process, error) {
 
 	return payload.Config, nil
 }
+
+// PauseSchedule pauses a scheduled job via API
+func (c *APIClient) PauseSchedule(name string) error {
+	return c.processAction(name, "schedule/pause")
+}
+
+// ResumeSchedule resumes a paused scheduled job via API
+func (c *APIClient) ResumeSchedule(name string) error {
+	return c.processAction(name, "schedule/resume")
+}
+
+// TriggerSchedule manually triggers a scheduled job via API
+func (c *APIClient) TriggerSchedule(name string) error {
+	return c.processAction(name, "schedule/trigger")
+}
+
+// ReloadConfig reloads configuration from disk via API
+func (c *APIClient) ReloadConfig() error {
+	url := c.getURL("/api/v1/config/reload")
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if c.auth != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.auth))
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("reload failed: %s", string(body))
+	}
+
+	return nil
+}
+
+// SaveConfig saves running configuration to file via API
+func (c *APIClient) SaveConfig() error {
+	url := c.getURL("/api/v1/config/save")
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if c.auth != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.auth))
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("save failed: %s", string(body))
+	}
+
+	return nil
+}
+
+// GetOneshotHistory fetches oneshot execution history from API
+func (c *APIClient) GetOneshotHistory(limit int) ([]process.OneshotExecution, error) {
+	path := "/api/v1/oneshot/history"
+	if limit > 0 {
+		path = fmt.Sprintf("%s?limit=%d", path, limit)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, c.getURL(path), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if c.auth != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.auth))
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get oneshot history failed: %s", string(body))
+	}
+
+	var response struct {
+		Executions []process.OneshotExecution `json:"executions"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Executions, nil
+}

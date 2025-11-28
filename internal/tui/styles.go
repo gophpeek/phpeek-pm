@@ -34,6 +34,11 @@ var (
 			Foreground(highlightColor).
 			Bold(true)
 
+	// Cursor style for input fields (inverted for visibility)
+	cursorStyle = lipgloss.NewStyle().
+			Background(highlightColor).
+			Foreground(lipgloss.Color("#000000"))
+
 	// Toast notification style
 	toastStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
@@ -57,6 +62,22 @@ var (
 	tableSelectedStyle = lipgloss.NewStyle().
 				Background(primaryColor).
 				Foreground(lipgloss.Color("#FFFFFF"))
+
+	// k9s-style tab styles
+	tabActiveStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(primaryColor).
+			Padding(0, 1)
+
+	tabInactiveStyle = lipgloss.NewStyle().
+				Foreground(dimColor).
+				Padding(0, 1)
+
+	// Event divider style (for lifecycle events in logs)
+	eventDividerStyle = lipgloss.NewStyle().
+				Foreground(highlightColor).
+				Bold(true)
 )
 
 // State formatters

@@ -38,14 +38,14 @@ var (
 	dryRun          bool
 	phpFPMProfile   string
 	memoryThreshold float64
-	devMode         bool
+	watchMode       bool
 )
 
 func init() {
 	serveCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate configuration without starting processes")
 	serveCmd.Flags().StringVar(&phpFPMProfile, "php-fpm-profile", "", "Auto-tune PHP-FPM workers (dev|light|medium|heavy|bursty)")
 	serveCmd.Flags().Float64Var(&memoryThreshold, "autotune-memory-threshold", 0, "Override memory threshold (0.5=50%, 1.0=100%, 1.3=130%)")
-	serveCmd.Flags().BoolVar(&devMode, "dev", false, "Enable development mode with config file watching and auto-reload")
+	serveCmd.Flags().BoolVar(&watchMode, "watch", false, "Enable watch mode: automatically reload changed services when config file changes")
 }
 
 func runServe(cmd *cobra.Command, args []string) {
@@ -179,11 +179,11 @@ func runServe(cmd *cobra.Command, args []string) {
 		apiServer = startAPIServer(ctx, cfg, pm, log)
 	}
 
-	// Start config watcher in dev mode
+	// Start config watcher in watch mode
 	var configWatcher *watcher.Watcher
 	reloadChan := make(chan struct{}, 1)
-	if devMode {
-		slog.Info("Development mode enabled", "watch_config", cfgPath)
+	if watchMode {
+		slog.Info("Watch mode enabled", "config", cfgPath)
 
 		configWatcher, err = watcher.New(watcher.Config{
 			ConfigPath: cfgPath,
@@ -224,20 +224,31 @@ func runServe(cmd *cobra.Command, args []string) {
 		defer configWatcher.Stop()
 	}
 
-	// Wait for shutdown or reload
-	shutdownReason := waitForShutdownOrReload(sigChan, pm, reloadChan, devMode, cfg, cfgPath, log, auditLogger)
+	// Main event loop - handles shutdown signals and config reloads
+	for {
+		shutdownReason := waitForShutdownOrReload(sigChan, pm, reloadChan, watchMode)
 
-	// Handle reload vs shutdown
-	if shutdownReason == "config_reload" {
-		slog.Info("Performing config reload")
-		// Graceful shutdown of current processes
-		performGracefulShutdown(cfg, pm, apiServer, metricsServer, auditLogger, "config reload")
-		slog.Info("Config reload complete - restart PHPeek PM to apply changes")
-		return
+		// Handle reload vs shutdown
+		if shutdownReason == "config_reload" {
+			slog.Info("Hot-reloading configuration (only changed services)")
+
+			// Use the manager's ReloadConfig which selectively restarts only changed services
+			reloadCtx, reloadCancel := context.WithTimeout(context.Background(), time.Duration(cfg.Global.ShutdownTimeout)*time.Second)
+			if err := pm.ReloadConfig(reloadCtx); err != nil {
+				slog.Error("Config reload failed", "error", err)
+			} else {
+				slog.Info("Config reload completed successfully")
+			}
+			reloadCancel()
+
+			// Continue running - don't exit
+			continue
+		}
+
+		// Graceful shutdown for other reasons (signal, all processes dead)
+		performGracefulShutdown(cfg, pm, apiServer, metricsServer, auditLogger, shutdownReason)
+		break
 	}
-
-	// Graceful shutdown
-	performGracefulShutdown(cfg, pm, apiServer, metricsServer, auditLogger, shutdownReason)
 }
 
 // runAutoTuning performs PHP-FPM auto-tuning calculations
@@ -407,18 +418,14 @@ func waitForShutdownOrReload(
 	sigChan chan os.Signal,
 	pm *process.Manager,
 	reloadChan chan struct{},
-	devMode bool,
-	_ *config.Config,
-	_ string,
-	_ *slog.Logger,
-	_ *audit.Logger,
+	watchMode bool,
 ) string {
-	if !devMode {
-		// Dev mode disabled, use standard wait
+	if !watchMode {
+		// Watch mode disabled, use standard wait
 		return waitForShutdown(sigChan, pm)
 	}
 
-	// Dev mode enabled, also listen for reload events
+	// Watch mode enabled, also listen for reload events
 	select {
 	case sig := <-sigChan:
 		slog.Info("Received shutdown signal", "signal", sig.String())

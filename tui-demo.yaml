@@ -32,7 +32,7 @@ processes:
     initial_state: running
     command: ["sleep", "300"]
     restart: always
-    scale: 3  # 3 instances
+    scale: 4  # 3 instances
 
   # Scale-locked service
   service4:
@@ -40,4 +40,4 @@ processes:
     initial_state: stopped
     command: ["sleep", "300"]
     restart: always
-    scale_locked: true  # Cannot scale
+    max_scale: 1  # Cannot scale

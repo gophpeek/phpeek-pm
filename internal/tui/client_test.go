@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1360,5 +1361,180 @@ func TestAPIClient_ListProcesses_InvalidJSON(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "failed to decode response") {
 		t.Errorf("Expected 'failed to decode response' error, got %v", err)
+	}
+}
+
+// TestAPIClient_ReloadConfig tests configuration reload via API
+func TestAPIClient_ReloadConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		response   string
+		wantErr    bool
+	}{
+		{
+			name:       "successful reload",
+			statusCode: http.StatusOK,
+			response:   `{"message": "Configuration reloaded"}`,
+			wantErr:    false,
+		},
+		{
+			name:       "server error",
+			statusCode: http.StatusInternalServerError,
+			response:   `{"error": "Failed to reload"}`,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Errorf("Expected POST, got %s", r.Method)
+				}
+				if r.URL.Path != "/api/v1/config/reload" {
+					t.Errorf("Expected /api/v1/config/reload, got %s", r.URL.Path)
+				}
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.ReloadConfig()
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ReloadConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_SaveConfig tests configuration save via API
+func TestAPIClient_SaveConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		response   string
+		wantErr    bool
+	}{
+		{
+			name:       "successful save",
+			statusCode: http.StatusOK,
+			response:   `{"message": "Configuration saved"}`,
+			wantErr:    false,
+		},
+		{
+			name:       "server error",
+			statusCode: http.StatusInternalServerError,
+			response:   `{"error": "Failed to save"}`,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Errorf("Expected POST, got %s", r.Method)
+				}
+				if r.URL.Path != "/api/v1/config/save" {
+					t.Errorf("Expected /api/v1/config/save, got %s", r.URL.Path)
+				}
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.SaveConfig()
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SaveConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_GetOneshotHistory tests oneshot history retrieval via API
+func TestAPIClient_GetOneshotHistory(t *testing.T) {
+	tests := []struct {
+		name       string
+		limit      int
+		statusCode int
+		response   string
+		wantCount  int
+		wantErr    bool
+	}{
+		{
+			name:       "successful with results",
+			limit:      10,
+			statusCode: http.StatusOK,
+			response: `{
+				"executions": [
+					{"process_name": "test-oneshot", "exit_code": 0, "started_at": "2025-01-01T00:00:00Z"}
+				],
+				"count": 1
+			}`,
+			wantCount: 1,
+			wantErr:   false,
+		},
+		{
+			name:       "empty results",
+			limit:      10,
+			statusCode: http.StatusOK,
+			response:   `{"executions": [], "count": 0}`,
+			wantCount:  0,
+			wantErr:    false,
+		},
+		{
+			name:       "no limit specified",
+			limit:      0,
+			statusCode: http.StatusOK,
+			response:   `{"executions": [], "count": 0}`,
+			wantCount:  0,
+			wantErr:    false,
+		},
+		{
+			name:       "server error",
+			limit:      10,
+			statusCode: http.StatusInternalServerError,
+			response:   `{"error": "Server error"}`,
+			wantCount:  0,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Errorf("Expected GET, got %s", r.Method)
+				}
+				if !strings.HasPrefix(r.URL.Path, "/api/v1/oneshot/history") {
+					t.Errorf("Expected /api/v1/oneshot/history, got %s", r.URL.Path)
+				}
+				if tt.limit > 0 {
+					limitParam := r.URL.Query().Get("limit")
+					if limitParam != fmt.Sprintf("%d", tt.limit) {
+						t.Errorf("Expected limit=%d, got %s", tt.limit, limitParam)
+					}
+				}
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			results, err := client.GetOneshotHistory(tt.limit)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetOneshotHistory() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr && len(results) != tt.wantCount {
+				t.Errorf("GetOneshotHistory() got %d results, want %d", len(results), tt.wantCount)
+			}
+		})
 	}
 }
