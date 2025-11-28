@@ -60,6 +60,7 @@ type Supervisor struct {
 	resourceCollector *metrics.ResourceCollector // Shared resource collector (can be nil)
 	oneshotHistory    *OneshotHistory            // Shared oneshot history (can be nil)
 	deathNotifier     func(string)               // Callback when all instances are dead
+	credentials       *Credentials               // Resolved user/group credentials (nil = inherit)
 	ctx               context.Context
 	cancel            context.CancelFunc
 	readinessCh       chan struct{}  // Closed when service becomes ready
@@ -107,6 +108,28 @@ func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalCon
 	// Get max attempts from global config (default: 3)
 	maxAttempts := globalCfg.MaxRestartAttempts
 
+	// Resolve user/group credentials at initialization
+	var creds *Credentials
+	if cfg.User != "" || cfg.Group != "" {
+		var err error
+		creds, err = ResolveCredentials(cfg.User, cfg.Group)
+		if err != nil {
+			logger.Error("Failed to resolve credentials",
+				"process", name,
+				"user", cfg.User,
+				"group", cfg.Group,
+				"error", err,
+			)
+			// Continue without credentials - will run as parent process user
+		} else if creds != nil {
+			logger.Info("Resolved process credentials",
+				"process", name,
+				"uid", creds.Uid,
+				"gid", creds.Gid,
+			)
+		}
+	}
+
 	return &Supervisor{
 		name:              name,
 		config:            cfg,
@@ -116,6 +139,7 @@ func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalCon
 		state:             StateStopped,
 		restartPolicy:     NewRestartPolicy(cfg.Restart, maxAttempts, initialBackoff, maxBackoff),
 		resourceCollector: resourceCollector,
+		credentials:       creds,
 		readinessCh:       make(chan struct{}),
 		isReady:           false,
 	}
@@ -301,6 +325,17 @@ func (s *Supervisor) startInstance(ctx context.Context, instanceID string) (*Ins
 	// Without this, Ctrl+C kills children → manager thinks crash → restarts
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true, // Create new process group for this process
+	}
+
+	// Apply user/group credentials if configured
+	// Note: Requires root privileges to switch to a different user
+	if s.credentials != nil {
+		s.credentials.ApplySysProcAttr(cmd.SysProcAttr)
+		s.logger.Debug("Applied process credentials",
+			"instance_id", instanceID,
+			"uid", s.credentials.Uid,
+			"gid", s.credentials.Gid,
+		)
 	}
 
 	// Setup stdout/stderr capture with structured logging

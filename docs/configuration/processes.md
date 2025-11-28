@@ -17,6 +17,8 @@ processes:
     command: ["executable", "arg1", "arg2"]
     restart: always
     scale: 1
+    user: www-data         # Optional: run as user
+    group: www-data        # Optional: run as group
     working_dir: /var/www/html
     env:
       KEY: value
@@ -124,6 +126,66 @@ processes:
 - `queue-default-3`
 
 ## Advanced Settings
+
+### user
+
+**Type:** `string`
+**Default:** None (inherit from parent process)
+**Description:** Run process as specified user (name or numeric UID).
+
+```yaml
+processes:
+  php-fpm:
+    command: ["php-fpm", "-F", "-R"]
+    user: www-data  # Run as www-data user
+```
+
+**Formats:**
+- Username: `www-data`, `nginx`, `nobody`
+- Numeric UID: `82`, `33`, `65534`
+
+**Notes:**
+- Requires root privileges to switch users
+- If only `user` is specified, the user's primary group is used
+- Implements s6-overlay compatible USER directive functionality
+
+### group
+
+**Type:** `string`
+**Default:** User's primary group (if `user` specified)
+**Description:** Run process as specified group (name or numeric GID).
+
+```yaml
+processes:
+  php-fpm:
+    command: ["php-fpm", "-F", "-R"]
+    user: www-data
+    group: www-data  # Explicit group
+```
+
+**Formats:**
+- Group name: `www-data`, `nginx`, `nogroup`
+- Numeric GID: `82`, `33`, `65534`
+
+**Docker Example:**
+```yaml
+# Common pattern for Alpine-based images
+processes:
+  php-fpm:
+    command: ["php-fpm", "-F", "-R"]
+    user: "82"   # www-data UID on Alpine
+    group: "82"  # www-data GID on Alpine
+
+  nginx:
+    command: ["nginx", "-g", "daemon off;"]
+    user: nginx
+    group: nginx
+```
+
+**Security Best Practice:**
+- Run services with minimal required privileges
+- Use dedicated service users (www-data, nginx) instead of root
+- PHPeek PM will warn if running as root without user/group specified
 
 ### depends_on
 
@@ -379,6 +441,8 @@ processes:
     enabled: true
     command: ["php-fpm", "-F", "-R"]
     restart: always
+    user: www-data       # Run as www-data user
+    group: www-data      # Run as www-data group
     health_check:
       type: tcp
       address: "127.0.0.1:9000"
@@ -389,6 +453,7 @@ processes:
     enabled: true
     command: ["nginx", "-g", "daemon off;"]
     restart: always
+    user: nginx          # Run as nginx user
     depends_on: [php-fpm]
     health_check:
       type: http
