@@ -64,7 +64,7 @@ PHPeek PM manages multiple processes within a single Docker container, making it
 │                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌─────────────┐ │
 │  │ Metrics  │  │   API    │  │  Heartbeat  │ │
-│  │ :9090    │  │  :8080   │  │  Monitor    │ │
+│  │ :9090    │  │  :9180   │  │  Monitor    │ │
 │  └──────────┘  └──────────┘  └──────┬──────┘ │
 │                                       │         │
 │                            External monitoring │

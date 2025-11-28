@@ -671,7 +671,6 @@ global:
 
 ## Next Steps
 
-- [Prometheus Metrics](metrics.md) - Complementary observability
-- [Resource Monitoring](resource-monitoring.md) - Resource usage tracking
-- [Management API](api.md) - Runtime process control
-- [Performance Tuning](../guides/performance-tuning.md) - Optimization guide
+- [Prometheus Metrics](metrics) - Complementary observability
+- [Resource Monitoring](resource-monitoring) - Resource usage tracking
+- [Management API](api) - Runtime process control

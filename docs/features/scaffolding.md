@@ -779,7 +779,7 @@ version: '3.8'  # Use compatible version
 
 ## Next Steps
 
-- [Configuration Validation](../configuration/validation.md) - Validate generated configs
-- [Quick Start](../getting-started/quickstart.md) - Deploy generated configuration
-- [Configuration Overview](../configuration/overview.md) - Customize further
-- [Examples](../examples/laravel-complete.md) - Real-world examples
+- [Configuration Validation](../configuration/validation) - Validate generated configs
+- [Quick Start](../getting-started/quickstart) - Deploy generated configuration
+- [Configuration Overview](../configuration/overview) - Customize further
+- [Examples](../examples/laravel-complete) - Real-world examples

@@ -604,7 +604,6 @@ phpeek_pm_process_threads{process="php-fpm"}
 
 ## Next Steps
 
-- [Prometheus Metrics](metrics.md) - Complete metrics documentation
-- [Management API](api.md) - REST API reference
-- [Performance Tuning](../guides/performance-tuning.md) - Optimization guide
-- [Grafana Dashboards](../guides/recipes.md#grafana-dashboards) - Pre-built dashboards
+- [Prometheus Metrics](metrics) - Complete metrics documentation
+- [Management API](api) - REST API reference
+- [Examples](../examples/laravel-with-monitoring) - Real-world monitoring configuration

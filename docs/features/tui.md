@@ -554,11 +554,10 @@ The TUI uses the Management API under the hood:
 | Add process | POST | `/api/v1/processes` |
 | Save config | POST | `/api/v1/config/save` |
 
-See [Management API](../observability/api.md) for API documentation.
+See [Management API](../observability/api) for API documentation.
 
 ## Next Steps
 
-- [Management API](../observability/api.md) - REST API documentation
-- [Configuration](../configuration/overview.md) - API configuration reference
-- [Process Scaling](process-scaling.md) - Scaling strategies and patterns
-- [Troubleshooting](../guides/troubleshooting.md) - Common issues and solutions
+- [Management API](../observability/api) - REST API documentation
+- [Configuration](../configuration/overview) - API configuration reference
+- [Process Scaling](process-scaling) - Scaling strategies and patterns

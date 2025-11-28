@@ -310,24 +310,63 @@ processes:
 
 ### Concurrency Control
 
-**Problem:** Task might still be running when next trigger fires
+PHPeek PM provides native concurrency controls for scheduled tasks via configuration options.
 
-**Solution 1: Use max-time**
+#### schedule_max_concurrent
+
+Prevents task overlap by limiting concurrent executions:
+
+```yaml
+processes:
+  database-sync:
+    command: ["php", "artisan", "sync:database"]
+    schedule: "*/5 * * * *"  # Every 5 minutes
+    schedule_max_concurrent: 1  # Skip if previous run still active
+```
+
+**Values:**
+- `0` - Unlimited concurrent executions (default)
+- `1` - No overlap (skip trigger if task still running)
+- `N` - Allow up to N concurrent executions
+
+#### schedule_timeout
+
+Kills tasks that exceed a maximum execution time:
+
+```yaml
+processes:
+  backup:
+    command: ["php", "artisan", "backup:run"]
+    schedule: "0 2 * * *"
+    schedule_timeout: "30m"  # Kill if runs longer than 30 minutes
+```
+
+**Duration formats:** `30s`, `5m`, `1h`, `1h30m`
+
+**Best practice:** Set timeout less than schedule interval to prevent overlap.
+
+#### Combined Example
+
+```yaml
+processes:
+  long-task:
+    command: ["php", "artisan", "process:large-dataset"]
+    schedule: "0 * * * *"  # Every hour
+    schedule_timeout: "55m"  # Kill if exceeds 55 minutes
+    schedule_max_concurrent: 1  # No overlap
+    restart: never
+```
+
+#### Alternative: Application-Level Control
+
+**Option 1: Use max-time in command**
 ```yaml
 long-task:
   command: ["php", "artisan", "process:large-dataset", "--max-time=3500"]
   schedule: "0 * * * *"  # Every hour
 ```
 
-**Solution 2: Task timeout**
-```yaml
-long-task:
-  command: ["/timeout-wrapper.sh"]
-  schedule: "0 * * * *"
-  timeout: 3500  # 58 minutes (less than schedule interval)
-```
-
-**Solution 3: Lock file in script**
+**Option 2: Lock file in script**
 ```bash
 #!/bin/bash
 LOCKFILE="/tmp/my-task.lock"

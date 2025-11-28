@@ -225,6 +225,70 @@ processes:
 
 See [Scheduled Tasks](../features/scheduled-tasks) for complete guide.
 
+### schedule_timeout
+
+**Type:** `string` (duration)
+**Default:** No timeout
+**Description:** Maximum execution time for scheduled task. Process is killed if timeout exceeded.
+
+```yaml
+processes:
+  backup:
+    command: ["php", "artisan", "backup:run"]
+    schedule: "0 2 * * *"
+    schedule_timeout: "30m"  # Kill if runs longer than 30 minutes
+```
+
+**Duration Format:**
+- `30s` - 30 seconds
+- `5m` - 5 minutes
+- `1h` - 1 hour
+- `1h30m` - 1 hour 30 minutes
+
+**Best Practice:** Set timeout less than schedule interval to prevent overlap.
+
+### schedule_max_concurrent
+
+**Type:** `integer`
+**Default:** `0` (unlimited)
+**Description:** Maximum concurrent executions of this scheduled task.
+
+```yaml
+processes:
+  sync:
+    command: ["php", "artisan", "sync:external-api"]
+    schedule: "*/5 * * * *"
+    schedule_max_concurrent: 1  # Skip if previous run still active
+```
+
+**Values:**
+- `0` - Unlimited concurrent executions (default)
+- `1` - No overlap (skip trigger if task still running)
+- `N` - Allow up to N concurrent executions
+
+**Use cases:**
+- `1` for tasks that shouldn't overlap (database sync, backups)
+- `0` or higher for idempotent tasks that can run in parallel
+
+### schedule_timezone
+
+**Type:** `string`
+**Default:** `Local`
+**Description:** Timezone for schedule interpretation.
+
+```yaml
+processes:
+  report:
+    command: ["php", "artisan", "reports:generate"]
+    schedule: "0 9 * * 1-5"  # 9 AM weekdays
+    schedule_timezone: "America/New_York"  # In Eastern time
+```
+
+**Values:**
+- `Local` - System timezone (default)
+- `UTC` - Coordinated Universal Time
+- Any IANA timezone: `America/New_York`, `Europe/London`, `Asia/Tokyo`, etc.
+
 ## Shutdown Configuration
 
 ### shutdown.timeout

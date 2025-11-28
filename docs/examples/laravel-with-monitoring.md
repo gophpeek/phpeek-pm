@@ -20,7 +20,7 @@ Production Laravel deployment with comprehensive monitoring, metrics, and runtim
 
 **Observability:**
 - ✅ Prometheus metrics on port 9090
-- ✅ Management API on port 8080
+- ✅ Management API on port 9180
 - ✅ Health check monitoring
 - ✅ Process lifecycle tracking
 - ✅ Hook execution metrics
@@ -410,7 +410,7 @@ services:
     ports:
       - "80:80"
       - "9090:9090"  # Prometheus metrics
-      - "8080:8080"  # Management API
+      - "9180:9180"  # Management API
     environment:
       PHP_FPM_AUTOTUNE_PROFILE: "medium"
       PHPEEK_PM_GLOBAL_METRICS_ENABLED: "true"
@@ -864,11 +864,11 @@ global:
 ```yaml
 # ❌ Bad
 ports:
-  - "0.0.0.0:8080:8080"
+  - "0.0.0.0:9180:9180"
 
 # ✅ Good - only internal
 expose:
-  - "8080"
+  - "9180"
 ```
 
 ## Security Hardening
@@ -905,11 +905,11 @@ http {
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
     server {
-        listen 8080;
+        listen 9180;
 
         location /api/ {
             limit_req zone=api burst=20;
-            proxy_pass http://app:8080;
+            proxy_pass http://app:9180;
         }
     }
 }

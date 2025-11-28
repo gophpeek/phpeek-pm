@@ -544,7 +544,7 @@ processes:
 
 ## Next Steps
 
-- [Configuration Reference](../configuration/health-checks.md) - Complete configuration options
-- [Restart Policies](restart-policies.md) - Process restart strategies
-- [Prometheus Metrics](../observability/metrics.md) - Metrics and monitoring
-- [Examples](../examples/laravel-with-monitoring.md) - Real-world configurations
+- [Configuration Reference](../configuration/health-checks) - Complete configuration options
+- [Restart Policies](restart-policies) - Process restart strategies
+- [Prometheus Metrics](../observability/metrics) - Metrics and monitoring
+- [Examples](../examples/laravel-with-monitoring) - Real-world configurations

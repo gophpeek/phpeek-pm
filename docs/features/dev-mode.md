@@ -669,7 +669,6 @@ health_check:
 
 ## Next Steps
 
-- [Configuration Validation](../configuration/validation.md) - Validate changes before reload
-- [Configuration Overview](../configuration/overview.md) - Complete configuration reference
-- [Troubleshooting](../guides/troubleshooting.md) - Common issues and solutions
-- [Quick Start](../getting-started/quickstart.md) - Get started with PHPeek PM
+- [Configuration Validation](../configuration/validation) - Validate changes before reload
+- [Configuration Overview](../configuration/overview) - Complete configuration reference
+- [Quick Start](../getting-started/quickstart) - Get started with PHPeek PM

@@ -725,7 +725,6 @@ fi
 
 ## Next Steps
 
-- [Configuration Overview](overview.md) - Complete configuration reference
-- [Environment Variables](environment-variables.md) - ENV var documentation
-- [Troubleshooting](../guides/troubleshooting.md) - Common issues and solutions
-- [CI/CD Integration](../guides/recipes.md#cicd-patterns) - Deployment patterns
+- [Configuration Overview](overview) - Complete configuration reference
+- [Environment Variables](environment-variables) - ENV var documentation
+- [Process Configuration](processes) - Process-specific settings
