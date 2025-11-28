@@ -63,15 +63,15 @@ func TestFormatLogLevel(t *testing.T) {
 // TestApplyProcessListResult tests process list result application
 func TestApplyProcessListResult(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupFunc      func(m *Model)
-		msg            processListResultMsg
-		expectError    bool
-		expectedCount  int
-		checkFunc      func(t *testing.T, m *Model)
+		name          string
+		setupFunc     func(m *Model)
+		msg           processListResultMsg
+		expectError   bool
+		expectedCount int
+		checkFunc     func(t *testing.T, m *Model)
 	}{
 		{
-			name: "successful result",
+			name:      "successful result",
 			setupFunc: func(m *Model) {},
 			msg: processListResultMsg{
 				processes: []process.ProcessInfo{
@@ -84,7 +84,7 @@ func TestApplyProcessListResult(t *testing.T) {
 			expectedCount: 2,
 		},
 		{
-			name: "error result",
+			name:      "error result",
 			setupFunc: func(m *Model) {},
 			msg: processListResultMsg{
 				processes: nil,
@@ -94,7 +94,7 @@ func TestApplyProcessListResult(t *testing.T) {
 			expectedCount: 0,
 		},
 		{
-			name: "empty result",
+			name:      "empty result",
 			setupFunc: func(m *Model) {},
 			msg: processListResultMsg{
 				processes: []process.ProcessInfo{},
@@ -209,9 +209,9 @@ func TestApplyProcessListResult(t *testing.T) {
 // TestWizardProcessConfig tests wizard config generation
 func TestWizardProcessConfig(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupFunc      func(m *Model)
-		expectedScale  int
+		name            string
+		setupFunc       func(m *Model)
+		expectedScale   int
 		expectedRestart string
 		expectedEnabled bool
 	}{
@@ -224,7 +224,7 @@ func TestWizardProcessConfig(t *testing.T) {
 				m.wizardRestart = "always"
 				m.wizardEnabled = true
 			},
-			expectedScale:  3,
+			expectedScale:   3,
 			expectedRestart: "always",
 			expectedEnabled: true,
 		},
@@ -241,7 +241,7 @@ func TestWizardProcessConfig(t *testing.T) {
 				m.wizardRestart = "on-failure"
 				m.wizardEnabled = false
 			},
-			expectedScale:  1,
+			expectedScale:   1,
 			expectedRestart: "on-failure",
 			expectedEnabled: false,
 		},
@@ -457,11 +457,11 @@ func TestLogScopeDescription(t *testing.T) {
 // TestHandleWizardNameInput tests wizard name input handling
 func TestHandleWizardNameInput(t *testing.T) {
 	tests := []struct {
-		name           string
-		initialName    string
-		nameLocked     bool
-		key            string
-		expectedName   string
+		name         string
+		initialName  string
+		nameLocked   bool
+		key          string
+		expectedName string
 	}{
 		{
 			name:         "add character",

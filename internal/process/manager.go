@@ -456,10 +456,10 @@ type ProcessInfo struct {
 	MemoryPercent  float64               `json:"memory_percent"`
 	Instances      []ProcessInstanceInfo `json:"instances"`
 	// Schedule fields (only for scheduled processes)
-	Schedule       string `json:"schedule,omitempty"`        // Cron expression
-	ScheduleState  string `json:"schedule_state,omitempty"`  // idle | executing | paused
-	NextRun        int64  `json:"next_run,omitempty"`        // Unix timestamp of next scheduled run
-	LastRun        int64  `json:"last_run,omitempty"`        // Unix timestamp of last run
+	Schedule      string `json:"schedule,omitempty"`       // Cron expression
+	ScheduleState string `json:"schedule_state,omitempty"` // idle | executing | paused
+	NextRun       int64  `json:"next_run,omitempty"`       // Unix timestamp of next scheduled run
+	LastRun       int64  `json:"last_run,omitempty"`       // Unix timestamp of last run
 }
 
 // ProcessInstanceInfo represents instance status

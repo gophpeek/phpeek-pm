@@ -451,10 +451,10 @@ func TestLevelDetector_IsEnabled(t *testing.T) {
 
 func TestLevelDetector_GetDefaultLevel(t *testing.T) {
 	tests := []struct {
-		name         string
-		config       *config.LevelDetectionConfig
-		wantLevel    slog.Level
-		wantErr      bool
+		name      string
+		config    *config.LevelDetectionConfig
+		wantLevel slog.Level
+		wantErr   bool
 	}{
 		{
 			name:      "nil config defaults to info",

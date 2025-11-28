@@ -154,7 +154,7 @@ func TestSamplerRates(t *testing.T) {
 		{"always_sample", 1.0},
 		{"never_sample", 0.0},
 		{"ratio_sample", 0.5},
-		{"above_one", 1.5},  // Should behave as always sample
+		{"above_one", 1.5},   // Should behave as always sample
 		{"below_zero", -0.5}, // Should behave as never sample
 	}
 

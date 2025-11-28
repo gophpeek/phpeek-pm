@@ -292,12 +292,12 @@ func (s *Scheduler) UpdateNextRunTimes() {
 
 // Stats returns aggregate scheduler statistics
 type SchedulerStats struct {
-	TotalJobs    int       `json:"total_jobs"`
-	IdleJobs     int       `json:"idle_jobs"`
-	ExecutingJobs int      `json:"executing_jobs"`
-	PausedJobs   int       `json:"paused_jobs"`
-	Started      bool      `json:"started"`
-	StartTime    time.Time `json:"start_time,omitempty"`
+	TotalJobs     int       `json:"total_jobs"`
+	IdleJobs      int       `json:"idle_jobs"`
+	ExecutingJobs int       `json:"executing_jobs"`
+	PausedJobs    int       `json:"paused_jobs"`
+	Started       bool      `json:"started"`
+	StartTime     time.Time `json:"start_time,omitempty"`
 }
 
 // Stats returns scheduler statistics

@@ -299,7 +299,7 @@ func TestManager_MultipleInstances(t *testing.T) {
 		Processes: map[string]*config.Process{
 			"scaled-process": {
 				Enabled:      true,
-				InitialState: "running", // CRITICAL: Explicitly set to start the process
+				InitialState: "running",                 // CRITICAL: Explicitly set to start the process
 				Command:      []string{"sleep", "3600"}, // Long enough to not exit before shutdown (force killed)
 				Scale:        3,                         // 3 instances
 				Restart:      "never",

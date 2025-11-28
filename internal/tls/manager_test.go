@@ -346,10 +346,10 @@ func TestGetTLSConfig(t *testing.T) {
 	defer cleanup()
 
 	tests := []struct {
-		name       string
-		config     *config.TLSConfig
-		wantErr    bool
-		checkFunc  func(*testing.T, *tls.Config)
+		name      string
+		config    *config.TLSConfig
+		wantErr   bool
+		checkFunc func(*testing.T, *tls.Config)
 	}{
 		{
 			name: "basic config",
@@ -575,7 +575,7 @@ func TestParseCipherSuites(t *testing.T) {
 			expectedLen: 2,
 		},
 		{
-			name:        "all supported cipher suites",
+			name: "all supported cipher suites",
 			suites: []string{
 				"TLS_RSA_WITH_AES_128_CBC_SHA",
 				"TLS_RSA_WITH_AES_256_CBC_SHA",

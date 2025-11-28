@@ -140,8 +140,8 @@ func TestSetDefaults(t *testing.T) {
 					"test": {
 						Command: []string{"sleep", "1"},
 						HealthCheck: &HealthCheck{
-							Type:    "http",
-							URL:     "http://localhost:8080",
+							Type: "http",
+							URL:  "http://localhost:8080",
 						},
 					},
 				},
@@ -176,7 +176,7 @@ func TestSetDefaults(t *testing.T) {
 			config: &Config{
 				Processes: map[string]*Process{
 					"test": {
-						Command: []string{"sleep", "1"},
+						Command:  []string{"sleep", "1"},
 						Shutdown: &ShutdownConfig{},
 					},
 				},

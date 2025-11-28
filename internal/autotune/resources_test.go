@@ -141,7 +141,7 @@ func TestGetHostMemory(t *testing.T) {
 	}
 
 	// Memory should be positive and reasonable (> 100MB, < 1TB)
-	minMemory := int64(100 * 1024 * 1024)    // 100 MB
+	minMemory := int64(100 * 1024 * 1024)         // 100 MB
 	maxMemory := int64(1024 * 1024 * 1024 * 1024) // 1 TB
 
 	if memory < minMemory {

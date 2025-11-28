@@ -45,26 +45,26 @@ type JobExecutor interface {
 
 // ScheduledJob represents a single scheduled job with state management
 type ScheduledJob struct {
-	Name           string
-	Schedule       string
-	Timezone       string
-	State          JobState
-	History        *ExecutionHistory
-	LastRun        time.Time
-	NextRun        time.Time
-	CurrentExecID  int64 // ID of currently running execution
+	Name          string
+	Schedule      string
+	Timezone      string
+	State         JobState
+	History       *ExecutionHistory
+	LastRun       time.Time
+	NextRun       time.Time
+	CurrentExecID int64 // ID of currently running execution
 
 	// Execution control
 	Timeout       time.Duration // Execution timeout (0 = no timeout)
 	MaxConcurrent int           // Max concurrent executions (0/1 = no overlap, >1 = allow parallel)
 
 	// Internal
-	cronID         cron.EntryID
-	schedule       cron.Schedule
-	executor       JobExecutor
-	logger         *slog.Logger
-	mu             sync.Mutex
-	executionMu    sync.Mutex // Separate mutex for execution to allow state reads during execution
+	cronID      cron.EntryID
+	schedule    cron.Schedule
+	executor    JobExecutor
+	logger      *slog.Logger
+	mu          sync.Mutex
+	executionMu sync.Mutex // Separate mutex for execution to allow state reads during execution
 }
 
 // JobOptions contains optional configuration for a scheduled job
@@ -300,14 +300,14 @@ func (j *ScheduledJob) executeSync(ctx context.Context, triggered string) (int, 
 
 // Status returns the current status of the job
 type JobStatus struct {
-	Name          string        `json:"name"`
-	Schedule      string        `json:"schedule"`
-	Timezone      string        `json:"timezone"`
-	State         string        `json:"state"`
-	LastRun       time.Time     `json:"last_run"`
-	NextRun       time.Time     `json:"next_run"`
-	CurrentExecID int64         `json:"current_execution_id,omitempty"`
-	Stats         HistoryStats  `json:"stats"`
+	Name          string       `json:"name"`
+	Schedule      string       `json:"schedule"`
+	Timezone      string       `json:"timezone"`
+	State         string       `json:"state"`
+	LastRun       time.Time    `json:"last_run"`
+	NextRun       time.Time    `json:"next_run"`
+	CurrentExecID int64        `json:"current_execution_id,omitempty"`
+	Stats         HistoryStats `json:"stats"`
 }
 
 // Status returns the current job status

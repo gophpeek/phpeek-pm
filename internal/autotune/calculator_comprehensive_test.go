@@ -55,9 +55,9 @@ func TestCalculator_AllProfiles(t *testing.T) {
 // TestCalculator_AllWarningScenarios tests all warning generation paths
 func TestCalculator_AllWarningScenarios(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupCalc    func() *Calculator
-		expectWarn   string
+		name       string
+		setupCalc  func() *Calculator
+		expectWarn string
 	}{
 		{
 			name: "non-containerized warning",
@@ -163,40 +163,40 @@ func TestCalculator_AllWarningScenarios(t *testing.T) {
 // TestCalculator_StaticVsDynamic tests both PM types
 func TestCalculator_StaticVsDynamic(t *testing.T) {
 	tests := []struct {
-		name            string
-		profile         Profile
-		expectPM        string
-		expectHasSpare  bool
+		name           string
+		profile        Profile
+		expectPM       string
+		expectHasSpare bool
 	}{
 		{
-			name:            "dev uses static",
-			profile:         ProfileDev,
-			expectPM:        "static",
-			expectHasSpare:  false,
+			name:           "dev uses static",
+			profile:        ProfileDev,
+			expectPM:       "static",
+			expectHasSpare: false,
 		},
 		{
-			name:            "light uses dynamic",
-			profile:         ProfileLight,
-			expectPM:        "dynamic",
-			expectHasSpare:  true,
+			name:           "light uses dynamic",
+			profile:        ProfileLight,
+			expectPM:       "dynamic",
+			expectHasSpare: true,
 		},
 		{
-			name:            "medium uses dynamic",
-			profile:         ProfileMedium,
-			expectPM:        "dynamic",
-			expectHasSpare:  true,
+			name:           "medium uses dynamic",
+			profile:        ProfileMedium,
+			expectPM:       "dynamic",
+			expectHasSpare: true,
 		},
 		{
-			name:            "heavy uses dynamic",
-			profile:         ProfileHeavy,
-			expectPM:        "dynamic",
-			expectHasSpare:  true,
+			name:           "heavy uses dynamic",
+			profile:        ProfileHeavy,
+			expectPM:       "dynamic",
+			expectHasSpare: true,
 		},
 		{
-			name:            "bursty uses dynamic",
-			profile:         ProfileBursty,
-			expectPM:        "dynamic",
-			expectHasSpare:  true,
+			name:           "bursty uses dynamic",
+			profile:        ProfileBursty,
+			expectPM:       "dynamic",
+			expectHasSpare: true,
 		},
 	}
 
@@ -230,13 +230,13 @@ func TestCalculator_StaticVsDynamic(t *testing.T) {
 // TestCalculator_ThresholdVariations tests various threshold values
 func TestCalculator_ThresholdVariations(t *testing.T) {
 	thresholds := []float64{
-		0.0,   // Use profile default
-		0.25,  // Very conservative
-		0.5,   // Conservative
-		0.75,  // Standard
-		0.9,   // Aggressive
-		1.0,   // Maximum
-		1.1,   // Oversubscription
+		0.0,  // Use profile default
+		0.25, // Very conservative
+		0.5,  // Conservative
+		0.75, // Standard
+		0.9,  // Aggressive
+		1.0,  // Maximum
+		1.1,  // Oversubscription
 	}
 
 	for _, threshold := range thresholds {

@@ -65,11 +65,11 @@ func TestGetSelectedInstanceID(t *testing.T) {
 // TestOpenProcessDetail tests opening process detail view
 func TestOpenProcessDetail(t *testing.T) {
 	tests := []struct {
-		name          string
-		processName   string
-		setupFunc     func(m *Model)
-		expectedView  viewMode
-		expectedProc  string
+		name         string
+		processName  string
+		setupFunc    func(m *Model)
+		expectedView viewMode
+		expectedProc string
 	}{
 		{
 			name:         "opens detail view with process name",
@@ -117,9 +117,9 @@ func TestOpenProcessDetail(t *testing.T) {
 // TestUpdateInstanceTableFromCache tests instance table update from cache
 func TestUpdateInstanceTableFromCache(t *testing.T) {
 	tests := []struct {
-		name       string
-		setupFunc  func(m *Model)
-		checkFunc  func(t *testing.T, m *Model)
+		name      string
+		setupFunc func(m *Model)
+		checkFunc func(t *testing.T, m *Model)
 	}{
 		{
 			name: "empty detailProc updates with nil",
@@ -193,4 +193,3 @@ func TestUpdateInstanceTableFromCache(t *testing.T) {
 		})
 	}
 }
-

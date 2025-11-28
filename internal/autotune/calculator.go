@@ -28,10 +28,10 @@ type PHPFPMConfig struct {
 
 // Calculator computes optimal PHP-FPM settings based on profile and resources
 type Calculator struct {
-	resources        *ContainerResources
-	profile          ProfileConfig
-	memoryThreshold  float64 // Override for profile.MaxMemoryUsage (0.0 = use profile default)
-	logger           *slog.Logger
+	resources       *ContainerResources
+	profile         ProfileConfig
+	memoryThreshold float64 // Override for profile.MaxMemoryUsage (0.0 = use profile default)
+	logger          *slog.Logger
 }
 
 // NewCalculator creates a new calculator with detected resources and profile

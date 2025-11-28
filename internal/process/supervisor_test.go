@@ -218,12 +218,12 @@ func TestSupervisor_GetState(t *testing.T) {
 	auditLogger := audit.NewLogger(logger, false)
 
 	tests := []struct {
-		name          string
-		initialState  string
-		wantState     string
-		startProcess  bool
-		stopProcess   bool
-		setupDelay    time.Duration
+		name         string
+		initialState string
+		wantState    string
+		startProcess bool
+		stopProcess  bool
+		setupDelay   time.Duration
 	}{
 		{
 			name:         "initial stopped state",
@@ -513,11 +513,11 @@ func TestSupervisor_MonitorInstance_Lifecycle(t *testing.T) {
 	auditLogger := audit.NewLogger(logger, false)
 
 	tests := []struct {
-		name         string
-		command      []string
-		restart      string
+		name          string
+		command       []string
+		restart       string
 		expectRestart bool
-		waitTime     time.Duration
+		waitTime      time.Duration
 	}{
 		{
 			name:          "process exits with restart never",

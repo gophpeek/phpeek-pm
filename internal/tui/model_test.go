@@ -32,9 +32,9 @@ func TestShowToast(t *testing.T) {
 // TestClearToastIfExpired tests toast clearing logic
 func TestClearToastIfExpired(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupFunc      func(m *Model)
-		expectCleared  bool
+		name          string
+		setupFunc     func(m *Model)
+		expectCleared bool
 	}{
 		{
 			name: "expired toast",

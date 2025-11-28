@@ -416,10 +416,10 @@ func TestValidate(t *testing.T) {
 
 func TestCheckCircularDependencies(t *testing.T) {
 	tests := []struct {
-		name      string
-		config    *Config
-		wantErr   bool
-		errMsg    string
+		name    string
+		config  *Config
+		wantErr bool
+		errMsg  string
 	}{
 		{
 			name: "no circular dependencies",

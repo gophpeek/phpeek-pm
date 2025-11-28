@@ -539,7 +539,7 @@ func TestCalculator_MultipleWarnings(t *testing.T) {
 	resources := &ContainerResources{
 		MemoryLimitBytes: 4 * 1024 * 1024 * 1024,
 		MemoryLimitMB:    4096,
-		CPULimit:         1, // Very limited CPU
+		CPULimit:         1,     // Very limited CPU
 		IsContainerized:  false, // Not in container
 		CgroupVersion:    0,
 	}

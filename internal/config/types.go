@@ -12,41 +12,41 @@ type Config struct {
 
 // GlobalConfig contains global settings for the process manager
 type GlobalConfig struct {
-	ShutdownTimeout           int           `yaml:"shutdown_timeout" json:"shutdown_timeout"`                         // seconds
-	HealthCheckInterval       int           `yaml:"health_check_interval" json:"health_check_interval"`               // seconds
-	RestartPolicy             string        `yaml:"restart_policy" json:"restart_policy"`                             // always | on-failure | never
-	MaxRestartAttempts        int           `yaml:"max_restart_attempts" json:"max_restart_attempts"`                 //
-	RestartBackoff            int           `yaml:"restart_backoff" json:"restart_backoff"`                           // seconds (legacy, prefer restart_backoff_initial/max)
-	RestartBackoffInitial     time.Duration `yaml:"restart_backoff_initial" json:"restart_backoff_initial"`           // initial duration (supports "5s" style)
-	RestartBackoffMax         time.Duration `yaml:"restart_backoff_max" json:"restart_backoff_max"`                   // max duration
-	AutotuneMemoryThreshold   float64       `yaml:"autotune_memory_threshold" json:"autotune_memory_threshold"`       // 0.0-2.0, overrides profile MaxMemoryUsage
-	LogFormat                 string        `yaml:"log_format" json:"log_format"`                                     // json | text
-	LogLevel                  string        `yaml:"log_level" json:"log_level"`                                       // debug | info | warn | error
-	LogTimestamps             bool          `yaml:"log_timestamps" json:"log_timestamps"`                             //
-	MetricsEnabled            *bool         `yaml:"metrics_enabled" json:"metrics_enabled"`                           //
-	MetricsPort               int           `yaml:"metrics_port" json:"metrics_port"`                                 //
-	MetricsPath               string        `yaml:"metrics_path" json:"metrics_path"`                                 //
-	APIEnabled                *bool         `yaml:"api_enabled" json:"api_enabled"`                                   //
-	APIPort                   int           `yaml:"api_port" json:"api_port"`                                         //
-	APISocket                 string        `yaml:"api_socket" json:"api_socket"`                                     // Unix socket path (e.g. /var/run/phpeek-pm.sock)
-	APIAuth                   string        `yaml:"api_auth" json:"api_auth"`                                         // Bearer token
-	APITLS                    *TLSConfig    `yaml:"api_tls" json:"api_tls"`                                           // TLS configuration for API
-	APIACL                    *ACLConfig    `yaml:"api_acl" json:"api_acl"`                                           // IP ACL for API
-	MetricsTLS                *TLSConfig    `yaml:"metrics_tls" json:"metrics_tls"`                                   // TLS configuration for metrics
-	MetricsACL                *ACLConfig    `yaml:"metrics_acl" json:"metrics_acl"`                                   // IP ACL for metrics
-	ResourceMetricsEnabled    *bool         `yaml:"resource_metrics_enabled" json:"resource_metrics_enabled"`         // Enable CPU/RAM collection
-	ResourceMetricsInterval   int           `yaml:"resource_metrics_interval" json:"resource_metrics_interval"`       // seconds (default: 5)
-	ResourceMetricsMaxSamples int           `yaml:"resource_metrics_max_samples" json:"resource_metrics_max_samples"` // Per-instance buffer size (default: 720 = 1h at 5s)
-	AuditEnabled              bool          `yaml:"audit_enabled" json:"audit_enabled"`                               // Enable audit logging
-	TracingEnabled            bool          `yaml:"tracing_enabled" json:"tracing_enabled"`                           // Enable distributed tracing
-	TracingExporter           string        `yaml:"tracing_exporter" json:"tracing_exporter"`                         // otlp-grpc | otlp-http | stdout | jaeger | zipkin
-	TracingEndpoint           string        `yaml:"tracing_endpoint" json:"tracing_endpoint"`                         // Exporter endpoint (e.g., localhost:4317)
-	TracingSampleRate         float64       `yaml:"tracing_sample_rate" json:"tracing_sample_rate"`                   // 0.0-1.0 (default: 1.0 = 100%)
-	TracingServiceName        string        `yaml:"tracing_service_name" json:"tracing_service_name"`                 // Service name for traces (default: phpeek-pm)
-	TracingUseTLS             bool          `yaml:"tracing_use_tls" json:"tracing_use_tls"`                           // Enable TLS for production (default: false)
-	ScheduleHistorySize       int           `yaml:"schedule_history_size" json:"schedule_history_size"`               // Max execution history entries per job (default: 100)
+	ShutdownTimeout           int              `yaml:"shutdown_timeout" json:"shutdown_timeout"`                         // seconds
+	HealthCheckInterval       int              `yaml:"health_check_interval" json:"health_check_interval"`               // seconds
+	RestartPolicy             string           `yaml:"restart_policy" json:"restart_policy"`                             // always | on-failure | never
+	MaxRestartAttempts        int              `yaml:"max_restart_attempts" json:"max_restart_attempts"`                 //
+	RestartBackoff            int              `yaml:"restart_backoff" json:"restart_backoff"`                           // seconds (legacy, prefer restart_backoff_initial/max)
+	RestartBackoffInitial     time.Duration    `yaml:"restart_backoff_initial" json:"restart_backoff_initial"`           // initial duration (supports "5s" style)
+	RestartBackoffMax         time.Duration    `yaml:"restart_backoff_max" json:"restart_backoff_max"`                   // max duration
+	AutotuneMemoryThreshold   float64          `yaml:"autotune_memory_threshold" json:"autotune_memory_threshold"`       // 0.0-2.0, overrides profile MaxMemoryUsage
+	LogFormat                 string           `yaml:"log_format" json:"log_format"`                                     // json | text
+	LogLevel                  string           `yaml:"log_level" json:"log_level"`                                       // debug | info | warn | error
+	LogTimestamps             bool             `yaml:"log_timestamps" json:"log_timestamps"`                             //
+	MetricsEnabled            *bool            `yaml:"metrics_enabled" json:"metrics_enabled"`                           //
+	MetricsPort               int              `yaml:"metrics_port" json:"metrics_port"`                                 //
+	MetricsPath               string           `yaml:"metrics_path" json:"metrics_path"`                                 //
+	APIEnabled                *bool            `yaml:"api_enabled" json:"api_enabled"`                                   //
+	APIPort                   int              `yaml:"api_port" json:"api_port"`                                         //
+	APISocket                 string           `yaml:"api_socket" json:"api_socket"`                                     // Unix socket path (e.g. /var/run/phpeek-pm.sock)
+	APIAuth                   string           `yaml:"api_auth" json:"api_auth"`                                         // Bearer token
+	APITLS                    *TLSConfig       `yaml:"api_tls" json:"api_tls"`                                           // TLS configuration for API
+	APIACL                    *ACLConfig       `yaml:"api_acl" json:"api_acl"`                                           // IP ACL for API
+	MetricsTLS                *TLSConfig       `yaml:"metrics_tls" json:"metrics_tls"`                                   // TLS configuration for metrics
+	MetricsACL                *ACLConfig       `yaml:"metrics_acl" json:"metrics_acl"`                                   // IP ACL for metrics
+	ResourceMetricsEnabled    *bool            `yaml:"resource_metrics_enabled" json:"resource_metrics_enabled"`         // Enable CPU/RAM collection
+	ResourceMetricsInterval   int              `yaml:"resource_metrics_interval" json:"resource_metrics_interval"`       // seconds (default: 5)
+	ResourceMetricsMaxSamples int              `yaml:"resource_metrics_max_samples" json:"resource_metrics_max_samples"` // Per-instance buffer size (default: 720 = 1h at 5s)
+	AuditEnabled              bool             `yaml:"audit_enabled" json:"audit_enabled"`                               // Enable audit logging
+	TracingEnabled            bool             `yaml:"tracing_enabled" json:"tracing_enabled"`                           // Enable distributed tracing
+	TracingExporter           string           `yaml:"tracing_exporter" json:"tracing_exporter"`                         // otlp-grpc | otlp-http | stdout | jaeger | zipkin
+	TracingEndpoint           string           `yaml:"tracing_endpoint" json:"tracing_endpoint"`                         // Exporter endpoint (e.g., localhost:4317)
+	TracingSampleRate         float64          `yaml:"tracing_sample_rate" json:"tracing_sample_rate"`                   // 0.0-1.0 (default: 1.0 = 100%)
+	TracingServiceName        string           `yaml:"tracing_service_name" json:"tracing_service_name"`                 // Service name for traces (default: phpeek-pm)
+	TracingUseTLS             bool             `yaml:"tracing_use_tls" json:"tracing_use_tls"`                           // Enable TLS for production (default: false)
+	ScheduleHistorySize       int              `yaml:"schedule_history_size" json:"schedule_history_size"`               // Max execution history entries per job (default: 100)
 	OneshotHistoryMaxEntries  int              `yaml:"oneshot_history_max_entries" json:"oneshot_history_max_entries"`   // Max oneshot history entries per process (default: 5000)
-	OneshotHistoryMaxAge      time.Duration   `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
+	OneshotHistoryMaxAge      time.Duration    `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
 	Readiness                 *ReadinessConfig `yaml:"readiness" json:"readiness"`                                       // Container readiness file config for K8s
 }
 
@@ -72,28 +72,28 @@ type Hook struct {
 
 // Process represents a managed process definition
 type Process struct {
-	Enabled      bool              `yaml:"enabled" json:"enabled"`
-	Type         string            `yaml:"type" json:"type"`                   // oneshot | longrun (default: longrun)
-	InitialState string            `yaml:"initial_state" json:"initial_state"` // running | stopped (default: running)
-	Command      []string          `yaml:"command" json:"command"`
-	WorkingDir   string            `yaml:"working_dir" json:"working_dir"`   // Working directory override
-	User         string            `yaml:"user" json:"user"`                 // Run as user (name or uid)
-	Group        string            `yaml:"group" json:"group"`               // Run as group (name or gid)
-	Stdout       *bool             `yaml:"stdout" json:"stdout"`             // Legacy shorthand for logging.stdout
-	Stderr       *bool             `yaml:"stderr" json:"stderr"`             // Legacy shorthand for logging.stderr
-	Restart      string            `yaml:"restart" json:"restart"`           // always | on-failure | never
-	Scale        int               `yaml:"scale" json:"scale"`               // Number of instances
-	MaxScale     int               `yaml:"max_scale" json:"max_scale"`       // Maximum instances (0 = no limit)
-	DependsOn    []string          `yaml:"depends_on" json:"depends_on"`     // Process dependencies
-	Env          map[string]string `yaml:"env" json:"env"`
-	HealthCheck  *HealthCheck      `yaml:"health_check" json:"health_check"`
-	Shutdown     *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
-	Logging          *LoggingConfig `yaml:"logging" json:"logging"`
-	Schedule              string           `yaml:"schedule" json:"schedule"`                               // Cron expression: "*/5 * * * *"
-	ScheduleTimezone      string           `yaml:"schedule_timezone" json:"schedule_timezone"`             // Timezone: "UTC" (default) | "Local"
-	ScheduleTimeout       string           `yaml:"schedule_timeout" json:"schedule_timeout"`               // Execution timeout: "30s", "5m", "1h" (default: no timeout)
-	ScheduleMaxConcurrent int              `yaml:"schedule_max_concurrent" json:"schedule_max_concurrent"` // Max concurrent: 1=no overlap, 0=unlimited (default: 0)
-	Heartbeat             *HeartbeatConfig `yaml:"heartbeat" json:"heartbeat"`                             // Heartbeat monitoring config
+	Enabled               bool              `yaml:"enabled" json:"enabled"`
+	Type                  string            `yaml:"type" json:"type"`                   // oneshot | longrun (default: longrun)
+	InitialState          string            `yaml:"initial_state" json:"initial_state"` // running | stopped (default: running)
+	Command               []string          `yaml:"command" json:"command"`
+	WorkingDir            string            `yaml:"working_dir" json:"working_dir"` // Working directory override
+	User                  string            `yaml:"user" json:"user"`               // Run as user (name or uid)
+	Group                 string            `yaml:"group" json:"group"`             // Run as group (name or gid)
+	Stdout                *bool             `yaml:"stdout" json:"stdout"`           // Legacy shorthand for logging.stdout
+	Stderr                *bool             `yaml:"stderr" json:"stderr"`           // Legacy shorthand for logging.stderr
+	Restart               string            `yaml:"restart" json:"restart"`         // always | on-failure | never
+	Scale                 int               `yaml:"scale" json:"scale"`             // Number of instances
+	MaxScale              int               `yaml:"max_scale" json:"max_scale"`     // Maximum instances (0 = no limit)
+	DependsOn             []string          `yaml:"depends_on" json:"depends_on"`   // Process dependencies
+	Env                   map[string]string `yaml:"env" json:"env"`
+	HealthCheck           *HealthCheck      `yaml:"health_check" json:"health_check"`
+	Shutdown              *ShutdownConfig   `yaml:"shutdown" json:"shutdown"`
+	Logging               *LoggingConfig    `yaml:"logging" json:"logging"`
+	Schedule              string            `yaml:"schedule" json:"schedule"`                               // Cron expression: "*/5 * * * *"
+	ScheduleTimezone      string            `yaml:"schedule_timezone" json:"schedule_timezone"`             // Timezone: "UTC" (default) | "Local"
+	ScheduleTimeout       string            `yaml:"schedule_timeout" json:"schedule_timeout"`               // Execution timeout: "30s", "5m", "1h" (default: no timeout)
+	ScheduleMaxConcurrent int               `yaml:"schedule_max_concurrent" json:"schedule_max_concurrent"` // Max concurrent: 1=no overlap, 0=unlimited (default: 0)
+	Heartbeat             *HeartbeatConfig  `yaml:"heartbeat" json:"heartbeat"`                             // Heartbeat monitoring config
 }
 
 // HeartbeatConfig configures heartbeat monitoring for scheduled jobs
@@ -207,10 +207,10 @@ type ACLConfig struct {
 
 // ReadinessConfig configures container readiness file for Kubernetes integration
 type ReadinessConfig struct {
-	Enabled  bool     `yaml:"enabled" json:"enabled"`   // Enable readiness file creation
-	Path     string   `yaml:"path" json:"path"`         // Path to readiness file (default: /tmp/phpeek-ready)
-	Mode     string   `yaml:"mode" json:"mode"`         // Readiness mode: "all_healthy" | "all_running" (default: all_healthy)
-	Content  string   `yaml:"content" json:"content"`   // Optional content to write to the file
+	Enabled   bool     `yaml:"enabled" json:"enabled"`     // Enable readiness file creation
+	Path      string   `yaml:"path" json:"path"`           // Path to readiness file (default: /tmp/phpeek-ready)
+	Mode      string   `yaml:"mode" json:"mode"`           // Readiness mode: "all_healthy" | "all_running" (default: all_healthy)
+	Content   string   `yaml:"content" json:"content"`     // Optional content to write to the file
 	Processes []string `yaml:"processes" json:"processes"` // Specific processes to check (empty = all enabled longrun)
 }
 

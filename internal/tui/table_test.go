@@ -208,12 +208,12 @@ func TestComputeInstanceColumns(t *testing.T) {
 // TestEnsureCursorVisible tests cursor visibility logic
 func TestEnsureCursorVisible(t *testing.T) {
 	tests := []struct {
-		name              string
-		tableDataLen      int
-		initialOffset     int
-		initialCursor     int
-		modelHeight       int
-		expectedOffset    int
+		name           string
+		tableDataLen   int
+		initialOffset  int
+		initialCursor  int
+		modelHeight    int
+		expectedOffset int
 	}{
 		{
 			name:           "cursor above viewport",
@@ -290,11 +290,11 @@ func TestEnsureCursorVisible(t *testing.T) {
 // TestSetupProcessTable tests process table initialization
 func TestSetupProcessTable(t *testing.T) {
 	tests := []struct {
-		name           string
-		width          int
-		height         int
-		initialCursor  int
-		expectFocused  bool
+		name          string
+		width         int
+		height        int
+		initialCursor int
+		expectFocused bool
 	}{
 		{
 			name:          "normal setup",
@@ -358,9 +358,9 @@ func TestSetupInstanceTable(t *testing.T) {
 // TestRenderProcessTable tests process table rendering
 func TestRenderProcessTable(t *testing.T) {
 	tests := []struct {
-		name             string
-		tableDataLen     int
-		expectNoProcess  bool
+		name            string
+		tableDataLen    int
+		expectNoProcess bool
 	}{
 		{
 			name:            "empty table",
@@ -377,10 +377,10 @@ func TestRenderProcessTable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := Model{
-				tableData:        make([]processDisplayRow, tt.tableDataLen),
+				tableData:         make([]processDisplayRow, tt.tableDataLen),
 				tableColumnWidths: []int{18, 10, 14, 12, 10, 8, 10, 12, 10},
-				width:            100,
-				height:           30,
+				width:             100,
+				height:            30,
 			}
 
 			// Initialize with sample data if not empty

@@ -123,9 +123,9 @@ func TestFormatValidationReport(t *testing.T) {
 
 func TestFormatValidationSummary(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		result *ValidationResult
-		want string
+		want   string
 	}{
 		{
 			name:   "no issues",
@@ -197,8 +197,8 @@ func TestFormatValidationSummary(t *testing.T) {
 
 func TestFormatValidationJSON(t *testing.T) {
 	tests := []struct {
-		name string
-		result *ValidationResult
+		name     string
+		result   *ValidationResult
 		validate func(*testing.T, map[string]interface{})
 	}{
 		{

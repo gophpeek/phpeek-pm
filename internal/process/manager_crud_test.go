@@ -574,9 +574,9 @@ func TestManager_SetConfigPath(t *testing.T) {
 // TestManager_GetResourceCollector tests resource collector retrieval
 func TestManager_GetResourceCollector(t *testing.T) {
 	tests := []struct {
-		name              string
-		metricsEnabled    bool
-		wantCollectorNil  bool
+		name             string
+		metricsEnabled   bool
+		wantCollectorNil bool
 	}{
 		{
 			name:             "with metrics enabled",

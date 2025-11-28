@@ -213,14 +213,14 @@ func TestCalculate_CPUConstraints(t *testing.T) {
 // TestToEnvVars_AllFields tests environment variable generation
 func TestToEnvVars_AllFields(t *testing.T) {
 	cfg := &PHPFPMConfig{
-		ProcessManager:   "dynamic",
-		MaxChildren:      20,
-		StartServers:     5,
-		MinSpare:         3,
-		MaxSpare:         10,
-		MaxRequests:      1000,
-		MemoryTotal:      4096,
-		MemoryAllocated:  2560,
+		ProcessManager:  "dynamic",
+		MaxChildren:     20,
+		StartServers:    5,
+		MinSpare:        3,
+		MaxSpare:        10,
+		MaxRequests:     1000,
+		MemoryTotal:     4096,
+		MemoryAllocated: 2560,
 	}
 
 	envVars := cfg.ToEnvVars()

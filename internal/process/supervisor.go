@@ -73,18 +73,18 @@ type Supervisor struct {
 
 // Instance represents a single process instance
 type Instance struct {
-	id             string
-	cmd            *exec.Cmd
-	state          ProcessState
-	pid            int
-	started        time.Time
-	restartCount   int
-	doneCh         chan struct{} // Closed when process exits (monitored by monitorInstance)
-	stdoutWriter   *logger.ProcessWriter
-	stderrWriter   *logger.ProcessWriter
-	allowRestart   bool
-	oneshotExecID  int64 // Tracks oneshot execution history entry ID (0 if not oneshot)
-	mu             sync.RWMutex
+	id            string
+	cmd           *exec.Cmd
+	state         ProcessState
+	pid           int
+	started       time.Time
+	restartCount  int
+	doneCh        chan struct{} // Closed when process exits (monitored by monitorInstance)
+	stdoutWriter  *logger.ProcessWriter
+	stderrWriter  *logger.ProcessWriter
+	allowRestart  bool
+	oneshotExecID int64 // Tracks oneshot execution history entry ID (0 if not oneshot)
+	mu            sync.RWMutex
 }
 
 // NewSupervisor creates a new process supervisor

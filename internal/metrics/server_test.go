@@ -54,11 +54,11 @@ func TestNewServer(t *testing.T) {
 			expectedPath: "/metrics",
 		},
 		{
-			name:      "with ACL disabled",
-			port:      9093,
-			path:      "/metrics",
-			aclConfig: &config.ACLConfig{Enabled: false},
-			tlsConfig: nil,
+			name:         "with ACL disabled",
+			port:         9093,
+			path:         "/metrics",
+			aclConfig:    &config.ACLConfig{Enabled: false},
+			tlsConfig:    nil,
 			expectedPath: "/metrics",
 		},
 	}
@@ -97,8 +97,8 @@ func TestServer_Port(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	tests := []struct {
-		name         string
-		port         int
+		name string
+		port int
 	}{
 		{
 			name: "port 9090",
@@ -296,9 +296,9 @@ func TestServer_ACLMiddleware(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	tests := []struct {
-		name           string
-		aclConfig      *config.ACLConfig
-		expectAccess   bool
+		name         string
+		aclConfig    *config.ACLConfig
+		expectAccess bool
 	}{
 		{
 			name: "allow list with localhost",

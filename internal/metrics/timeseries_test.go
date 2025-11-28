@@ -196,9 +196,9 @@ func TestTimeSeriesBuffer_GetSince(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		since          time.Time
-		expectedCount  int
+		name          string
+		since         time.Time
+		expectedCount int
 	}{
 		{
 			name:          "since 2 seconds ago",
@@ -242,10 +242,10 @@ func TestTimeSeriesBuffer_GetRange(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		since          time.Time
-		limit          int
-		expectedCount  int
+		name          string
+		since         time.Time
+		limit         int
+		expectedCount int
 	}{
 		{
 			name:          "range with limit",

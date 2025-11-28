@@ -31,10 +31,10 @@ func (e *ExecutionEntry) IsRunning() bool {
 
 // ExecutionHistory is a thread-safe ring buffer for execution history
 type ExecutionHistory struct {
-	entries  []ExecutionEntry
-	maxSize  int
-	nextID   int64
-	mu       sync.RWMutex
+	entries []ExecutionEntry
+	maxSize int
+	nextID  int64
+	mu      sync.RWMutex
 }
 
 // NewExecutionHistory creates a new ExecutionHistory with the given max size
@@ -177,15 +177,15 @@ func (h *ExecutionHistory) SuccessRate() float64 {
 
 // Stats returns aggregate statistics about execution history
 type HistoryStats struct {
-	TotalExecutions     int           `json:"total_executions"`
-	SuccessCount        int           `json:"success_count"`
-	FailureCount        int           `json:"failure_count"`
-	RunningCount        int           `json:"running_count"`
-	SuccessRate         float64       `json:"success_rate"`
-	AverageDuration     time.Duration `json:"average_duration"`
-	LastExecutionTime   time.Time     `json:"last_execution_time"`
-	LastSuccessTime     time.Time     `json:"last_success_time"`
-	LastFailureTime     time.Time     `json:"last_failure_time"`
+	TotalExecutions   int           `json:"total_executions"`
+	SuccessCount      int           `json:"success_count"`
+	FailureCount      int           `json:"failure_count"`
+	RunningCount      int           `json:"running_count"`
+	SuccessRate       float64       `json:"success_rate"`
+	AverageDuration   time.Duration `json:"average_duration"`
+	LastExecutionTime time.Time     `json:"last_execution_time"`
+	LastSuccessTime   time.Time     `json:"last_success_time"`
+	LastFailureTime   time.Time     `json:"last_failure_time"`
 }
 
 // Stats returns aggregate statistics

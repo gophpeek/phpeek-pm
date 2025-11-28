@@ -7,17 +7,17 @@ import (
 
 // OneshotExecution represents a single oneshot process execution
 type OneshotExecution struct {
-	ID           int64     `json:"id"`
-	ProcessName  string    `json:"process_name"`
-	InstanceID   string    `json:"instance_id"`
-	StartedAt    time.Time `json:"started_at"`
-	FinishedAt   time.Time `json:"finished_at,omitempty"`
-	ExitCode     int       `json:"exit_code"`
-	Success      bool      `json:"success"`
-	Error        string    `json:"error,omitempty"`
-	Duration     string    `json:"duration,omitempty"`
-	DurationMs   int64     `json:"duration_ms,omitempty"`
-	TriggerType  string    `json:"trigger_type"` // "manual" | "startup" | "api"
+	ID          int64     `json:"id"`
+	ProcessName string    `json:"process_name"`
+	InstanceID  string    `json:"instance_id"`
+	StartedAt   time.Time `json:"started_at"`
+	FinishedAt  time.Time `json:"finished_at,omitempty"`
+	ExitCode    int       `json:"exit_code"`
+	Success     bool      `json:"success"`
+	Error       string    `json:"error,omitempty"`
+	Duration    string    `json:"duration,omitempty"`
+	DurationMs  int64     `json:"duration_ms,omitempty"`
+	TriggerType string    `json:"trigger_type"` // "manual" | "startup" | "api"
 }
 
 // OneshotHistory stores execution history for oneshot processes

@@ -205,7 +205,6 @@ var (
 		},
 		[]string{"version", "go_version"},
 	)
-
 )
 
 // RecordProcessStart records a process start event

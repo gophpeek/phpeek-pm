@@ -1299,8 +1299,8 @@ func TestServer_HandleStackLogs_LimitParsing(t *testing.T) {
 	}{
 		{"default limit", "", 100},
 		{"valid limit", "?limit=200", 200},
-		{"zero limit", "?limit=0", 100},       // Falls back to default
-		{"negative limit", "?limit=-5", 100},  // Falls back to default
+		{"zero limit", "?limit=0", 100},      // Falls back to default
+		{"negative limit", "?limit=-5", 100}, // Falls back to default
 		{"non-numeric limit", "?limit=xyz", 100},
 	}
 

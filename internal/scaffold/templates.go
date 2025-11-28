@@ -10,19 +10,19 @@ import (
 type Preset string
 
 const (
-	PresetLaravel   Preset = "laravel"
-	PresetSymfony   Preset = "symfony"
-	PresetGeneric   Preset = "generic"
-	PresetMinimal   Preset = "minimal"
+	PresetLaravel    Preset = "laravel"
+	PresetSymfony    Preset = "symfony"
+	PresetGeneric    Preset = "generic"
+	PresetMinimal    Preset = "minimal"
 	PresetProduction Preset = "production"
 )
 
 // Config holds template configuration data
 type Config struct {
 	// Framework and app settings
-	Preset      Preset
-	AppName     string
-	Framework   string
+	Preset    Preset
+	AppName   string
+	Framework string
 
 	// Feature flags
 	EnableNginx     bool
@@ -43,8 +43,8 @@ type Config struct {
 	MetricsPort int
 
 	// Paths
-	WorkDir     string
-	LogLevel    string
+	WorkDir  string
+	LogLevel string
 }
 
 // DefaultConfig returns default configuration for a preset

@@ -9,9 +9,9 @@ import (
 
 func TestMatchFieldPath(t *testing.T) {
 	tests := []struct {
-		name    string
-		tokens  []string
-		wantOk  bool
+		name   string
+		tokens []string
+		wantOk bool
 	}{
 		{
 			name:   "empty tokens",
@@ -219,11 +219,11 @@ func TestBuildPathFromKey(t *testing.T) {
 
 func TestApplyProcessEnvOverride(t *testing.T) {
 	tests := []struct {
-		name      string
-		segment   string
-		value     string
-		checkKey  string
-		checkVal  string
+		name     string
+		segment  string
+		value    string
+		checkKey string
+		checkVal string
 	}{
 		{
 			name:     "empty segment",

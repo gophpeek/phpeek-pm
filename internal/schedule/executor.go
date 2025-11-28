@@ -18,8 +18,8 @@ import (
 
 // ProcessExecutor executes scheduled process commands directly
 type ProcessExecutor struct {
-	configs    map[string]ProcessConfig          // Process name -> config
-	logWriters map[string]*logger.ProcessWriter  // Process name -> combined log writer
+	configs    map[string]ProcessConfig         // Process name -> config
+	logWriters map[string]*logger.ProcessWriter // Process name -> combined log writer
 	logger     *slog.Logger
 	mu         sync.RWMutex
 }
@@ -29,8 +29,8 @@ type ProcessConfig struct {
 	Command    []string
 	WorkingDir string
 	Env        map[string]string
-	Timeout    time.Duration          // 0 = no timeout
-	Logging    *config.LoggingConfig  // Logging configuration for output capture
+	Timeout    time.Duration         // 0 = no timeout
+	Logging    *config.LoggingConfig // Logging configuration for output capture
 }
 
 // NewProcessExecutor creates a new ProcessExecutor

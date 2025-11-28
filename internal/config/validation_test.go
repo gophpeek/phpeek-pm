@@ -228,8 +228,8 @@ func TestValidateComprehensive_ValidConfig(t *testing.T) {
 			LogFormat:          "json",
 			MaxRestartAttempts: 3,
 			RestartBackoff:     5,
-			APIPort:            8080,     // Non-privileged port
-			MetricsPort:        9090,     // Non-privileged port
+			APIPort:            8080, // Non-privileged port
+			MetricsPort:        9090, // Non-privileged port
 		},
 		Processes: map[string]*Process{
 			"test-proc": {
@@ -674,7 +674,7 @@ func TestValidateComprehensive_HealthCheckValidation(t *testing.T) {
 func TestValidateComprehensive_Warnings(t *testing.T) {
 	cfg := &Config{
 		Global: GlobalConfig{
-			ShutdownTimeout:    5, // Short timeout - warning
+			ShutdownTimeout:    5,       // Short timeout - warning
 			LogLevel:           "debug", // Debug level - warning
 			LogFormat:          "json",
 			MaxRestartAttempts: 3,
@@ -719,7 +719,7 @@ func TestValidateComprehensive_Suggestions(t *testing.T) {
 			ShutdownTimeout:    200, // Long timeout - suggestion
 			LogLevel:           "info",
 			LogFormat:          "text", // Text format - suggestion
-			MaxRestartAttempts: 15, // High attempts - suggestion
+			MaxRestartAttempts: 15,     // High attempts - suggestion
 			RestartBackoff:     5,
 			APIPort:            8080,
 			MetricsPort:        9090,

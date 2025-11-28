@@ -78,9 +78,9 @@ func TestIsReadOnlyRoot_FileSystemCheck(t *testing.T) {
 
 func TestGetRuntimeDir(t *testing.T) {
 	tests := []struct {
-		name          string
-		readOnlyEnv   string
-		expectedPath  string
+		name         string
+		readOnlyEnv  string
+		expectedPath string
 	}{
 		{
 			name:         "writable root filesystem",
@@ -162,10 +162,10 @@ func TestGetRuntimeDir_CreationError(t *testing.T) {
 
 func TestEnsureWritableDir(t *testing.T) {
 	tests := []struct {
-		name         string
-		path         string
-		readOnlyEnv  string
-		checkPath    func(string, string) error // Validates the returned path
+		name        string
+		path        string
+		readOnlyEnv string
+		checkPath   func(string, string) error // Validates the returned path
 	}{
 		{
 			name:        "create directory in writable location",

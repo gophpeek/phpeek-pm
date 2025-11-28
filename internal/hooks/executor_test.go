@@ -125,11 +125,11 @@ func TestExecutor_RetryWithDelay(t *testing.T) {
 
 func TestExecutor_TimeoutHandling(t *testing.T) {
 	tests := []struct {
-		name           string
-		timeout        int
-		command        []string
-		shouldTimeout  bool
-		expectError    bool
+		name          string
+		timeout       int
+		command       []string
+		shouldTimeout bool
+		expectError   bool
 	}{
 		{
 			name:          "short_timeout",

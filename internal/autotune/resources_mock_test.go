@@ -33,7 +33,7 @@ func TestDetectCgroupV2Resources_WithMockFiles(t *testing.T) {
 	}{
 		{
 			name:           "valid limits",
-			memoryContent:  "2147483648\n", // 2GB
+			memoryContent:  "2147483648\n",    // 2GB
 			cpuContent:     "200000 100000\n", // 2 CPUs
 			expectError:    false,
 			expectMemoryMB: 2048,
@@ -57,7 +57,7 @@ func TestDetectCgroupV2Resources_WithMockFiles(t *testing.T) {
 		},
 		{
 			name:           "fractional CPU",
-			memoryContent:  "536870912\n", // 512MB
+			memoryContent:  "536870912\n",     // 512MB
 			cpuContent:     "150000 100000\n", // 1.5 CPUs -> rounds to 2
 			expectError:    false,
 			expectMemoryMB: 512,
@@ -274,10 +274,10 @@ func TestGetHostMemory_Parsing(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	tests := []struct {
-		name          string
-		content       string
-		expectMemory  int64
-		expectError   bool
+		name         string
+		content      string
+		expectMemory int64
+		expectError  bool
 	}{
 		{
 			name: "valid meminfo",

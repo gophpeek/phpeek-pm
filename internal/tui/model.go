@@ -130,17 +130,17 @@ type Model struct {
 	// k9s-style tab data
 	// Processes tab uses: tableData, selectedIndex, tableOffset (existing fields)
 	// Scheduled tab uses: scheduledData, scheduledIndex, scheduledOffset
-	scheduledData       []scheduledDisplayRow // Scheduled/cron jobs
-	scheduledIndex      int
-	scheduledOffset     int
-	scheduledColWidths  []int
-	executionHistory    []ExecutionHistoryEntry // Execution history for selected scheduled job
+	scheduledData      []scheduledDisplayRow // Scheduled/cron jobs
+	scheduledIndex     int
+	scheduledOffset    int
+	scheduledColWidths []int
+	executionHistory   []ExecutionHistoryEntry // Execution history for selected scheduled job
 
 	// Oneshot tab data
-	oneshotData       []oneshotDisplayRow // Oneshot execution history
-	oneshotIndex      int
-	oneshotOffset     int
-	oneshotColWidths  []int
+	oneshotData      []oneshotDisplayRow // Oneshot execution history
+	oneshotIndex     int
+	oneshotOffset    int
+	oneshotColWidths []int
 
 	// System tab data
 	systemMenuIndex int // Currently selected system menu option
