@@ -83,7 +83,7 @@ COPY docker/nginx.conf /etc/nginx/nginx.conf
 ENTRYPOINT ["/usr/local/bin/phpeek-pm"]
 ```
 
-## Laravel-Specific Dockerfile
+## PHP Application Dockerfile
 
 ```dockerfile
 FROM php:8.3-fpm-alpine
@@ -196,7 +196,7 @@ services:
   db:
     image: mysql:8
     environment:
-      MYSQL_DATABASE: laravel
+      MYSQL_DATABASE: app
       MYSQL_ROOT_PASSWORD: secret
     volumes:
       - db-data:/var/lib/mysql
@@ -433,4 +433,4 @@ global:
 - [Configuration Overview](../configuration/overview) - Complete configuration reference
 - [Health Checks](../features/health-checks) - Configure health monitoring
 - [Prometheus Metrics](../observability/metrics) - Monitor with Prometheus
-- [Examples](../examples/laravel-complete) - Real-world Dockerfiles
+- [Examples](../examples/) - Real-world Dockerfiles

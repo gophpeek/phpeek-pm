@@ -1,25 +1,36 @@
 ---
 title: "Examples"
-description: "Real-world PHPeek PM configurations for Laravel, Docker, and Kubernetes deployments"
+description: "Real-world PHPeek PM configurations for PHP frameworks, Docker, and Kubernetes deployments"
 weight: 30
 ---
 
 # Examples
 
-Practical, production-ready configuration examples for common use cases.
+Practical, production-ready configuration examples for common use cases with PHP applications including Laravel, WordPress, Symfony, and more.
 
 ## Available Examples
 
+### Core Examples
+
+These work with any PHP framework:
+
 - [Minimal Setup](minimal) - Simple PHP-FPM configuration
-- [Laravel Complete](laravel-complete) - Full Laravel stack with Horizon and queues
-- [Laravel with Monitoring](laravel-with-monitoring) - Laravel + Prometheus + API
-- [Scheduled Tasks](scheduled-tasks) - Cron scheduler setup
+- [Scheduled Tasks](scheduled-tasks) - Cron scheduler for Laravel, Symfony, WordPress
 - [Kubernetes Deployment](kubernetes) - K8s deployment patterns
 - [Docker Compose](docker-compose) - Multi-container orchestration
+
+### Framework Examples
+
+Laravel-specific configurations (adapt patterns for Symfony, WordPress, etc.):
+
+- [Laravel Complete](laravel-complete) - Full Laravel stack with Horizon and queues
+- [Laravel with Monitoring](laravel-with-monitoring) - Laravel + Prometheus + API
 
 ## Quick Start
 
 ### Minimal PHP-FPM
+
+Works with any PHP application:
 
 ```yaml
 version: "1.0"
@@ -35,7 +46,9 @@ processes:
     restart: always
 ```
 
-### Laravel with Queue Workers
+### PHP with Queue Workers
+
+Example for Laravel (adapt for Symfony Messenger, WordPress, etc.):
 
 ```yaml
 version: "1.0"
@@ -50,7 +63,10 @@ processes:
     command: ["nginx", "-g", "daemon off;"]
     depends_on: [php-fpm]
 
-  queue-default:
+  # Laravel: php artisan queue:work
+  # Symfony: php bin/console messenger:consume
+  # Custom: php worker.php
+  queue-worker:
     enabled: true
     command: ["php", "artisan", "queue:work"]
     scale: 3

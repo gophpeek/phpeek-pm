@@ -92,15 +92,16 @@ processes:
 
 **Use cases:**
 - Nginx health endpoint: `http://127.0.0.1:80/health`
-- Laravel health check: `http://127.0.0.1:80/api/health`
+- Application health check: `http://127.0.0.1:80/api/health`
 - Custom health route: `http://127.0.0.1:8080/status`
 
-**Laravel health endpoint example:**
+**PHP health endpoint example:**
 ```php
-// routes/web.php
-Route::get('/health', function () {
-    return response()->json(['status' => 'healthy'], 200);
-});
+// Simple health endpoint (works with any framework)
+<?php
+http_response_code(200);
+header('Content-Type: application/json');
+echo json_encode(['status' => 'healthy']);
 ```
 
 ### 3. Exec Health Check
@@ -466,7 +467,7 @@ processes:
 
 ## Examples
 
-### Laravel Application
+### PHP Application
 
 ```yaml
 processes:
@@ -485,12 +486,13 @@ processes:
     depends_on: [php-fpm]
     health_check:
       type: http
-      address: "http://127.0.0.1:80/api/health"
+      address: "http://127.0.0.1:80/health"
       interval: 10
       timeout: 5
       retries: 3
       success_threshold: 2
 
+  # Laravel Horizon example
   horizon:
     enabled: true
     command: ["php", "artisan", "horizon"]
@@ -547,4 +549,4 @@ processes:
 - [Configuration Reference](../configuration/health-checks) - Complete configuration options
 - [Restart Policies](restart-policies) - Process restart strategies
 - [Prometheus Metrics](../observability/metrics) - Metrics and monitoring
-- [Examples](../examples/laravel-with-monitoring) - Real-world configurations
+- [Examples](../examples/) - Real-world configurations

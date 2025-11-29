@@ -88,6 +88,7 @@ func TestNewCalculator_WithMemoryThreshold(t *testing.T) {
 
 	if calc == nil {
 		t.Error("Expected non-nil calculator")
+		return
 	}
 
 	if calc.memoryThreshold != 0.8 {

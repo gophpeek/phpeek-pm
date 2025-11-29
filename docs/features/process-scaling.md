@@ -279,7 +279,7 @@ curl -X POST \
 
 ### Queue Workers
 
-Laravel queue workers automatically distribute jobs:
+PHP queue workers automatically distribute jobs (Redis or database-backed):
 
 ```yaml
 processes:
@@ -518,5 +518,5 @@ curl -X POST -d '{"desired": 0}' "$API_URL/processes/app-stable/scale"
 
 - [Process Configuration](../configuration/processes) - Scale configuration
 - [Management API](../observability/api) - Runtime scaling API
-- [Examples](../examples/laravel-complete) - Queue worker scaling
+- [Examples](../examples/) - Queue worker scaling
 - [Prometheus Metrics](../observability/metrics) - Scaling metrics

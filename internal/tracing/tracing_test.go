@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -336,24 +335,3 @@ func TestTracerConfig_ServiceVersion(t *testing.T) {
 	}
 }
 
-// Mock span for testing status codes
-type mockSpan struct {
-	noop.Span
-	statusCode codes.Code
-	statusDesc string
-	events     []string
-	attrs      []attribute.KeyValue
-}
-
-func (s *mockSpan) SetStatus(code codes.Code, description string) {
-	s.statusCode = code
-	s.statusDesc = description
-}
-
-func (s *mockSpan) AddEvent(name string, opts ...interface{}) {
-	s.events = append(s.events, name)
-}
-
-func (s *mockSpan) SetAttributes(attrs ...attribute.KeyValue) {
-	s.attrs = append(s.attrs, attrs...)
-}

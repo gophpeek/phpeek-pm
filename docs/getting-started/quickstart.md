@@ -156,7 +156,7 @@ PHPeek PM orchestrated:
    - Then stopped PHP-FPM
    - Clean process termination
 
-## Common Configuration Patterns
+## Framework Configuration Patterns
 
 ### Laravel Application
 
@@ -183,6 +183,45 @@ processes:
     enabled: true
     command: ["php", "artisan", "queue:work", "--tries=3"]
     scale: 3
+```
+
+### Symfony Application
+
+```yaml
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    depends_on: [php-fpm]
+
+  messenger:
+    enabled: true
+    command: ["php", "bin/console", "messenger:consume", "async", "--time-limit=3600"]
+    scale: 2
+    restart: always
+```
+
+### WordPress Application
+
+```yaml
+processes:
+  php-fpm:
+    enabled: true
+    command: ["php-fpm", "-F", "-R"]
+
+  nginx:
+    enabled: true
+    command: ["nginx", "-g", "daemon off;"]
+    depends_on: [php-fpm]
+
+  wp-cron:
+    enabled: true
+    command: ["php", "/var/www/html/wp-cron.php"]
+    schedule: "*/5 * * * *"  # Run every 5 minutes
 ```
 
 ### With Observability
@@ -251,4 +290,4 @@ Now that you have a working setup:
 - [Docker Integration](docker-integration) - Advanced Docker patterns
 - [Configuration](../configuration/overview) - Deep dive into config options
 - [Health Checks](../features/health-checks) - Master health monitoring
-- [Examples](../examples/laravel-complete) - Real-world configurations
+- [Examples](../examples/) - Real-world configurations

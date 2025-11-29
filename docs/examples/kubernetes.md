@@ -1,12 +1,12 @@
 ---
 title: "Kubernetes Deployment"
-description: "Deploy Laravel with PHPeek PM on Kubernetes with ConfigMaps, HPA, and resource limits"
+description: "Deploy PHP applications with PHPeek PM on Kubernetes with ConfigMaps, HPA, and resource limits"
 weight: 34
 ---
 
 # Kubernetes Deployment
 
-Deploy Laravel applications with PHPeek PM on Kubernetes using ConfigMaps for configuration and HorizontalPodAutoscaler for dynamic scaling.
+Deploy PHP applications with PHPeek PM on Kubernetes using ConfigMaps for configuration and HorizontalPodAutoscaler for dynamic scaling.
 
 ## Use Cases
 
@@ -29,7 +29,7 @@ Deploy Laravel applications with PHPeek PM on Kubernetes using ConfigMaps for co
 │  └──────────────────────────────────────┘ │
 │                                             │
 │  ┌──────────────────────────────────────┐ │
-│  │  Deployment: laravel-app (replicas:3)│ │
+│  │  Deployment: php-app (replicas:3)│ │
 │  │  ┌──────────────┐                    │ │
 │  │  │  Pod 1       │  PHP-FPM + Nginx   │ │
 │  │  ├──────────────┤  + Horizon + Queue │ │
@@ -40,13 +40,13 @@ Deploy Laravel applications with PHPeek PM on Kubernetes using ConfigMaps for co
 │  └──────────────────────────────────────┘ │
 │                                             │
 │  ┌──────────────────────────────────────┐ │
-│  │  HPA: laravel-app-hpa                │ │
+│  │  HPA: php-app-hpa                │ │
 │  │  Min: 3, Max: 10                     │ │
 │  │  Target: 70% CPU, 80% Memory         │ │
 │  └──────────────────────────────────────┘ │
 │                                             │
 │  ┌──────────────────────────────────────┐ │
-│  │  Service: laravel-app-svc            │ │
+│  │  Service: php-app-svc            │ │
 │  │  Type: ClusterIP                     │ │
 │  │  Port: 80                            │ │
 │  └──────────────────────────────────────┘ │
@@ -124,20 +124,20 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app
+  name: php-app
   namespace: production
   labels:
-    app: laravel
+    app: php
     tier: backend
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: laravel
+      app: php
   template:
     metadata:
       labels:
-        app: laravel
+        app: php
         tier: backend
       annotations:
         prometheus.io/scrape: "true"
@@ -157,14 +157,14 @@ spec:
                 name: phpeek-config
                 key: php_fpm_profile
 
-          # Laravel environment
+          # Application environment
           - name: APP_ENV
             value: "production"
 
           - name: APP_KEY
             valueFrom:
               secretKeyRef:
-                name: laravel-secrets
+                name: app-secrets
                 key: app-key
 
           - name: DB_HOST
@@ -240,10 +240,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: laravel-app-svc
+  name: php-app-svc
   namespace: production
   labels:
-    app: laravel
+    app: php
 spec:
   type: ClusterIP
   ports:
@@ -256,7 +256,7 @@ spec:
       protocol: TCP
       name: metrics
   selector:
-    app: laravel
+    app: php
 ```
 
 ### HorizontalPodAutoscaler
@@ -265,13 +265,13 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: laravel-app-hpa
+  name: php-app-hpa
   namespace: production
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: laravel-app
+    name: php-app
   minReplicas: 3
   maxReplicas: 10
   metrics:
@@ -296,7 +296,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: laravel-app-ingress
+  name: php-app-ingress
   namespace: production
   annotations:
     kubernetes.io/ingress.class: nginx
@@ -314,7 +314,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: laravel-app-svc
+                name: php-app-svc
                 port:
                   number: 80
 ```
@@ -327,7 +327,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app-dev
+  name: php-app-dev
   namespace: development
 spec:
   replicas: 1  # Single replica for dev
@@ -358,7 +358,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app-prod
+  name: php-app-prod
   namespace: production
 spec:
   replicas: 5
@@ -433,12 +433,12 @@ metadata:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: laravel-app-metrics
+  name: php-app-metrics
   namespace: production
 spec:
   selector:
     matchLabels:
-      app: laravel
+      app: php
   endpoints:
     - port: metrics
       interval: 30s
@@ -522,12 +522,12 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app-blue
+  name: php-app-blue
 spec:
   replicas: 5
   selector:
     matchLabels:
-      app: laravel
+      app: php
       version: blue
 
 # Green deployment (new)
@@ -535,12 +535,12 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app-green
+  name: php-app-green
 spec:
   replicas: 5
   selector:
     matchLabels:
-      app: laravel
+      app: php
       version: green
 
 # Service switches between blue/green
@@ -548,10 +548,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: laravel-app-svc
+  name: php-app-svc
 spec:
   selector:
-    app: laravel
+    app: php
     version: blue  # Change to 'green' to switch
 ```
 
@@ -563,7 +563,7 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: laravel-secrets
+  name: app-secrets
   namespace: production
 type: Opaque
 stringData:
@@ -579,13 +579,13 @@ env:
   - name: APP_KEY
     valueFrom:
       secretKeyRef:
-        name: laravel-secrets
+        name: app-secrets
         key: app-key
 
   - name: PHPEEK_PM_GLOBAL_API_AUTH
     valueFrom:
       secretKeyRef:
-        name: laravel-secrets
+        name: app-secrets
         key: api-token
 ```
 
@@ -595,13 +595,13 @@ env:
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
-  name: laravel-secrets
+  name: app-secrets
 spec:
   secretStoreRef:
     name: aws-secrets-manager
     kind: SecretStore
   target:
-    name: laravel-secrets
+    name: app-secrets
   data:
     - secretKey: app-key
       remoteRef:
@@ -620,7 +620,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app
+  name: php-app
 spec:
   template:
     spec:
@@ -641,7 +641,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app-heavy
+  name: php-app-heavy
 spec:
   template:
     spec:
@@ -664,7 +664,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: laravel-logs
+  name: app-logs
 spec:
   accessModes:
     - ReadWriteMany
@@ -684,7 +684,7 @@ spec:
       volumes:
         - name: logs
           persistentVolumeClaim:
-            claimName: laravel-logs
+            claimName: app-logs
 ```
 
 ### Shared Storage (Sessions, Cache)
@@ -693,7 +693,7 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: laravel-storage
+  name: app-storage
 spec:
   accessModes:
     - ReadWriteMany  # Multiple pods can write
@@ -759,7 +759,7 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: laravel-secrets
+  name: app-secrets
   namespace: production
 type: Opaque
 stringData:
@@ -769,7 +769,7 @@ stringData:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app
+  name: php-app
   namespace: production
 spec:
   # ... (full deployment from above)
@@ -777,7 +777,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: laravel-app-svc
+  name: php-app-svc
   namespace: production
 spec:
   # ... (full service from above)
@@ -785,7 +785,7 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: laravel-app-hpa
+  name: php-app-hpa
   namespace: production
 spec:
   # ... (full HPA from above)
@@ -812,13 +812,13 @@ kubectl get svc -n production
 kubectl get hpa -n production
 
 # Check logs
-kubectl logs -n production deployment/laravel-app -f
+kubectl logs -n production deployment/php-app -f
 
 # Check pod health
 kubectl get pods -n production -o wide
 
 # Describe pod
-kubectl describe pod -n production laravel-app-xxx
+kubectl describe pod -n production php-app-xxx
 ```
 
 ## Monitoring
@@ -827,7 +827,7 @@ kubectl describe pod -n production laravel-app-xxx
 
 ```bash
 # Port-forward to metrics endpoint
-kubectl port-forward -n production deployment/laravel-app 9090:9090
+kubectl port-forward -n production deployment/php-app 9090:9090
 
 # Query metrics
 curl http://localhost:9090/metrics
@@ -837,7 +837,7 @@ curl http://localhost:9090/metrics
 
 ```bash
 # Port-forward to API
-kubectl port-forward -n production deployment/laravel-app 8080:8080
+kubectl port-forward -n production deployment/php-app 8080:8080
 
 # Get process status
 curl http://localhost:9180/api/v1/processes
@@ -850,10 +850,10 @@ curl http://localhost:9180/api/v1/processes
 kubectl logs -n production -l app=laravel --tail=100 -f
 
 # Specific pod
-kubectl logs -n production laravel-app-xxx -f
+kubectl logs -n production php-app-xxx -f
 
 # Previous container (if crashed)
-kubectl logs -n production laravel-app-xxx --previous
+kubectl logs -n production php-app-xxx --previous
 ```
 
 ## Troubleshooting
@@ -863,7 +863,7 @@ kubectl logs -n production laravel-app-xxx --previous
 **Check HPA status:**
 ```bash
 kubectl get hpa -n production
-kubectl describe hpa -n production laravel-app-hpa
+kubectl describe hpa -n production php-app-hpa
 ```
 
 **Common issues:**
@@ -875,7 +875,7 @@ kubectl describe hpa -n production laravel-app-hpa
 
 **Symptom:**
 ```bash
-kubectl describe pod laravel-app-xxx
+kubectl describe pod php-app-xxx
 # Reason: OOMKilled
 ```
 
@@ -896,7 +896,7 @@ env:
 
 **Check pod logs:**
 ```bash
-kubectl logs -n production laravel-app-xxx | grep health
+kubectl logs -n production php-app-xxx | grep health
 ```
 
 **Adjust probe:**
@@ -912,7 +912,7 @@ readinessProbe:
 
 **Solution:** Restart pods to pick up changes
 ```bash
-kubectl rollout restart deployment/laravel-app -n production
+kubectl rollout restart deployment/php-app -n production
 ```
 
 ## Best Practices
@@ -947,12 +947,12 @@ livenessProbe:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: laravel-app-pdb
+  name: php-app-pdb
 spec:
   minAvailable: 2  # Always keep at least 2 pods running
   selector:
     matchLabels:
-      app: laravel
+      app: php
 ```
 
 ### Security Context

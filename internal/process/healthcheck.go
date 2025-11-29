@@ -13,12 +13,28 @@ import (
 	"github.com/gophpeek/phpeek-pm/internal/metrics"
 )
 
-// HealthChecker defines the interface for health checks
+// HealthChecker defines the interface for health checks.
+// Implementations probe service health and return nil on success
+// or an error describing the failure.
+//
+// Health checks are used for:
+//   - Readiness probes: Determine when a service is ready to accept traffic
+//   - Liveness probes: Detect when a service needs to be restarted
+//   - Dependency ordering: Wait for upstream services before starting dependents
+//
+// The Check method should respect context cancellation and timeouts.
 type HealthChecker interface {
 	Check(ctx context.Context) error
 }
 
-// NewHealthChecker creates appropriate health checker based on config
+// NewHealthChecker creates the appropriate health checker based on configuration.
+// Returns a HealthChecker implementation based on the configured type:
+//   - "tcp": TCPHealthChecker that verifies TCP port connectivity
+//   - "http": HTTPHealthChecker that performs HTTP GET and validates status code
+//   - "exec": ExecHealthChecker that runs a command and checks exit code
+//   - nil config: NoOpHealthChecker that always succeeds
+//
+// Returns an error for unknown health check types.
 func NewHealthChecker(cfg *config.HealthCheck) (HealthChecker, error) {
 	if cfg == nil {
 		return &NoOpHealthChecker{}, nil
@@ -105,7 +121,16 @@ func (e *ExecHealthChecker) Check(ctx context.Context) error {
 	return nil
 }
 
-// HealthMonitor continuously monitors process health
+// HealthMonitor continuously monitors process health using the configured checker.
+// It runs health checks at regular intervals and tracks consecutive successes/failures
+// to determine overall health status with hysteresis (avoiding flapping).
+//
+// HealthMonitor supports two modes:
+//   - Readiness: Used during startup to determine when service is ready
+//   - Liveness: Used during runtime to detect unhealthy services
+//
+// The monitor emits health status updates through a channel that the Supervisor
+// uses to trigger restarts or mark services as ready.
 type HealthMonitor struct {
 	processName        string
 	checker            HealthChecker

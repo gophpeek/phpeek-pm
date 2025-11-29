@@ -19,16 +19,34 @@ import (
 	"github.com/gophpeek/phpeek-pm/internal/metrics"
 )
 
-// ProcessState represents the state of a process
+// ProcessState represents the lifecycle state of a process instance.
+// The state machine transitions are:
+//
+//	stopped → starting → running → stopping → stopped
+//	                  ↓            ↓
+//	                failed      completed (oneshot only)
+//
+// State transitions are logged and emit metrics for observability.
 type ProcessState string
 
 const (
-	StateStarting  ProcessState = "starting"
-	StateRunning   ProcessState = "running"
-	StateStopping  ProcessState = "stopping"
-	StateStopped   ProcessState = "stopped"
-	StateFailed    ProcessState = "failed"
-	StateCompleted ProcessState = "completed" // For oneshot services that ran successfully
+	// StateStarting indicates the process is being initialized and started.
+	StateStarting ProcessState = "starting"
+
+	// StateRunning indicates the process is actively running.
+	StateRunning ProcessState = "running"
+
+	// StateStopping indicates a graceful shutdown is in progress.
+	StateStopping ProcessState = "stopping"
+
+	// StateStopped indicates the process has been cleanly stopped.
+	StateStopped ProcessState = "stopped"
+
+	// StateFailed indicates the process exited with an error or crashed.
+	StateFailed ProcessState = "failed"
+
+	// StateCompleted indicates a oneshot process ran successfully (exit code 0).
+	StateCompleted ProcessState = "completed"
 )
 
 // Default timeouts for supervisor operations.
@@ -46,32 +64,72 @@ const (
 	DefaultInstanceShutdownTimeout = 30 * time.Second
 )
 
-// Supervisor supervises a single process (potentially with multiple instances)
+// Supervisor manages the lifecycle of a single process type, potentially with multiple
+// scaled instances. It handles starting, stopping, restarting, scaling, and health
+// monitoring for all instances of a named process.
+//
+// Supervisor is the core abstraction for individual process management within the
+// process manager. Each process defined in the configuration gets its own Supervisor.
+//
+// Key responsibilities:
+//   - Starting and stopping process instances based on configuration
+//   - Automatic restart handling with configurable backoff policies
+//   - Health check integration for readiness and liveness monitoring
+//   - Horizontal scaling (adding/removing instances dynamically)
+//   - Resource metrics collection per instance
+//   - Signal forwarding to managed processes
+//   - Graceful shutdown with configurable timeouts
+//
+// Supervisor is safe for concurrent use. All lifecycle operations are serialized
+// via operationMu, while state reads can proceed concurrently via RWMutex.
+//
+// Example usage:
+//
+//	supervisor := process.NewSupervisor("worker", cfg, globalCfg, logger, auditLogger, collector)
+//	ctx := context.Background()
+//	if err := supervisor.Start(ctx); err != nil {
+//	    log.Fatalf("Failed to start: %v", err)
+//	}
+//	defer supervisor.Stop(ctx)
 type Supervisor struct {
-	name              string
-	config            *config.Process
-	logger            *slog.Logger
-	auditLogger       *audit.Logger
-	instances         []*Instance
-	state             ProcessState
-	healthMonitor     *HealthMonitor
-	healthStatus      <-chan HealthStatus
-	restartPolicy     RestartPolicy
-	resourceCollector *metrics.ResourceCollector // Shared resource collector (can be nil)
-	oneshotHistory    *OneshotHistory            // Shared oneshot history (can be nil)
-	deathNotifier     func(string)               // Callback when all instances are dead
-	credentials       *Credentials               // Resolved user/group credentials (nil = inherit)
-	ctx               context.Context
-	cancel            context.CancelFunc
-	readinessCh       chan struct{}  // Closed when service becomes ready
-	readinessOnce     sync.Once      // CRITICAL: Ensures readinessCh closed exactly once
-	isReady           bool           // Track readiness state
-	goroutines        sync.WaitGroup // CRITICAL: Track all goroutines for clean shutdown
-	mu                sync.RWMutex
-	operationMu       sync.Mutex // Serializes lifecycle/scale operations so reads can proceed
+	name               string
+	config             *config.Process
+	logger             *slog.Logger
+	auditLogger        *audit.Logger
+	instances          []*Instance
+	state              ProcessState
+	healthMonitor      *HealthMonitor
+	healthStatus       <-chan HealthStatus
+	restartPolicy      RestartPolicy
+	resourceCollector  *metrics.ResourceCollector // Shared resource collector (can be nil)
+	oneshotHistory     *OneshotHistory            // Shared oneshot history (can be nil)
+	deathNotifier      func(string)               // Callback when all instances are dead
+	credentials        *Credentials               // Resolved user/group credentials (nil = inherit)
+	healthCheckStrict  bool                       // Fail startup if health monitor creation fails
+	ctx                context.Context
+	cancel             context.CancelFunc
+	readinessCh        chan struct{}  // Closed when service becomes ready
+	readinessOnce      sync.Once      // CRITICAL: Ensures readinessCh closed exactly once
+	isReady            bool           // Track readiness state
+	goroutines         sync.WaitGroup // CRITICAL: Track all goroutines for clean shutdown
+	mu                 sync.RWMutex
+	operationMu        sync.Mutex // Serializes lifecycle/scale operations so reads can proceed
 }
 
-// Instance represents a single process instance
+// Instance represents a single running process instance within a Supervisor.
+// Each Instance corresponds to one OS process and tracks its lifecycle state,
+// PID, restart history, and I/O streams.
+//
+// For scaled processes (scale > 1), the Supervisor manages multiple Instance
+// objects, each with a unique identifier (e.g., "worker-1", "worker-2").
+//
+// Instance handles:
+//   - Process execution via exec.Cmd
+//   - Stdout/stderr capture and logging
+//   - Process exit detection and restart eligibility
+//   - Oneshot execution history tracking
+//
+// Instance is safe for concurrent access via its embedded RWMutex.
 type Instance struct {
 	id            string
 	cmd           *exec.Cmd
@@ -87,7 +145,23 @@ type Instance struct {
 	mu            sync.RWMutex
 }
 
-// NewSupervisor creates a new process supervisor
+// NewSupervisor creates a new Supervisor for managing the specified process.
+//
+// Parameters:
+//   - name: Unique identifier for this process (matches config key)
+//   - cfg: Process-specific configuration (command, restart policy, health checks, etc.)
+//   - globalCfg: Global configuration for timeouts, restart limits, and defaults
+//   - logger: Structured logger for operational logging (automatically scoped to process name)
+//   - auditLogger: Security audit logger for tracking lifecycle changes
+//   - resourceCollector: Optional metrics collector for CPU/memory tracking (may be nil)
+//
+// The Supervisor is created in a stopped state. Call Start() to begin process execution.
+// User/group credentials are resolved at creation time if configured.
+//
+// Restart backoff and limits are derived from globalCfg with sensible defaults:
+//   - Initial backoff: globalCfg.RestartBackoffInitial or 5 seconds
+//   - Maximum backoff: globalCfg.RestartBackoffMax or 1 minute
+//   - Maximum attempts: globalCfg.MaxRestartAttempts (0 = unlimited)
 func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalConfig, logger *slog.Logger, auditLogger *audit.Logger, resourceCollector *metrics.ResourceCollector) *Supervisor {
 	// Get restart backoff from global config (default: 5 seconds, max 1 minute)
 	initialBackoff := globalCfg.RestartBackoffInitial
@@ -138,10 +212,11 @@ func NewSupervisor(name string, cfg *config.Process, globalCfg *config.GlobalCon
 		instances:         make([]*Instance, 0, cfg.Scale),
 		state:             StateStopped,
 		restartPolicy:     NewRestartPolicy(cfg.Restart, maxAttempts, initialBackoff, maxBackoff),
-		resourceCollector: resourceCollector,
-		credentials:       creds,
-		readinessCh:       make(chan struct{}),
-		isReady:           false,
+		resourceCollector:  resourceCollector,
+		credentials:        creds,
+		healthCheckStrict:  globalCfg.HealthCheckStrict,
+		readinessCh:        make(chan struct{}),
+		isReady:            false,
 	}
 }
 
@@ -265,10 +340,17 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	if s.config.HealthCheck != nil {
 		monitor, err := NewHealthMonitor(s.name, s.config.HealthCheck, s.logger)
 		if err != nil {
-			s.logger.Warn("Failed to create health monitor",
+			if s.healthCheckStrict {
+				// In strict mode, fail startup if health monitor cannot be created
+				s.logger.Error("Failed to create health monitor (strict mode)",
+					"error", err,
+				)
+				return fmt.Errorf("health monitor creation failed: %w", err)
+			}
+			// Default: warn and continue, marking as ready immediately
+			s.logger.Warn("Failed to create health monitor, marking ready immediately",
 				"error", err,
 			)
-			// Consider ready immediately if health monitor fails to start
 			s.markReady("health monitor creation failed")
 		} else {
 			s.healthMonitor = monitor
@@ -441,80 +523,19 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 	// Record process stop metrics
 	metrics.RecordProcessStop(s.name, instance.id, exitCode)
 
-	// Handle oneshot processes differently
-	isOneshot := s.config.Type == "oneshot"
-
-	if isOneshot {
-		// Oneshot services don't restart - they run once and complete
-		instance.mu.Lock()
-		execID := instance.oneshotExecID
-		if exitCode == 0 {
-			instance.state = StateCompleted
-			s.logger.Info("Oneshot process completed successfully",
-				"instance_id", instance.id,
-			)
-		} else {
-			instance.state = StateFailed
-			s.logger.Error("Oneshot process failed",
-				"instance_id", instance.id,
-				"exit_code", exitCode,
-				"error", err,
-			)
-		}
-		instance.mu.Unlock()
-
-		// Record completion in oneshot history
-		if execID > 0 && s.oneshotHistory != nil {
-			s.oneshotHistory.Complete(execID, exitCode, err)
-		}
-
-		// Signal readiness if completed successfully (allows dependents to proceed)
-		if exitCode == 0 {
-			s.markReady("oneshot completed successfully")
-		}
-
-		// Check if all instances complete/failed
-		s.checkAllInstancesDead()
+	// Handle oneshot processes differently - they don't restart
+	if s.config.Type == "oneshot" {
+		s.handleOneshotExit(instance, exitCode, err)
 		return
 	}
 
-	// Check restart flag first to determine if this is intentional stop
+	// Check restart flag to determine if this is intentional stop
 	instance.mu.RLock()
 	allowRestart := instance.allowRestart
 	instance.mu.RUnlock()
 
-	// Longrun service handling - log appropriately based on whether stop was intentional
-	if err != nil {
-		if !allowRestart {
-			// Intentional stop (shutdown/scale down) - not an error
-			s.logger.Debug("Process instance terminated during shutdown",
-				"instance_id", instance.id,
-				"exit_code", exitCode,
-				"signal", err.Error(),
-			)
-		} else {
-			// Unexpected exit - log as error
-			s.logger.Error("Process instance exited with error",
-				"instance_id", instance.id,
-				"exit_code", exitCode,
-				"restart_count", restartCount,
-				"error", err,
-			)
-
-			// Log crash to audit trail only for unexpected exits
-			signal := ""
-			if instance.cmd.ProcessState != nil && instance.cmd.ProcessState.Sys() != nil {
-				signal = instance.cmd.ProcessState.String()
-			}
-			s.auditLogger.LogProcessCrash(s.name, instance.pid, exitCode, signal)
-		}
-	} else {
-		s.logger.Info("Process instance exited",
-			"instance_id", instance.id,
-			"exit_code", exitCode,
-			"restart_count", restartCount,
-		)
-	}
+	// Log exit appropriately based on whether it was intentional
+	s.logProcessExit(instance, exitCode, restartCount, allowRestart, err)
 
 	// Skip restart if disabled (e.g., intentional stop/scale down)
 	if !allowRestart {
@@ -526,84 +547,13 @@ func (s *Supervisor) monitorInstance(instance *Instance) {
 
 	// Check if we should restart (longrun only)
 	if s.restartPolicy.ShouldRestart(exitCode, restartCount) {
-		backoff := s.restartPolicy.BackoffDuration(restartCount)
-
-		// Determine restart reason
-		restartReason := "crash"
-		if exitCode == 0 {
-			restartReason = "normal_exit"
-		}
-
-		s.logger.Info("Restarting process instance",
-			"instance_id", instance.id,
-			"backoff", backoff,
-			"attempt", restartCount+1,
-			"reason", restartReason,
-		)
-
-		// Record restart metric
-		metrics.RecordProcessRestart(s.name, restartReason)
-
-		// Wait for backoff period with context respect
-		select {
-		case <-time.After(backoff):
-			// Continue with restart
-		case <-s.ctx.Done():
-			s.logger.Info("Restart cancelled due to shutdown",
-				"instance_id", instance.id,
-			)
-			return
-		}
-
-		// Check context again before expensive restart operation
-		if s.ctx.Err() != nil {
-			s.logger.Debug("Context cancelled, skipping restart",
-				"instance_id", instance.id,
-			)
-			return
-		}
-
-		// Attempt restart using supervisor context (ensures new instance isn't tied to request timeout)
-		newInstance, err := s.startInstance(s.ctx, instance.id)
-
-		if err != nil {
-			s.logger.Error("Failed to restart process instance",
-				"instance_id", instance.id,
-				"error", err,
-				"restart_count", restartCount,
-			)
-			// Mark instance as failed
-			instance.mu.Lock()
-			instance.state = StateFailed
-			instance.mu.Unlock()
-			return
-		}
-
-		// Update restart count
-		newInstance.mu.Lock()
-		newInstance.restartCount = restartCount + 1
-		newInstance.mu.Unlock()
-
-		// Log restart to audit trail
-		s.auditLogger.LogProcessRestart(s.name, instance.pid, newInstance.pid, restartReason)
-
-		// Replace old instance with new one
-		s.mu.Lock()
-		for i, inst := range s.instances {
-			if inst.id == instance.id {
-				s.instances[i] = newInstance
-				break
-			}
-		}
-		s.mu.Unlock()
+		s.attemptRestart(instance, exitCode, restartCount)
 	} else {
 		s.logger.Warn("Process instance will not be restarted",
 			"instance_id", instance.id,
 			"exit_code", exitCode,
 			"restart_count", restartCount,
 		)
-
-		// Check if all instances are now dead
 		s.checkAllInstancesDead()
 	}
 }
@@ -682,8 +632,12 @@ func (s *Supervisor) ScaleDown(ctx context.Context, targetScale int) error {
 	instancesToRemove := currentScale - targetScale
 	// Copy pointers to the instances we plan to stop so we can release the main lock
 	toStop := make([]*Instance, 0, instancesToRemove)
+	actualInstances := len(s.instances)
 	for i := currentScale - 1; i >= targetScale; i-- {
-		toStop = append(toStop, s.instances[i])
+		// Bounds check to prevent nil pointer dereference if instances slice is shorter than expected
+		if i < actualInstances && s.instances[i] != nil {
+			toStop = append(toStop, s.instances[i])
+		}
 	}
 	s.mu.RUnlock()
 
@@ -835,47 +789,12 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		"pid", pid,
 	)
 
-	// Execute per-process pre-stop hook if configured
-	if s.config.Shutdown != nil && s.config.Shutdown.PreStopHook != nil {
-		s.logger.Info("Executing pre-stop hook",
-			"instance_id", instance.id,
-			"hook", s.config.Shutdown.PreStopHook.Name,
-		)
+	// Execute pre-stop hook if configured
+	s.executePreStopHook(ctx, instance)
 
-		hookExecutor := hooks.NewExecutor(s.logger)
-		if err := hookExecutor.ExecuteWithType(ctx, s.config.Shutdown.PreStopHook, "pre_stop"); err != nil {
-			s.logger.Warn("Pre-stop hook failed",
-				"instance_id", instance.id,
-				"error", err,
-			)
-			// Continue with shutdown even if hook fails
-		}
-	}
-
-	// Get shutdown signal (default SIGTERM)
-	sig := syscall.SIGTERM
-	if s.config.Shutdown != nil && s.config.Shutdown.Signal != "" {
-		sig = parseSignal(s.config.Shutdown.Signal)
-	}
-
-	// Send shutdown signal
-	// Since we use Setpgid, we need to send signal to the process group
-	// This ensures all children of the process also receive the signal
-	pgid, err := syscall.Getpgid(instance.pid)
-	if err != nil {
-		// Fallback to single process signal if we can't get pgid
-		s.logger.Warn("Failed to get process group, sending signal to process only",
-			"instance_id", instance.id,
-			"error", err,
-		)
-		if err := instance.cmd.Process.Signal(sig); err != nil {
-			return fmt.Errorf("failed to send signal: %w", err)
-		}
-	} else {
-		// Send signal to entire process group (negative PID)
-		if err := syscall.Kill(-pgid, sig); err != nil {
-			return fmt.Errorf("failed to send signal to process group: %w", err)
-		}
+	// Send shutdown signal to process/process group
+	if err := s.sendShutdownSignal(instance); err != nil {
+		return err
 	}
 
 	// Wait for graceful shutdown with timeout
@@ -891,12 +810,7 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		s.logger.Info("Process instance stopped gracefully",
 			"instance_id", instance.id,
 		)
-		// Log graceful stop to audit trail
-		s.auditLogger.LogProcessStop(s.name, pid, "graceful_shutdown")
-		// Clean up metrics buffer for this instance
-		if s.resourceCollector != nil {
-			s.resourceCollector.RemoveBuffer(s.name, instance.id)
-		}
+		s.cleanupInstanceResources(instance, pid, "graceful_shutdown")
 		return nil
 
 	case <-time.After(timeout):
@@ -913,14 +827,213 @@ func (s *Supervisor) stopInstance(ctx context.Context, instance *Instance) error
 		// Wait for monitorInstance to detect the exit and close doneCh
 		<-instance.doneCh
 
-		// Log forced stop to audit trail
-		s.auditLogger.LogProcessStop(s.name, pid, "force_killed_after_timeout")
-		// Clean up metrics buffer for this instance
-		if s.resourceCollector != nil {
-			s.resourceCollector.RemoveBuffer(s.name, instance.id)
+		s.cleanupInstanceResources(instance, pid, "force_killed_after_timeout")
+		return nil
+	}
+}
+
+// executePreStopHook executes the configured pre-stop hook if present
+func (s *Supervisor) executePreStopHook(ctx context.Context, instance *Instance) {
+	if s.config.Shutdown == nil || s.config.Shutdown.PreStopHook == nil {
+		return
+	}
+
+	s.logger.Info("Executing pre-stop hook",
+		"instance_id", instance.id,
+		"hook", s.config.Shutdown.PreStopHook.Name,
+	)
+
+	hookExecutor := hooks.NewExecutor(s.logger)
+	if err := hookExecutor.ExecuteWithType(ctx, s.config.Shutdown.PreStopHook, "pre_stop"); err != nil {
+		s.logger.Warn("Pre-stop hook failed",
+			"instance_id", instance.id,
+			"error", err,
+		)
+		// Continue with shutdown even if hook fails
+	}
+}
+
+// sendShutdownSignal sends the configured shutdown signal to the process
+func (s *Supervisor) sendShutdownSignal(instance *Instance) error {
+	sig := syscall.SIGTERM
+	if s.config.Shutdown != nil && s.config.Shutdown.Signal != "" {
+		sig = parseSignal(s.config.Shutdown.Signal)
+	}
+
+	// Since we use Setpgid, we need to send signal to the process group
+	pgid, err := syscall.Getpgid(instance.pid)
+	if err != nil {
+		// Fallback to single process signal if we can't get pgid
+		s.logger.Warn("Failed to get process group, sending signal to process only",
+			"instance_id", instance.id,
+			"error", err,
+		)
+		if err := instance.cmd.Process.Signal(sig); err != nil {
+			return fmt.Errorf("failed to send signal: %w", err)
 		}
 		return nil
 	}
+
+	// Send signal to entire process group (negative PID)
+	if err := syscall.Kill(-pgid, sig); err != nil {
+		// Fallback to single process signal if process group signal fails
+		s.logger.Warn("Failed to send signal to process group, falling back to direct signal",
+			"instance_id", instance.id,
+			"pgid", pgid,
+			"error", err,
+		)
+		if err := instance.cmd.Process.Signal(sig); err != nil {
+			return fmt.Errorf("failed to send signal: %w", err)
+		}
+	}
+	return nil
+}
+
+// cleanupInstanceResources cleans up resources after instance stops
+func (s *Supervisor) cleanupInstanceResources(instance *Instance, pid int, reason string) {
+	s.auditLogger.LogProcessStop(s.name, pid, reason)
+	if s.resourceCollector != nil {
+		s.resourceCollector.RemoveBuffer(s.name, instance.id)
+	}
+}
+
+// handleOneshotExit processes completion of a oneshot process
+func (s *Supervisor) handleOneshotExit(instance *Instance, exitCode int, err error) {
+	instance.mu.Lock()
+	execID := instance.oneshotExecID
+	if exitCode == 0 {
+		instance.state = StateCompleted
+		s.logger.Info("Oneshot process completed successfully",
+			"instance_id", instance.id,
+		)
+	} else {
+		instance.state = StateFailed
+		s.logger.Error("Oneshot process failed",
+			"instance_id", instance.id,
+			"exit_code", exitCode,
+			"error", err,
+		)
+	}
+	instance.mu.Unlock()
+
+	// Record completion in oneshot history
+	if execID > 0 && s.oneshotHistory != nil {
+		s.oneshotHistory.Complete(execID, exitCode, err)
+	}
+
+	// Signal readiness if completed successfully (allows dependents to proceed)
+	if exitCode == 0 {
+		s.markReady("oneshot completed successfully")
+	}
+
+	s.checkAllInstancesDead()
+}
+
+// logProcessExit logs process exit appropriately based on whether it was intentional
+func (s *Supervisor) logProcessExit(instance *Instance, exitCode int, restartCount int, allowRestart bool, err error) {
+	if err != nil {
+		if !allowRestart {
+			// Intentional stop (shutdown/scale down) - not an error
+			s.logger.Debug("Process instance terminated during shutdown",
+				"instance_id", instance.id,
+				"exit_code", exitCode,
+				"signal", err.Error(),
+			)
+		} else {
+			// Unexpected exit - log as error
+			s.logger.Error("Process instance exited with error",
+				"instance_id", instance.id,
+				"exit_code", exitCode,
+				"restart_count", restartCount,
+				"error", err,
+			)
+
+			// Log crash to audit trail only for unexpected exits
+			signal := ""
+			if instance.cmd.ProcessState != nil && instance.cmd.ProcessState.Sys() != nil {
+				signal = instance.cmd.ProcessState.String()
+			}
+			s.auditLogger.LogProcessCrash(s.name, instance.pid, exitCode, signal)
+		}
+	} else {
+		s.logger.Info("Process instance exited",
+			"instance_id", instance.id,
+			"exit_code", exitCode,
+			"restart_count", restartCount,
+		)
+	}
+}
+
+// attemptRestart attempts to restart a failed process instance
+func (s *Supervisor) attemptRestart(instance *Instance, exitCode int, restartCount int) {
+	backoff := s.restartPolicy.BackoffDuration(restartCount)
+
+	// Determine restart reason
+	restartReason := "crash"
+	if exitCode == 0 {
+		restartReason = "normal_exit"
+	}
+
+	s.logger.Info("Restarting process instance",
+		"instance_id", instance.id,
+		"backoff", backoff,
+		"attempt", restartCount+1,
+		"reason", restartReason,
+	)
+
+	// Record restart metric
+	metrics.RecordProcessRestart(s.name, restartReason)
+
+	// Wait for backoff period with context respect
+	select {
+	case <-time.After(backoff):
+		// Continue with restart
+	case <-s.ctx.Done():
+		s.logger.Info("Restart cancelled due to shutdown",
+			"instance_id", instance.id,
+		)
+		return
+	}
+
+	// Check context again before expensive restart operation
+	if s.ctx.Err() != nil {
+		s.logger.Debug("Context cancelled, skipping restart",
+			"instance_id", instance.id,
+		)
+		return
+	}
+
+	// Attempt restart using supervisor context
+	newInstance, err := s.startInstance(s.ctx, instance.id)
+	if err != nil {
+		s.logger.Error("Failed to restart process instance",
+			"instance_id", instance.id,
+			"error", err,
+			"restart_count", restartCount,
+		)
+		instance.mu.Lock()
+		instance.state = StateFailed
+		instance.mu.Unlock()
+		return
+	}
+
+	// Update restart count
+	newInstance.mu.Lock()
+	newInstance.restartCount = restartCount + 1
+	newInstance.mu.Unlock()
+
+	// Log restart to audit trail
+	s.auditLogger.LogProcessRestart(s.name, instance.pid, newInstance.pid, restartReason)
+
+	// Replace old instance with new one
+	s.mu.Lock()
+	for i, inst := range s.instances {
+		if inst.id == instance.id {
+			s.instances[i] = newInstance
+			break
+		}
+	}
+	s.mu.Unlock()
 }
 
 // envVars returns environment variables for a process instance

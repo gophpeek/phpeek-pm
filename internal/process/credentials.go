@@ -7,10 +7,14 @@ import (
 	"syscall"
 )
 
-// Credentials holds resolved user and group IDs for process execution
+// Credentials holds resolved user and group IDs for process execution.
+// Used to run child processes under a different user/group than the parent
+// process manager, typically for security isolation in container environments.
+//
+// Note: Switching users requires root privileges (or appropriate capabilities).
 type Credentials struct {
-	Uid uint32
-	Gid uint32
+	Uid uint32 // User ID for the process
+	Gid uint32 // Group ID for the process
 }
 
 // ResolveCredentials resolves user and group names/IDs to numeric credentials.

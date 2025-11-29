@@ -5,7 +5,12 @@ import (
 	"time"
 )
 
-// ExecutionEntry represents a single execution of a scheduled job
+// ExecutionEntry represents a single execution of a scheduled job.
+// It captures the complete lifecycle of a job run from start to completion,
+// including timing, exit status, and how the execution was triggered.
+//
+// ExecutionEntry is immutable after creation except for the EndTime, ExitCode,
+// Success, and Error fields which are set when execution completes.
 type ExecutionEntry struct {
 	ID        int64     `json:"id"`         // Unique execution ID
 	StartTime time.Time `json:"start_time"` // When execution started
@@ -29,7 +34,17 @@ func (e *ExecutionEntry) IsRunning() bool {
 	return e.EndTime.IsZero()
 }
 
-// ExecutionHistory is a thread-safe ring buffer for execution history
+// ExecutionHistory is a thread-safe ring buffer for execution history.
+// It maintains a bounded list of recent executions, automatically evicting
+// the oldest entries when the buffer reaches capacity.
+//
+// The ring buffer design ensures:
+//   - Constant memory usage regardless of job frequency
+//   - O(1) insertion for new executions
+//   - O(n) lookup for specific executions (but n is bounded by maxSize)
+//
+// ExecutionHistory is safe for concurrent use from multiple goroutines.
+// All methods acquire appropriate locks for thread-safe access.
 type ExecutionHistory struct {
 	entries []ExecutionEntry
 	maxSize int
@@ -37,7 +52,11 @@ type ExecutionHistory struct {
 	mu      sync.RWMutex
 }
 
-// NewExecutionHistory creates a new ExecutionHistory with the given max size
+// NewExecutionHistory creates a new ExecutionHistory with the given maximum size.
+// If maxSize is <= 0, a default of 100 entries is used.
+//
+// The maxSize determines how many execution records are retained. Older entries
+// are automatically evicted when new executions are recorded beyond this limit.
 func NewExecutionHistory(maxSize int) *ExecutionHistory {
 	if maxSize <= 0 {
 		maxSize = 100 // Default
@@ -175,7 +194,8 @@ func (h *ExecutionHistory) SuccessRate() float64 {
 	return float64(successes) / float64(completed) * 100
 }
 
-// Stats returns aggregate statistics about execution history
+// HistoryStats provides aggregate statistics about execution history.
+// All time fields use zero value (time.Time{}) to indicate "never occurred".
 type HistoryStats struct {
 	TotalExecutions   int           `json:"total_executions"`
 	SuccessCount      int           `json:"success_count"`

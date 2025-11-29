@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this repository.
 
 ## Project Overview
 
-PHPeek Process Manager (phpeek-pm) is a production-grade PID 1 process manager for Docker containers, designed for Laravel applications. Written in Go, it manages multiple processes (PHP-FPM, Nginx, Horizon, queue workers) with proper signal handling, zombie reaping, health checks, and graceful shutdown.
+PHPeek Process Manager (phpeek-pm) is a production-grade PID 1 process manager for Docker containers, designed for PHP applications. Written in Go, it manages multiple processes (PHP-FPM, Nginx, queue workers, framework daemons) with proper signal handling, zombie reaping, health checks, and graceful shutdown. Works with Laravel, Symfony, WordPress, and any PHP framework.
 
 **Status**: Production-ready. All core features implemented.
 

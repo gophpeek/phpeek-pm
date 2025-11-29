@@ -55,7 +55,7 @@ func createTestManager(t *testing.T) *process.Manager {
 func createTestServer(t *testing.T, auth string, aclCfg *config.ACLConfig) *Server {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	mgr := createTestManager(t)
-	return NewServer(9180, "", auth, aclCfg, nil, false, mgr, logger)
+	return NewServer(9180, "", auth, aclCfg, nil, false, 0, mgr, logger)
 }
 
 // TestServer_Health tests the health endpoint
@@ -961,7 +961,7 @@ func TestServer_StartSocketListener(t *testing.T) {
 			os.Remove(tt.socketPath)
 			defer os.Remove(tt.socketPath)
 
-			server := NewServer(9180, tt.socketPath, "", nil, nil, false, mgr, logger)
+			server := NewServer(9180, tt.socketPath, "", nil, nil, false, 0, mgr, logger)
 
 			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
@@ -1218,7 +1218,7 @@ func TestServer_SocketCleanup(t *testing.T) {
 	os.Remove(socketPath)
 	defer os.Remove(socketPath)
 
-	server := NewServer(9180, socketPath, "", nil, nil, false, mgr, logger)
+	server := NewServer(9180, socketPath, "", nil, nil, false, 0, mgr, logger)
 
 	// Start server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1679,7 +1679,7 @@ func TestServer_NewServer_WithTLS(t *testing.T) {
 		KeyFile:  "/path/to/key.pem",
 	}
 
-	server := NewServer(9443, "", "", nil, tlsConfig, false, mgr, logger)
+	server := NewServer(9443, "", "", nil, tlsConfig, false, 0, mgr, logger)
 
 	if server == nil {
 		t.Fatal("Expected server to be created with TLS config")
@@ -1701,7 +1701,7 @@ func TestServer_Start_WithInvalidTLS(t *testing.T) {
 		KeyFile:  "/nonexistent/key.pem",
 	}
 
-	server := NewServer(9443, "", "", nil, tlsConfig, false, mgr, logger)
+	server := NewServer(9443, "", "", nil, tlsConfig, false, 0, mgr, logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

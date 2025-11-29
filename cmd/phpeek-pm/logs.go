@@ -86,7 +86,7 @@ func runLogs(cmd *cobra.Command, args []string) {
 	pm := process.NewManager(cfg, log, auditLogger)
 
 	// Start zombie reaper
-	go signals.ReapZombies()
+	go signals.ReapZombies(cfg.Global.ZombieReapInterval)
 
 	// Start processes
 	ctx := context.Background()

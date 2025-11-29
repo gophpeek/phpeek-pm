@@ -2,7 +2,6 @@ package process
 
 import (
 	"context"
-	"io/ioutil"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -38,7 +37,7 @@ func TestManager_AddProcess(t *testing.T) {
 
 	// Write initial config
 	data, _ := yaml.Marshal(cfg)
-	if err := ioutil.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -173,7 +172,7 @@ func TestManager_RemoveProcess(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(cfg)
-	if err := ioutil.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -268,7 +267,7 @@ func TestManager_UpdateProcess(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(cfg)
-	if err := ioutil.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -386,7 +385,7 @@ func TestManager_SaveConfig(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(cfg)
-	if err := ioutil.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -442,7 +441,7 @@ func TestManager_SaveConfig(t *testing.T) {
 
 				// Verify file can be loaded
 				loadedCfg := &config.Config{}
-				fileData, err := ioutil.ReadFile(cfgPath)
+				fileData, err := os.ReadFile(cfgPath)
 				if err != nil {
 					t.Fatalf("Failed to read saved config: %v", err)
 				}
@@ -477,7 +476,7 @@ func TestManager_ReloadConfig(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(initialCfg)
-	if err := ioutil.WriteFile(cfgPath, data, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -515,7 +514,7 @@ func TestManager_ReloadConfig(t *testing.T) {
 	}
 
 	updatedData, _ := yaml.Marshal(updatedCfg)
-	if err := ioutil.WriteFile(cfgPath, updatedData, 0644); err != nil {
+	if err := os.WriteFile(cfgPath, updatedData, 0644); err != nil {
 		t.Fatalf("Failed to write updated config: %v", err)
 	}
 

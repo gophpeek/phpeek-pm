@@ -143,183 +143,243 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleProcessListKeys handles keys in process list view
 func (m Model) handleProcessListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	// Tab switching (k9s-style)
+	key := msg.String()
+
+	// Tab navigation keys (1-4)
+	if handled, newM := m.handleTabNavigation(key); handled {
+		return newM, nil
+	}
+
+	// Selection navigation (k/up, j/down, g, G)
+	if handled, newM := m.handleSelectionNavigation(key); handled {
+		return newM, nil
+	}
+
+	// Process action keys
+	if handled, newM, cmd := m.handleProcessActionKeys(key); handled {
+		return newM, cmd
+	}
+
+	// Scale operation keys (+, -, c)
+	if handled, newM, cmd := m.handleScaleKeys(key); handled {
+		return newM, cmd
+	}
+
+	// Schedule operation keys (p, t)
+	if handled, newM, cmd := m.handleScheduleKeys(key); handled {
+		return newM, cmd
+	}
+
+	// Utility keys (l, a)
+	if handled, newM, cmd := m.handleUtilityKeys(key); handled {
+		return newM, cmd
+	}
+
+	// System tab shortcuts (R, S)
+	if handled, newM, cmd := m.handleSystemTabKeys(key); handled {
+		return newM, cmd
+	}
+
+	return m, nil
+}
+
+// handleTabNavigation handles tab switching keys (1-4)
+func (m Model) handleTabNavigation(key string) (bool, Model) {
+	switch key {
 	case "1":
 		m.activeTab = tabProcesses
-		return m, nil
-
+		return true, m
 	case "2":
 		m.activeTab = tabScheduled
-		return m, nil
-
+		return true, m
 	case "3":
 		m.activeTab = tabOneshot
-		return m, nil
-
+		return true, m
 	case "4":
 		m.activeTab = tabSystem
-		return m, nil
+		return true, m
+	}
+	return false, m
+}
 
+// handleSelectionNavigation handles cursor movement keys
+func (m Model) handleSelectionNavigation(key string) (bool, Model) {
+	switch key {
 	case "k", "up":
 		m.moveSelection(-1)
-		return m, nil
-
+		return true, m
 	case "j", "down":
 		m.moveSelection(1)
-		return m, nil
-
+		return true, m
 	case "g":
 		m.setSelection(0)
-		return m, nil
-
+		return true, m
 	case "G":
 		count := m.getCurrentTabCount()
 		if count > 0 {
 			m.setSelection(count - 1)
 		}
-		return m, nil
+		return true, m
+	}
+	return false, m
+}
 
+// handleProcessActionKeys handles process action keys (enter, r, s, x, d, e)
+func (m Model) handleProcessActionKeys(key string) (bool, Model, tea.Cmd) {
+	switch key {
 	case "enter":
-		// Handle System tab actions
 		if m.activeTab == tabSystem {
-			return m, m.executeSystemAction()
+			return true, m, m.executeSystemAction()
 		}
-		// Handle other tabs
 		procName := m.getSelectedProcess()
 		if procName == "" {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		m.openProcessDetail(procName)
-		return m, nil
+		return true, m, nil
 
-	case "l":
+	case "r":
 		procName := m.getSelectedProcess()
-		if procName == "" {
-			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+		if procName != "" {
+			return true, m, m.triggerAction(actionRestart, procName)
 		}
-		return m, m.openLogView(logScopeProcess, procName, "")
+		return true, m, nil
 
-	case "e":
-		procName := m.getSelectedProcess()
-		if procName == "" {
+	case "s":
+		info := m.getSelectedProcessInfo()
+		if info == nil {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
-		return m, m.fetchProcessConfigCmd(procName)
+		if strings.Contains(strings.ToLower(info.rawState), "run") {
+			m.showToast("Process already running", 3*time.Second)
+			return true, m, nil
+		}
+		return true, m, m.triggerAction(actionStart, info.name)
+
+	case "x":
+		info := m.getSelectedProcessInfo()
+		if info == nil {
+			m.showToast("✗ No process selected", 3*time.Second)
+			return true, m, nil
+		}
+		if strings.Contains(strings.ToLower(info.rawState), "stop") {
+			m.showToast("Process already stopped", 3*time.Second)
+			return true, m, nil
+		}
+		return true, m, m.triggerAction(actionStop, info.name)
 
 	case "d":
 		procName := m.getSelectedProcess()
 		if procName == "" {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		m.confirmAction(actionDelete, procName)
-		return m, nil
+		return true, m, nil
 
-	case "r":
-		// Restart process
+	case "e":
 		procName := m.getSelectedProcess()
-		if procName != "" {
-			return m, m.triggerAction(actionRestart, procName)
-		}
-
-	case "s":
-		// Start process
-		info := m.getSelectedProcessInfo()
-		if info == nil {
+		if procName == "" {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
-		if strings.Contains(strings.ToLower(info.rawState), "run") {
-			m.showToast("Process already running", 3*time.Second)
-			return m, nil
-		}
-		return m, m.triggerAction(actionStart, info.name)
+		return true, m, m.fetchProcessConfigCmd(procName)
+	}
+	return false, m, nil
+}
 
-	case "x":
-		// Stop process
-		info := m.getSelectedProcessInfo()
-		if info == nil {
-			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
-		}
-		if strings.Contains(strings.ToLower(info.rawState), "stop") {
-			m.showToast("Process already stopped", 3*time.Second)
-			return m, nil
-		}
-		return m, m.triggerAction(actionStop, info.name)
-
+// handleScaleKeys handles scale operation keys (+, -, c)
+func (m Model) handleScaleKeys(key string) (bool, Model, tea.Cmd) {
+	switch key {
 	case "+", "=":
-		return m.handleQuickScale(1)
-
+		newM, cmd := m.handleQuickScale(1)
+		return true, newM.(Model), cmd
 	case "-", "_":
-		return m.handleQuickScale(-1)
-
+		newM, cmd := m.handleQuickScale(-1)
+		return true, newM.(Model), cmd
 	case "c":
 		info := m.getSelectedProcessInfo()
 		if info == nil {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		m.openScaleDialog(info.name)
+		return true, m, nil
+	}
+	return false, m, nil
+}
 
-	case "a":
-		// Add process wizard
-		m.startWizard()
-		return m, nil
-
+// handleScheduleKeys handles schedule operation keys (p, t)
+func (m Model) handleScheduleKeys(key string) (bool, Model, tea.Cmd) {
+	switch key {
 	case "p":
-		// Pause/Resume schedule
 		info := m.getSelectedProcessInfo()
 		if info == nil {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		if !info.isScheduled {
 			m.showToast("✗ Not a scheduled process", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		if info.scheduleState == "paused" {
-			return m, m.triggerAction(actionScheduleResume, info.name)
+			return true, m, m.triggerAction(actionScheduleResume, info.name)
 		}
-		return m, m.triggerAction(actionSchedulePause, info.name)
+		return true, m, m.triggerAction(actionSchedulePause, info.name)
 
 	case "t":
-		// Trigger scheduled execution now
 		info := m.getSelectedProcessInfo()
 		if info == nil {
 			m.showToast("✗ No process selected", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		if !info.isScheduled {
 			m.showToast("✗ Not a scheduled process", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
 		if info.scheduleState == "executing" {
 			m.showToast("✗ Already executing", 3*time.Second)
-			return m, nil
+			return true, m, nil
 		}
-		return m, m.triggerAction(actionScheduleTrigger, info.name)
-
-	case "R":
-		// Reload configuration (System tab shortcut)
-		if m.activeTab == tabSystem {
-			return m, m.reloadConfigCmd()
-		}
-		return m, nil
-
-	case "S":
-		// Save configuration (System tab shortcut)
-		if m.activeTab == tabSystem {
-			return m, m.saveConfigCmd()
-		}
-		return m, nil
+		return true, m, m.triggerAction(actionScheduleTrigger, info.name)
 	}
+	return false, m, nil
+}
 
-	return m, nil
+// handleUtilityKeys handles utility keys (l, a)
+func (m Model) handleUtilityKeys(key string) (bool, Model, tea.Cmd) {
+	switch key {
+	case "l":
+		procName := m.getSelectedProcess()
+		if procName == "" {
+			m.showToast("✗ No process selected", 3*time.Second)
+			return true, m, nil
+		}
+		return true, m, m.openLogView(logScopeProcess, procName, "")
+	case "a":
+		m.startWizard()
+		return true, m, nil
+	}
+	return false, m, nil
+}
+
+// handleSystemTabKeys handles system tab shortcuts (R, S)
+func (m Model) handleSystemTabKeys(key string) (bool, Model, tea.Cmd) {
+	switch key {
+	case "R":
+		if m.activeTab == tabSystem {
+			return true, m, m.reloadConfigCmd()
+		}
+		return true, m, nil
+	case "S":
+		if m.activeTab == tabSystem {
+			return true, m, m.saveConfigCmd()
+		}
+		return true, m, nil
+	}
+	return false, m, nil
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -816,115 +876,138 @@ func (m *Model) startLogTailing() tea.Cmd {
 
 // refreshLogs fetches and displays logs for the selected process
 func (m *Model) refreshLogs() {
-	// Fetch logs (embedded or remote mode)
-	var logs []logger.LogEntry
-	var err error
-
 	const logLimit = 100
 
-	switch m.logScope {
-	case logScopeStack:
-		if m.isRemote {
-			if m.client == nil {
-				m.logBuffer = []string{"API client not initialized"}
-				m.logViewport.SetContent("API client not initialized")
-				return
-			}
-			logs, err = m.client.GetStackLogs(logLimit)
-		} else {
-			if m.manager == nil {
-				m.logBuffer = []string{"Manager not initialized"}
-				m.logViewport.SetContent("Manager not initialized")
-				return
-			}
-			logs = m.manager.GetStackLogs(logLimit)
-		}
-	case logScopeProcess:
-		if m.selectedProc == "" {
-			m.logBuffer = []string{"No process selected"}
-			m.logViewport.SetContent("No process selected")
-			return
-		}
-
-		if m.isRemote {
-			if m.client == nil {
-				m.logBuffer = []string{"API client not initialized"}
-				m.logViewport.SetContent("API client not initialized")
-				return
-			}
-			logs, err = m.client.GetLogs(m.selectedProc, logLimit)
-		} else {
-			if m.manager == nil {
-				m.logBuffer = []string{"Manager not initialized"}
-				m.logViewport.SetContent("Manager not initialized")
-				return
-			}
-			logs, err = m.manager.GetLogs(m.selectedProc, logLimit)
-		}
-
-		if m.logInstance != "" {
-			filtered := make([]logger.LogEntry, 0, len(logs))
-			for _, entry := range logs {
-				if entry.InstanceID == m.logInstance {
-					filtered = append(filtered, entry)
-				}
-			}
-			logs = filtered
-		}
-	}
-
+	logs, err := m.fetchLogs(logLimit)
 	if err != nil {
-		m.logBuffer = []string{
-			fmt.Sprintf("Error fetching logs: %v", err),
-		}
-		m.logViewport.SetContent(strings.Join(m.logBuffer, "\n"))
+		m.setLogError(err.Error())
 		return
 	}
 
-	// Format logs for display (oldest first)
+	m.formatAndDisplayLogs(logs)
+}
+
+// fetchLogs retrieves logs based on current scope and mode
+func (m *Model) fetchLogs(limit int) ([]logger.LogEntry, error) {
+	switch m.logScope {
+	case logScopeStack:
+		return m.fetchStackLogs(limit)
+	case logScopeProcess:
+		return m.fetchProcessLogs(limit)
+	default:
+		return nil, nil
+	}
+}
+
+// fetchStackLogs retrieves stack-level logs
+func (m *Model) fetchStackLogs(limit int) ([]logger.LogEntry, error) {
+	if m.isRemote {
+		if m.client == nil {
+			return nil, fmt.Errorf("api client not initialized")
+		}
+		return m.client.GetStackLogs(limit)
+	}
+	if m.manager == nil {
+		return nil, fmt.Errorf("manager not initialized")
+	}
+	return m.manager.GetStackLogs(limit), nil
+}
+
+// fetchProcessLogs retrieves process-level logs with optional instance filtering
+func (m *Model) fetchProcessLogs(limit int) ([]logger.LogEntry, error) {
+	if m.selectedProc == "" {
+		return nil, fmt.Errorf("no process selected")
+	}
+
+	var logs []logger.LogEntry
+	var err error
+
+	if m.isRemote {
+		if m.client == nil {
+			return nil, fmt.Errorf("api client not initialized")
+		}
+		logs, err = m.client.GetLogs(m.selectedProc, limit)
+	} else {
+		if m.manager == nil {
+			return nil, fmt.Errorf("manager not initialized")
+		}
+		logs, err = m.manager.GetLogs(m.selectedProc, limit)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply instance filter if set
+	if m.logInstance != "" {
+		logs = m.filterLogsByInstance(logs)
+	}
+
+	return logs, nil
+}
+
+// filterLogsByInstance filters logs to only include entries for a specific instance
+func (m *Model) filterLogsByInstance(logs []logger.LogEntry) []logger.LogEntry {
+	filtered := make([]logger.LogEntry, 0, len(logs))
+	for _, entry := range logs {
+		if entry.InstanceID == m.logInstance {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+// setLogError sets an error message in the log viewport
+func (m *Model) setLogError(msg string) {
+	m.logBuffer = []string{msg}
+	m.logViewport.SetContent(msg)
+}
+
+// formatAndDisplayLogs formats log entries and updates the viewport
+func (m *Model) formatAndDisplayLogs(logs []logger.LogEntry) {
 	m.logBuffer = make([]string, 0, len(logs))
+
+	// Format logs for display (oldest first)
 	for i := len(logs) - 1; i >= 0; i-- {
 		entry := logs[i]
-
-		// Handle event entries as dividers
-		if entry.Level == "event" {
-			// Create a visual divider for lifecycle events
-			timestamp := entry.Timestamp.Format("15:04:05")
-			divider := eventDividerStyle.Render(fmt.Sprintf("──── %s %s ────", timestamp, entry.Message))
-			m.logBuffer = append(m.logBuffer, divider)
-			continue
-		}
-
-		// Format: [timestamp] [level] [stream] [instance] message
-		timestamp := entry.Timestamp.Format("15:04:05.000")
-		levelStr := m.formatLogLevel(entry.Level)
-		stream := entry.Stream
-		instance := entry.InstanceID
-		if entry.ProcessName != "" {
-			instance = fmt.Sprintf("%s/%s", entry.ProcessName, entry.InstanceID)
-		}
-
-		line := fmt.Sprintf("[%s] %s [%s] [%s] %s",
-			timestamp,
-			levelStr,
-			stream,
-			instance,
-			entry.Message,
-		)
-		m.logBuffer = append(m.logBuffer, line)
+		m.logBuffer = append(m.logBuffer, m.formatLogEntry(entry))
 	}
 
 	if len(m.logBuffer) == 0 {
 		m.logBuffer = []string{"No logs available yet. Logs will appear as the process runs."}
 	}
 
-	// Update viewport content
 	m.logViewport.SetContent(strings.Join(m.logBuffer, "\n"))
 
 	// Auto-scroll to bottom if not paused
 	if !m.logsPaused {
 		m.logViewport.GotoBottom()
 	}
+}
+
+// formatLogEntry formats a single log entry for display
+func (m *Model) formatLogEntry(entry logger.LogEntry) string {
+	// Handle event entries as dividers
+	if entry.Level == "event" {
+		timestamp := entry.Timestamp.Format("15:04:05")
+		return eventDividerStyle.Render(fmt.Sprintf("──── %s %s ────", timestamp, entry.Message))
+	}
+
+	// Format: [timestamp] [level] [stream] [instance] message
+	timestamp := entry.Timestamp.Format("15:04:05.000")
+	levelStr := m.formatLogLevel(entry.Level)
+	instance := entry.InstanceID
+	if entry.ProcessName != "" {
+		instance = fmt.Sprintf("%s/%s", entry.ProcessName, entry.InstanceID)
+	}
+
+	return fmt.Sprintf("[%s] %s [%s] [%s] %s",
+		timestamp,
+		levelStr,
+		entry.Stream,
+		instance,
+		entry.Message,
+	)
 }
 
 // formatLogLevel adds color styling to log levels

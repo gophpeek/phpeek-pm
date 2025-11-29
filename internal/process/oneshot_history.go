@@ -5,7 +5,9 @@ import (
 	"time"
 )
 
-// OneshotExecution represents a single oneshot process execution
+// OneshotExecution represents a single oneshot process execution record.
+// It captures the full lifecycle of a oneshot/scheduled process run,
+// including timing, exit status, and trigger source for audit and monitoring.
 type OneshotExecution struct {
 	ID          int64     `json:"id"`
 	ProcessName string    `json:"process_name"`
@@ -20,8 +22,17 @@ type OneshotExecution struct {
 	TriggerType string    `json:"trigger_type"` // "manual" | "startup" | "api"
 }
 
-// OneshotHistory stores execution history for oneshot processes
-// with size and age-based eviction (whichever is hit first)
+// OneshotHistory stores execution history for oneshot and scheduled processes.
+// It provides a bounded, thread-safe store with automatic eviction based on
+// both size (maxEntries) and age (maxAge) limits, whichever is reached first.
+//
+// The history is useful for:
+//   - Monitoring scheduled task execution patterns
+//   - Debugging oneshot process failures
+//   - Auditing task execution for compliance
+//   - API exposure of execution history
+//
+// OneshotHistory is safe for concurrent use from multiple goroutines.
 type OneshotHistory struct {
 	maxEntries int
 	maxAge     time.Duration
@@ -30,7 +41,13 @@ type OneshotHistory struct {
 	mu         sync.RWMutex
 }
 
-// NewOneshotHistory creates a new oneshot history store
+// NewOneshotHistory creates a new oneshot history store with specified limits.
+//
+// Parameters:
+//   - maxEntries: Maximum number of entries to retain (default: 5000 if <= 0)
+//   - maxAge: Maximum age of entries to retain (default: 24 hours if <= 0)
+//
+// Eviction occurs on write operations when either limit is exceeded.
 func NewOneshotHistory(maxEntries int, maxAge time.Duration) *OneshotHistory {
 	if maxEntries <= 0 {
 		maxEntries = 5000

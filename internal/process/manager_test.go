@@ -9,6 +9,7 @@ import (
 
 	"github.com/gophpeek/phpeek-pm/internal/audit"
 	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/testutil"
 )
 
 // TestManager_GracefulShutdown tests graceful shutdown with timeout
@@ -22,10 +23,11 @@ func TestManager_GracefulShutdown(t *testing.T) {
 		},
 		Processes: map[string]*config.Process{
 			"test-process": {
-				Enabled: true,
-				Command: []string{"sleep", "30"}, // Long enough to not exit before shutdown
-				Restart: "never",
-				Scale:   1,
+				Enabled:      true,
+				InitialState: "running", // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "30"}, // Long enough to not exit before shutdown
+				Restart:      "never",
+				Scale:        1,
 			},
 		},
 	}
@@ -40,8 +42,11 @@ func TestManager_GracefulShutdown(t *testing.T) {
 		t.Fatalf("Failed to start processes: %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for process to start
+	testutil.Eventually(t, func() bool {
+		processes := manager.ListProcesses()
+		return len(processes) > 0 && processes[0].Scale >= 1
+	}, "process to start")
 
 	// Shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -76,10 +81,11 @@ func TestManager_ShutdownTimeout(t *testing.T) {
 		},
 		Processes: map[string]*config.Process{
 			"long-process": {
-				Enabled: true,
-				Command: []string{"sleep", "60"}, // Long-running process
-				Restart: "never",
-				Scale:   1,
+				Enabled:      true,
+				InitialState: "running", // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "60"}, // Long-running process
+				Restart:      "never",
+				Scale:        1,
 				Shutdown: &config.ShutdownConfig{
 					Timeout: 1, // 1 second timeout (shorter than sleep)
 				},
@@ -97,8 +103,11 @@ func TestManager_ShutdownTimeout(t *testing.T) {
 		t.Fatalf("Failed to start processes: %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for process to start
+	testutil.Eventually(t, func() bool {
+		processes := manager.ListProcesses()
+		return len(processes) > 0 && processes[0].Scale >= 1
+	}, "process to start")
 
 	// Shutdown with short timeout (should force kill)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -145,10 +154,11 @@ func TestManager_PreStopHooks(t *testing.T) {
 		},
 		Processes: map[string]*config.Process{
 			"test-process": {
-				Enabled: true,
-				Command: []string{"sleep", "1"},
-				Restart: "never",
-				Scale:   1,
+				Enabled:      true,
+				InitialState: "running", // CRITICAL: Explicitly set to start the process
+				Command:      []string{"sleep", "30"}, // Long enough to not exit before shutdown
+				Restart:      "never",
+				Scale:        1,
 			},
 		},
 	}
@@ -163,8 +173,11 @@ func TestManager_PreStopHooks(t *testing.T) {
 		t.Fatalf("Failed to start processes: %v", err)
 	}
 
-	// Give process time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for process to start
+	testutil.Eventually(t, func() bool {
+		processes := manager.ListProcesses()
+		return len(processes) > 0 && processes[0].Scale >= 1
+	}, "process to start")
 
 	// Shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -262,8 +275,19 @@ func TestManager_ShutdownOrder(t *testing.T) {
 		t.Fatalf("Failed to start processes: %v", err)
 	}
 
-	// Give processes time to start
-	time.Sleep(200 * time.Millisecond)
+	// Wait for processes to start
+	testutil.Eventually(t, func() bool {
+		processes := manager.ListProcesses()
+		if len(processes) != 3 {
+			return false
+		}
+		for _, p := range processes {
+			if p.Scale < 1 {
+				return false
+			}
+		}
+		return true
+	}, "all processes to start", 3*time.Second)
 
 	// Shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -320,14 +344,11 @@ func TestManager_MultipleInstances(t *testing.T) {
 		t.Fatalf("Failed to start processes: %v", err)
 	}
 
-	// Verify 3 instances started
-	instances := manager.processes["scaled-process"].GetInstances()
-	if len(instances) != 3 {
-		t.Errorf("Expected 3 instances, got %d", len(instances))
-	}
-
-	// Give processes time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for 3 instances to start
+	testutil.Eventually(t, func() bool {
+		instances := manager.processes["scaled-process"].GetInstances()
+		return len(instances) == 3
+	}, "3 instances to start", 3*time.Second)
 
 	// Shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -533,13 +554,11 @@ func TestManager_StartStopProcess(t *testing.T) {
 		t.Fatalf("Failed to start process: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Process should be running
-	processes = manager.ListProcesses()
-	if processes[0].State != "running" {
-		t.Errorf("Expected state 'running' after start, got '%s'", processes[0].State)
-	}
+	// Wait for process to be running
+	testutil.Eventually(t, func() bool {
+		processes = manager.ListProcesses()
+		return len(processes) > 0 && processes[0].State == "running"
+	}, "process to be running", 2*time.Second)
 
 	// Stop the process
 	stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -548,13 +567,11 @@ func TestManager_StartStopProcess(t *testing.T) {
 		t.Fatalf("Failed to stop process: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Process should be stopped
-	processes = manager.ListProcesses()
-	if processes[0].State != "stopped" {
-		t.Errorf("Expected state 'stopped' after stop, got '%s'", processes[0].State)
-	}
+	// Wait for process to be stopped
+	testutil.Eventually(t, func() bool {
+		processes = manager.ListProcesses()
+		return len(processes) > 0 && processes[0].State == "stopped"
+	}, "process to be stopped", 2*time.Second)
 }
 
 // TestManager_RestartProcess tests process restart
@@ -613,18 +630,16 @@ func TestManager_RestartProcess(t *testing.T) {
 		t.Fatalf("Failed to restart process: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
-
-	// PID should have changed
-	processes = manager.ListProcesses()
-	if len(processes) == 0 || len(processes[0].Instances) == 0 {
-		t.Fatal("No process instances found after restart")
-	}
-	newPID := processes[0].Instances[0].PID
-
-	if newPID == initialPID && newPID != 0 {
-		t.Errorf("PID should have changed after restart: initial=%d, new=%d", initialPID, newPID)
-	}
+	// Wait for PID to change
+	var newPID int
+	testutil.Eventually(t, func() bool {
+		processes = manager.ListProcesses()
+		if len(processes) == 0 || len(processes[0].Instances) == 0 {
+			return false
+		}
+		newPID = processes[0].Instances[0].PID
+		return newPID > 0 && newPID != initialPID
+	}, "PID to change after restart", 3*time.Second)
 }
 
 // TestManager_ScaleProcess tests process scaling

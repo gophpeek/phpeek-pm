@@ -59,10 +59,11 @@ health_check:
 
 **Example Endpoint:**
 ```php
-// routes/web.php
-Route::get('/health', function () {
-    return response()->json(['status' => 'healthy'], 200);
-});
+// Simple health endpoint (any PHP framework)
+<?php
+http_response_code(200);
+header('Content-Type: application/json');
+echo json_encode(['status' => 'healthy']);
 ```
 
 ### TCP Health Check
@@ -119,24 +120,27 @@ health_check:
 
 **Example Health Check Script:**
 ```php
-// app/Console/Commands/HealthCheck.php
-public function handle()
-{
-    // Check database
-    if (!DB::connection()->getPdo()) {
-        $this->error('Database connection failed');
-        return 1;
-    }
+<?php
+// health-check.php - works with any PHP framework/app
 
-    // Check Redis
-    if (!Redis::ping()) {
-        $this->error('Redis connection failed');
-        return 1;
-    }
-
-    $this->info('All systems healthy');
-    return 0;  // Success
+// Check database (PDO)
+try {
+    $pdo = new PDO('mysql:host=localhost;dbname=myapp', 'user', 'pass');
+    $pdo->query('SELECT 1');
+} catch (PDOException $e) {
+    echo "Database connection failed\n";
+    exit(1);
 }
+
+// Check Redis (if using)
+$redis = new Redis();
+if (!$redis->connect('localhost')) {
+    echo "Redis connection failed\n";
+    exit(1);
+}
+
+echo "All systems healthy\n";
+exit(0);  // Success
 ```
 
 ## Common Settings
@@ -299,7 +303,7 @@ processes:
 
 ## Complete Examples
 
-### Laravel Application
+### PHP Application
 
 ```yaml
 processes:
@@ -325,12 +329,12 @@ processes:
       retries: 3
       expected_status: 200
 
-  # Horizon with exec check
-  horizon:
-    command: ["php", "artisan", "horizon"]
+  # Queue worker with exec check (Laravel example)
+  queue-worker:
+    command: ["php", "artisan", "queue:work"]
     health_check:
       type: exec
-      command: ["php", "artisan", "horizon:status"]
+      command: ["pgrep", "-f", "queue:work"]
       interval: 60
       timeout: 10
       retries: 2

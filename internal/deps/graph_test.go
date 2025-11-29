@@ -327,3 +327,241 @@ func indexOf(slice []string, item string) int {
 	}
 	return -1
 }
+
+// Additional comprehensive tests for edge cases
+
+func TestGraph_DeepChain(t *testing.T) {
+	// Test very deep dependency chain: A → B → C → D → E → F → G
+	g := NewGraph()
+	nodes := []string{"A", "B", "C", "D", "E", "F", "G"}
+
+	g.AddNode("A", []string{})
+	for i := 1; i < len(nodes); i++ {
+		g.AddNode(nodes[i], []string{nodes[i-1]})
+	}
+
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Verify order is exactly A, B, C, D, E, F, G
+	if !equalSlices(order, nodes) {
+		t.Errorf("Expected order %v, got %v", nodes, order)
+	}
+}
+
+func TestGraph_MultipleMissingDependencies(t *testing.T) {
+	// A depends on multiple non-existent nodes
+	g := NewGraph()
+	g.AddNode("A", []string{"Missing1", "Missing2", "Missing3"})
+
+	err := g.Validate()
+	if err == nil {
+		t.Fatal("Expected validation error for missing dependencies")
+	}
+
+	// Should mention non-existent
+	if !strings.Contains(err.Error(), "non-existent") {
+		t.Errorf("Expected 'non-existent' in error, got: %v", err)
+	}
+}
+
+func TestGraph_PartialMissingDependency(t *testing.T) {
+	// A depends on B (exists) and C (missing)
+	g := NewGraph()
+	g.AddNode("A", []string{"B", "C"})
+	g.AddNode("B", []string{})
+
+	err := g.Validate()
+	if err == nil {
+		t.Fatal("Expected validation error for missing dependency C")
+	}
+
+	if !strings.Contains(err.Error(), "non-existent") {
+		t.Errorf("Expected 'non-existent' in error, got: %v", err)
+	}
+}
+
+func TestGraph_LongCycle(t *testing.T) {
+	// A → B → C → D → E → A (long cycle)
+	g := NewGraph()
+	g.AddNode("A", []string{"E"})
+	g.AddNode("B", []string{"A"})
+	g.AddNode("C", []string{"B"})
+	g.AddNode("D", []string{"C"})
+	g.AddNode("E", []string{"D"})
+
+	hasCycle, cycle := g.HasCycle()
+	if !hasCycle {
+		t.Fatal("Expected cycle to be detected")
+	}
+
+	// Cycle path should be non-empty
+	if len(cycle) == 0 {
+		t.Fatal("Expected non-empty cycle path")
+	}
+
+	// TopologicalSort should also return error
+	_, err := g.TopologicalSort()
+	if err == nil {
+		t.Fatal("Expected TopologicalSort to return cycle error")
+	}
+
+	if !strings.Contains(err.Error(), "circular dependency") {
+		t.Errorf("Expected 'circular dependency' in error, got: %v", err)
+	}
+}
+
+func TestGraph_DisconnectedComponents(t *testing.T) {
+	// Two disconnected dependency graphs
+	// Group 1: A → B
+	// Group 2: C → D
+	g := NewGraph()
+	g.AddNode("A", []string{})
+	g.AddNode("B", []string{"A"})
+	g.AddNode("C", []string{})
+	g.AddNode("D", []string{"C"})
+
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// A should come before B
+	aIdx := indexOf(order, "A")
+	bIdx := indexOf(order, "B")
+	if aIdx > bIdx {
+		t.Errorf("Expected A before B, got order: %v", order)
+	}
+
+	// C should come before D
+	cIdx := indexOf(order, "C")
+	dIdx := indexOf(order, "D")
+	if cIdx > dIdx {
+		t.Errorf("Expected C before D, got order: %v", order)
+	}
+}
+
+func TestGraph_MixedCyclicAndAcyclic(t *testing.T) {
+	// Some nodes form cycle (A → B → A), others are fine (C → D)
+	g := NewGraph()
+	g.AddNode("A", []string{"B"})
+	g.AddNode("B", []string{"A"})
+	g.AddNode("C", []string{})
+	g.AddNode("D", []string{"C"})
+
+	hasCycle, _ := g.HasCycle()
+	if !hasCycle {
+		t.Fatal("Expected cycle to be detected")
+	}
+
+	_, err := g.TopologicalSort()
+	if err == nil {
+		t.Fatal("Expected TopologicalSort to fail with cycle")
+	}
+}
+
+func TestGraph_ValidateThenSort(t *testing.T) {
+	// Test that Validate() catches issues before TopologicalSort()
+	g := NewGraph()
+	g.AddNode("A", []string{"Missing"})
+
+	// Validate should catch missing dependency
+	err := g.Validate()
+	if err == nil {
+		t.Fatal("Expected validation error")
+	}
+
+	// TopologicalSort should handle this case
+	_, _ = g.TopologicalSort()
+	// The behavior depends on implementation - it might error or just process existing nodes
+	// This test just ensures it doesn't panic
+}
+
+func TestGraph_PriorityVsDependency(t *testing.T) {
+	// Test that dependencies always take precedence over alphabetical ordering
+	// Z depends on nothing (would be last alphabetically)
+	// A depends on Z (would be first alphabetically, but must wait for Z)
+	g := NewGraph()
+	g.AddNode("Z", []string{})
+	g.AddNode("A", []string{"Z"})
+
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	zIdx := indexOf(order, "Z")
+	aIdx := indexOf(order, "A")
+
+	if zIdx > aIdx {
+		t.Errorf("Expected Z before A (dependency), got order: %v", order)
+	}
+}
+
+func TestGraph_DuplicateAddNode(t *testing.T) {
+	// Adding the same node twice should update dependencies
+	g := NewGraph()
+	g.AddNode("A", []string{})
+	g.AddNode("B", []string{"A"})
+	// Re-add B with different dependency - behavior may vary
+	g.AddNode("B", []string{}) // Now B has no dependencies
+
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Both A and B should be in the result
+	if !contains(order, "A") || !contains(order, "B") {
+		t.Errorf("Expected both A and B in result, got: %v", order)
+	}
+}
+
+func TestGraph_ManyDependencies(t *testing.T) {
+	// One node depends on many others
+	g := NewGraph()
+	deps := []string{}
+	for i := 0; i < 10; i++ {
+		nodeName := string(rune('A' + i))
+		g.AddNode(nodeName, []string{})
+		deps = append(deps, nodeName)
+	}
+	g.AddNode("Z", deps) // Z depends on A through J
+
+	order, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	// Z must be last (after all its dependencies)
+	zIdx := indexOf(order, "Z")
+	if zIdx != len(order)-1 {
+		t.Errorf("Expected Z to be last, got index %d in order: %v", zIdx, order)
+	}
+
+	// All deps should come before Z
+	for _, dep := range deps {
+		depIdx := indexOf(order, dep)
+		if depIdx > zIdx {
+			t.Errorf("Expected %s before Z, got order: %v", dep, order)
+		}
+	}
+}
+
+func TestGraph_HasCycle_NoCycle(t *testing.T) {
+	// Verify HasCycle returns false for acyclic graph
+	g := NewGraph()
+	g.AddNode("A", []string{})
+	g.AddNode("B", []string{"A"})
+	g.AddNode("C", []string{"B"})
+
+	hasCycle, cycle := g.HasCycle()
+	if hasCycle {
+		t.Errorf("Expected no cycle, got cycle: %v", cycle)
+	}
+	if len(cycle) > 0 {
+		t.Errorf("Expected empty cycle path for acyclic graph, got: %v", cycle)
+	}
+}

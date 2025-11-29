@@ -551,4 +551,4 @@ app:
 
 - [Process Configuration](../configuration/processes) - Priority and depends_on settings
 - [Health Checks](health-checks) - Health check configuration
-- [Examples](../examples/laravel-complete) - Real-world dependency patterns
+- [Examples](../examples/) - Real-world dependency patterns

@@ -1,6 +1,6 @@
 ---
 title: "Lifecycle Hooks"
-description: "Configure pre/post start/stop hooks for Laravel optimization, migrations, and graceful shutdown"
+description: "Configure pre/post start/stop hooks for PHP application optimization, migrations, and graceful shutdown"
 weight: 15
 ---
 
@@ -486,4 +486,4 @@ php artisan cache:clear
 
 - [Process Configuration](processes) - Process settings
 - [Health Checks](health-checks) - Health monitoring
-- [Examples](../examples/laravel-complete) - Real-world hook usage
+- [Examples](../examples/) - Real-world hook usage

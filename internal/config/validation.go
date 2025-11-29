@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // ValidationSeverity represents the severity level of a validation issue
@@ -162,11 +163,37 @@ func (c *Config) ValidateComprehensive() (*ValidationResult, error) {
 	return result, nil
 }
 
+// Upper bound constants for configuration validation
+const (
+	MaxShutdownTimeout         = 3600    // 1 hour max
+	MaxRestartAttemptsLimit    = 100     // Prevent infinite restart loops
+	MaxResourceMetricsInterval = 3600    // 1 hour max
+	MaxResourceMetricsSamples  = 100000  // Memory constraint
+	MaxScheduleHistorySize     = 10000   // Per-job history limit
+	MaxOneshotHistoryEntries   = 100000  // Oneshot history limit
+	MaxProcessScaleLimit        = 1000                   // Per-process instance limit
+	MaxAPIRequestBodySize       = 100 * 1024 * 1024      // 100MB max
+	MinZombieReapInterval       = 100 * time.Millisecond // 100ms minimum (CPU efficiency)
+	MaxZombieReapInterval       = 60 * time.Second       // 60 seconds max (timely cleanup)
+)
+
 // validateGlobalSettings validates global configuration fields
 func (c *Config) validateGlobalSettings(result *ValidationResult) {
+	c.validateGlobalBasicSettings(result)
+	c.validateGlobalResourceSettings(result)
+	c.validateGlobalLimits(result)
+	c.validateGlobalAPISettings(result)
+	c.validateGlobalMetricsSettings(result)
+	c.validateGlobalReadinessSettings(result)
+}
+
+// validateGlobalBasicSettings validates shutdown timeout, logging, and restart settings
+func (c *Config) validateGlobalBasicSettings(result *ValidationResult) {
 	// Shutdown timeout
 	if c.Global.ShutdownTimeout < 0 {
 		result.AddError("global.shutdown_timeout", "Must be a positive number", "Set to at least 1 second (recommended: 30)")
+	} else if c.Global.ShutdownTimeout > MaxShutdownTimeout {
+		result.AddError("global.shutdown_timeout", fmt.Sprintf("Exceeds maximum (%ds > %ds)", c.Global.ShutdownTimeout, MaxShutdownTimeout), fmt.Sprintf("Set to %d seconds or less", MaxShutdownTimeout))
 	} else if c.Global.ShutdownTimeout < 10 {
 		result.AddWarning("global.shutdown_timeout", fmt.Sprintf("Very short timeout (%ds) may cause abrupt process termination", c.Global.ShutdownTimeout), "Consider increasing to 30+ seconds for graceful shutdown")
 	} else if c.Global.ShutdownTimeout > 300 {
@@ -197,72 +224,127 @@ func (c *Config) validateGlobalSettings(result *ValidationResult) {
 	// Max restart attempts
 	if c.Global.MaxRestartAttempts < 1 {
 		result.AddWarning("global.max_restart_attempts", "Unlimited restarts may mask persistent failures", "Consider setting to 3-5 attempts to catch failing processes")
+	} else if c.Global.MaxRestartAttempts > MaxRestartAttemptsLimit {
+		result.AddError("global.max_restart_attempts", fmt.Sprintf("Exceeds maximum (%d > %d)", c.Global.MaxRestartAttempts, MaxRestartAttemptsLimit), fmt.Sprintf("Set to %d or less", MaxRestartAttemptsLimit))
 	} else if c.Global.MaxRestartAttempts > 10 {
 		result.AddSuggestion("global.max_restart_attempts", fmt.Sprintf("High restart attempts (%d) may delay failure detection", c.Global.MaxRestartAttempts), "Consider reducing to 3-5 for faster failure detection")
 	}
+}
 
-	// Resource metrics
-	if c.Global.ResourceMetricsEnabledValue() {
-		if c.Global.ResourceMetricsInterval < 2 {
-			result.AddWarning("global.resource_metrics_interval", fmt.Sprintf("Very frequent collection (%ds) increases CPU overhead", c.Global.ResourceMetricsInterval), "Recommended: 5-10 seconds for production")
-		} else if c.Global.ResourceMetricsInterval > 60 {
-			result.AddSuggestion("global.resource_metrics_interval", fmt.Sprintf("Infrequent collection (%ds) may miss short-lived issues", c.Global.ResourceMetricsInterval), "Consider 10-30 seconds for better monitoring resolution")
-		}
-
-		if c.Global.ResourceMetricsMaxSamples < 60 {
-			result.AddWarning("global.resource_metrics_max_samples", fmt.Sprintf("Low sample count (%d) provides limited historical data", c.Global.ResourceMetricsMaxSamples), "Recommended: 720+ samples for 1 hour of history at 5s interval")
-		}
+// validateGlobalResourceSettings validates resource metrics settings
+func (c *Config) validateGlobalResourceSettings(result *ValidationResult) {
+	if !c.Global.ResourceMetricsEnabledValue() {
+		return
 	}
 
-	// API configuration
-	if c.Global.APIEnabledValue() {
-		if c.Global.APIPort < 1024 && os.Getuid() != 0 {
-			result.AddError("global.api_port", fmt.Sprintf("Privileged port %d requires root", c.Global.APIPort), "Use port >= 1024 or run as root")
-		}
-		if c.Global.APIAuth == "" && c.Global.APIACL == nil {
-			result.AddWarning("global.api_auth", "API running without authentication or ACL", "Consider enabling API token auth or IP ACL for security")
-		}
-		if c.Global.APITLS == nil {
-			result.AddSuggestion("global.api_tls", "API running without TLS/HTTPS", "Enable TLS for production to encrypt API traffic")
-		}
+	if c.Global.ResourceMetricsInterval < 2 {
+		result.AddWarning("global.resource_metrics_interval", fmt.Sprintf("Very frequent collection (%ds) increases CPU overhead", c.Global.ResourceMetricsInterval), "Recommended: 5-10 seconds for production")
+	} else if c.Global.ResourceMetricsInterval > MaxResourceMetricsInterval {
+		result.AddError("global.resource_metrics_interval", fmt.Sprintf("Exceeds maximum (%ds > %ds)", c.Global.ResourceMetricsInterval, MaxResourceMetricsInterval), fmt.Sprintf("Set to %d seconds or less", MaxResourceMetricsInterval))
+	} else if c.Global.ResourceMetricsInterval > 60 {
+		result.AddSuggestion("global.resource_metrics_interval", fmt.Sprintf("Infrequent collection (%ds) may miss short-lived issues", c.Global.ResourceMetricsInterval), "Consider 10-30 seconds for better monitoring resolution")
 	}
 
-	// Metrics configuration
-	if c.Global.MetricsEnabledValue() {
-		if c.Global.MetricsPort < 1024 && os.Getuid() != 0 {
-			result.AddError("global.metrics_port", fmt.Sprintf("Privileged port %d requires root", c.Global.MetricsPort), "Use port >= 1024 or run as root")
-		}
-		if c.Global.MetricsACL == nil {
-			result.AddSuggestion("global.metrics_acl", "Metrics endpoint without ACL exposes monitoring data", "Consider adding IP ACL to restrict access")
-		}
+	if c.Global.ResourceMetricsMaxSamples < 60 {
+		result.AddWarning("global.resource_metrics_max_samples", fmt.Sprintf("Low sample count (%d) provides limited historical data", c.Global.ResourceMetricsMaxSamples), "Recommended: 720+ samples for 1 hour of history at 5s interval")
+	} else if c.Global.ResourceMetricsMaxSamples > MaxResourceMetricsSamples {
+		result.AddError("global.resource_metrics_max_samples", fmt.Sprintf("Exceeds maximum (%d > %d)", c.Global.ResourceMetricsMaxSamples, MaxResourceMetricsSamples), fmt.Sprintf("Set to %d or less to prevent excessive memory usage", MaxResourceMetricsSamples))
+	}
+}
+
+// validateGlobalLimits validates upper bound limits and zombie reap interval
+func (c *Config) validateGlobalLimits(result *ValidationResult) {
+	// Schedule history size
+	if c.Global.ScheduleHistorySize > MaxScheduleHistorySize {
+		result.AddError("global.schedule_history_size", fmt.Sprintf("Exceeds maximum (%d > %d)", c.Global.ScheduleHistorySize, MaxScheduleHistorySize), fmt.Sprintf("Set to %d or less", MaxScheduleHistorySize))
 	}
 
-	// Readiness file configuration (for Kubernetes integration)
-	if c.Global.Readiness != nil && c.Global.Readiness.Enabled {
-		// Validate mode
-		validReadinessModes := []string{"all_healthy", "all_running"}
-		if !contains(validReadinessModes, c.Global.Readiness.Mode) {
-			result.AddError("global.readiness.mode", fmt.Sprintf("Invalid readiness mode: %s", c.Global.Readiness.Mode), fmt.Sprintf("Must be one of: %s", strings.Join(validReadinessModes, ", ")))
-		}
+	// Oneshot history limits
+	if c.Global.OneshotHistoryMaxEntries > MaxOneshotHistoryEntries {
+		result.AddError("global.oneshot_history_max_entries", fmt.Sprintf("Exceeds maximum (%d > %d)", c.Global.OneshotHistoryMaxEntries, MaxOneshotHistoryEntries), fmt.Sprintf("Set to %d or less", MaxOneshotHistoryEntries))
+	}
 
-		// Validate path
-		if c.Global.Readiness.Path == "" {
-			result.AddError("global.readiness.path", "Readiness file path is required when enabled", "Set path like /tmp/phpeek-ready")
-		}
+	// Max process scale
+	if c.Global.MaxProcessScale > MaxProcessScaleLimit {
+		result.AddError("global.max_process_scale", fmt.Sprintf("Exceeds maximum (%d > %d)", c.Global.MaxProcessScale, MaxProcessScaleLimit), fmt.Sprintf("Set to %d or less", MaxProcessScaleLimit))
+	}
 
-		// Validate processes list if specified
-		if len(c.Global.Readiness.Processes) > 0 {
-			for _, procName := range c.Global.Readiness.Processes {
-				if _, exists := c.Processes[procName]; !exists {
-					result.AddWarning("global.readiness.processes", fmt.Sprintf("Process '%s' not found in process list", procName), "Ensure the process name matches a defined process")
-				}
+	// API max request body
+	if c.Global.APIMaxRequestBody > MaxAPIRequestBodySize {
+		result.AddError("global.api_max_request_body", fmt.Sprintf("Exceeds maximum (%d > %d bytes)", c.Global.APIMaxRequestBody, MaxAPIRequestBodySize), fmt.Sprintf("Set to %d bytes (100MB) or less", MaxAPIRequestBodySize))
+	}
+
+	// Zombie reap interval bounds (only validate if explicitly set, after defaults applied)
+	if c.Global.ZombieReapInterval > 0 {
+		if c.Global.ZombieReapInterval < MinZombieReapInterval {
+			result.AddError("global.zombie_reap_interval", fmt.Sprintf("Below minimum (%v < %v)", c.Global.ZombieReapInterval, MinZombieReapInterval), fmt.Sprintf("Set to %v or more", MinZombieReapInterval))
+		}
+		if c.Global.ZombieReapInterval > MaxZombieReapInterval {
+			result.AddError("global.zombie_reap_interval", fmt.Sprintf("Exceeds maximum (%v > %v)", c.Global.ZombieReapInterval, MaxZombieReapInterval), fmt.Sprintf("Set to %v or less", MaxZombieReapInterval))
+		}
+	}
+}
+
+// validateGlobalAPISettings validates API configuration
+func (c *Config) validateGlobalAPISettings(result *ValidationResult) {
+	if !c.Global.APIEnabledValue() {
+		return
+	}
+
+	if c.Global.APIPort < 1024 && os.Getuid() != 0 {
+		result.AddError("global.api_port", fmt.Sprintf("Privileged port %d requires root", c.Global.APIPort), "Use port >= 1024 or run as root")
+	}
+	if c.Global.APIAuth == "" && c.Global.APIACL == nil {
+		result.AddWarning("global.api_auth", "API running without authentication or ACL", "Consider enabling API token auth or IP ACL for security")
+	}
+	if c.Global.APITLS == nil {
+		result.AddSuggestion("global.api_tls", "API running without TLS/HTTPS", "Enable TLS for production to encrypt API traffic")
+	}
+}
+
+// validateGlobalMetricsSettings validates metrics configuration
+func (c *Config) validateGlobalMetricsSettings(result *ValidationResult) {
+	if !c.Global.MetricsEnabledValue() {
+		return
+	}
+
+	if c.Global.MetricsPort < 1024 && os.Getuid() != 0 {
+		result.AddError("global.metrics_port", fmt.Sprintf("Privileged port %d requires root", c.Global.MetricsPort), "Use port >= 1024 or run as root")
+	}
+	if c.Global.MetricsACL == nil {
+		result.AddSuggestion("global.metrics_acl", "Metrics endpoint without ACL exposes monitoring data", "Consider adding IP ACL to restrict access")
+	}
+}
+
+// validateGlobalReadinessSettings validates readiness file configuration for Kubernetes
+func (c *Config) validateGlobalReadinessSettings(result *ValidationResult) {
+	if c.Global.Readiness == nil || !c.Global.Readiness.Enabled {
+		return
+	}
+
+	// Validate mode
+	validReadinessModes := []string{"all_healthy", "all_running"}
+	if !contains(validReadinessModes, c.Global.Readiness.Mode) {
+		result.AddError("global.readiness.mode", fmt.Sprintf("Invalid readiness mode: %s", c.Global.Readiness.Mode), fmt.Sprintf("Must be one of: %s", strings.Join(validReadinessModes, ", ")))
+	}
+
+	// Validate path
+	if c.Global.Readiness.Path == "" {
+		result.AddError("global.readiness.path", "Readiness file path is required when enabled", "Set path like /tmp/phpeek-ready")
+	}
+
+	// Validate processes list if specified
+	if len(c.Global.Readiness.Processes) > 0 {
+		for _, procName := range c.Global.Readiness.Processes {
+			if _, exists := c.Processes[procName]; !exists {
+				result.AddWarning("global.readiness.processes", fmt.Sprintf("Process '%s' not found in process list", procName), "Ensure the process name matches a defined process")
 			}
 		}
+	}
 
-		// Suggestion for K8s deployment
-		if !strings.HasPrefix(c.Global.Readiness.Path, "/tmp/") && !strings.HasPrefix(c.Global.Readiness.Path, "/var/run/") {
-			result.AddSuggestion("global.readiness.path", "Readiness file path is not in standard temp directory", "Consider using /tmp/ or /var/run/ for K8s compatibility")
-		}
+	// Suggestion for K8s deployment
+	if !strings.HasPrefix(c.Global.Readiness.Path, "/tmp/") && !strings.HasPrefix(c.Global.Readiness.Path, "/var/run/") {
+		result.AddSuggestion("global.readiness.path", "Readiness file path is not in standard temp directory", "Consider using /tmp/ or /var/run/ for K8s compatibility")
 	}
 }
 
@@ -274,65 +356,94 @@ func (c *Config) validateProcesses(result *ValidationResult) {
 	}
 
 	for name, proc := range c.Processes {
-		// Required fields
-		if len(proc.Command) == 0 {
-			result.AddProcessError(name, "command", "No command specified", "Add command array (e.g., [\"php-fpm\", \"-F\"])")
-			continue // Skip further validation for this process
-		}
+		c.validateSingleProcess(name, proc, result)
+	}
+}
 
-		// Type validation
-		validTypes := []string{"oneshot", "longrun"}
-		if !contains(validTypes, proc.Type) {
-			result.AddProcessError(name, "type", fmt.Sprintf("Invalid type: %s", proc.Type), fmt.Sprintf("Must be one of: %s", strings.Join(validTypes, ", ")))
-		}
+// validateSingleProcess validates a single process configuration
+func (c *Config) validateSingleProcess(name string, proc *Process, result *ValidationResult) {
+	// Required fields
+	if len(proc.Command) == 0 {
+		result.AddProcessError(name, "command", "No command specified", "Add command array (e.g., [\"php-fpm\", \"-F\"])")
+		return // Skip further validation for this process
+	}
 
-		// Initial state validation
-		validStates := []string{"running", "stopped"}
-		if !contains(validStates, proc.InitialState) {
-			result.AddProcessError(name, "initial_state", fmt.Sprintf("Invalid initial state: %s", proc.InitialState), fmt.Sprintf("Must be one of: %s", strings.Join(validStates, ", ")))
-		}
+	// Core field validation
+	c.validateProcessCoreFields(name, proc, result)
 
-		// Restart policy validation
-		validRestartPolicies := []string{"always", "on-failure", "never"}
-		if !contains(validRestartPolicies, proc.Restart) {
-			result.AddProcessError(name, "restart", fmt.Sprintf("Invalid restart policy: %s", proc.Restart), fmt.Sprintf("Must be one of: %s", strings.Join(validRestartPolicies, ", ")))
-		}
+	// Scale validation
+	c.validateProcessScaleConfig(name, proc, result)
 
-		// Scale validation
-		if proc.Scale < 1 {
-			result.AddProcessError(name, "scale", fmt.Sprintf("Invalid scale: %d", proc.Scale), "Must be at least 1")
-		} else if proc.Scale > 20 {
-			result.AddProcessWarning(name, "scale", fmt.Sprintf("High scale (%d) may consume significant resources", proc.Scale), "Verify resource limits can accommodate all instances")
-		}
+	// Oneshot-specific validation
+	c.validateOneshotConstraints(name, proc, result)
 
-		if proc.MaxScale > 0 && proc.Scale > proc.MaxScale {
-			result.AddProcessError(name, "max_scale", fmt.Sprintf("Scale (%d) exceeds max_scale (%d)", proc.Scale, proc.MaxScale), "Set scale <= max_scale")
-		}
+	// Health check validation
+	if proc.HealthCheck != nil {
+		c.validateHealthCheck(name, proc.HealthCheck, result)
+	}
 
-		// Oneshot-specific validation
-		if proc.Type == "oneshot" {
-			if proc.Restart == "always" {
-				result.AddProcessError(name, "restart", "Oneshot cannot have restart: always", "Use 'on-failure' or 'never'")
-			}
-			if proc.Scale > 1 {
-				result.AddProcessError(name, "scale", fmt.Sprintf("Oneshot cannot have scale > 1 (got %d)", proc.Scale), "Set scale: 1")
-			}
-		}
+	// Logging validation
+	c.validateProcessLoggingConfig(name, proc, result)
 
-		// Health check validation
-		if proc.HealthCheck != nil {
-			c.validateHealthCheck(name, proc.HealthCheck, result)
-		}
+	// Security linting
+	c.lintProcessSecurity(name, proc, result)
+}
 
-		// Logging validation
-		if proc.Logging != nil {
-			if !proc.Logging.Stdout && !proc.Logging.Stderr {
-				result.AddProcessWarning(name, "logging", "Both stdout and stderr disabled", "Enable at least one stream for process output visibility")
-			}
-		}
+// validateProcessCoreFields validates type, initial_state, and restart policy
+func (c *Config) validateProcessCoreFields(name string, proc *Process, result *ValidationResult) {
+	validTypes := []string{"oneshot", "longrun"}
+	if !contains(validTypes, proc.Type) {
+		result.AddProcessError(name, "type", fmt.Sprintf("Invalid type: %s", proc.Type), fmt.Sprintf("Must be one of: %s", strings.Join(validTypes, ", ")))
+	}
 
-		// Security linting
-		c.lintProcessSecurity(name, proc, result)
+	validStates := []string{"running", "stopped"}
+	if !contains(validStates, proc.InitialState) {
+		result.AddProcessError(name, "initial_state", fmt.Sprintf("Invalid initial state: %s", proc.InitialState), fmt.Sprintf("Must be one of: %s", strings.Join(validStates, ", ")))
+	}
+
+	validRestartPolicies := []string{"always", "on-failure", "never"}
+	if !contains(validRestartPolicies, proc.Restart) {
+		result.AddProcessError(name, "restart", fmt.Sprintf("Invalid restart policy: %s", proc.Restart), fmt.Sprintf("Must be one of: %s", strings.Join(validRestartPolicies, ", ")))
+	}
+}
+
+// validateProcessScaleConfig validates scale and max_scale settings
+func (c *Config) validateProcessScaleConfig(name string, proc *Process, result *ValidationResult) {
+	if proc.Scale < 1 {
+		result.AddProcessError(name, "scale", fmt.Sprintf("Invalid scale: %d", proc.Scale), "Must be at least 1")
+	} else if proc.Scale > MaxProcessScaleLimit {
+		result.AddProcessError(name, "scale", fmt.Sprintf("Exceeds maximum (%d > %d)", proc.Scale, MaxProcessScaleLimit), fmt.Sprintf("Set to %d or less", MaxProcessScaleLimit))
+	} else if proc.Scale > 20 {
+		result.AddProcessWarning(name, "scale", fmt.Sprintf("High scale (%d) may consume significant resources", proc.Scale), "Verify resource limits can accommodate all instances")
+	}
+
+	if proc.MaxScale > MaxProcessScaleLimit {
+		result.AddProcessError(name, "max_scale", fmt.Sprintf("Exceeds maximum (%d > %d)", proc.MaxScale, MaxProcessScaleLimit), fmt.Sprintf("Set to %d or less", MaxProcessScaleLimit))
+	} else if proc.MaxScale > 0 && proc.Scale > proc.MaxScale {
+		result.AddProcessError(name, "max_scale", fmt.Sprintf("Scale (%d) exceeds max_scale (%d)", proc.Scale, proc.MaxScale), "Set scale <= max_scale")
+	}
+}
+
+// validateOneshotConstraints validates oneshot-specific rules
+func (c *Config) validateOneshotConstraints(name string, proc *Process, result *ValidationResult) {
+	if proc.Type != "oneshot" {
+		return
+	}
+	if proc.Restart == "always" {
+		result.AddProcessError(name, "restart", "Oneshot cannot have restart: always", "Use 'on-failure' or 'never'")
+	}
+	if proc.Scale > 1 {
+		result.AddProcessError(name, "scale", fmt.Sprintf("Oneshot cannot have scale > 1 (got %d)", proc.Scale), "Set scale: 1")
+	}
+}
+
+// validateProcessLoggingConfig validates logging configuration
+func (c *Config) validateProcessLoggingConfig(name string, proc *Process, result *ValidationResult) {
+	if proc.Logging == nil {
+		return
+	}
+	if !proc.Logging.Stdout && !proc.Logging.Stderr {
+		result.AddProcessWarning(name, "logging", "Both stdout and stderr disabled", "Enable at least one stream for process output visibility")
 	}
 }
 

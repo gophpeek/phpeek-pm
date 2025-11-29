@@ -755,34 +755,53 @@ my-task:
 
 ## Real-World Examples
 
-### Laravel Scheduled Tasks
+### PHP Framework Scheduled Tasks
 
 ```yaml
-# Use Laravel's built-in scheduler
+# Laravel: Use Laravel's built-in scheduler
 laravel-scheduler:
   command: ["php", "artisan", "schedule:run"]
-  schedule: "* * * * *"  # Run every minute
+  schedule: "* * * * *"
+  restart: never
+
+# Symfony: Use Symfony's messenger for scheduled tasks
+symfony-scheduler:
+  command: ["php", "bin/console", "messenger:consume", "scheduler_default", "--time-limit=50"]
+  schedule: "* * * * *"
+  restart: never
+
+# WordPress: Run WP-Cron via CLI
+wordpress-cron:
+  command: ["php", "/var/www/html/wp-cron.php"]
+  schedule: "*/5 * * * *"
+  restart: never
+
+# Generic PHP: Custom scheduled script
+custom-scheduler:
+  command: ["php", "/app/scheduler.php"]
+  schedule: "* * * * *"
   restart: never
 ```
 
-**app/Console/Kernel.php:**
+**Laravel Example - app/Console/Kernel.php:**
 ```php
 protected function schedule(Schedule $schedule)
 {
-    // Backup database daily
     $schedule->command('backup:run')->daily();
-
-    // Send emails every hour
     $schedule->command('emails:send')->hourly();
-
-    // Clear cache every 6 hours
     $schedule->command('cache:clear')->cron('0 */6 * * *');
-
-    // Generate reports on weekdays
-    $schedule->command('reports:daily')
-             ->weekdays()
-             ->at('08:00');
+    $schedule->command('reports:daily')->weekdays()->at('08:00');
 }
+```
+
+**Symfony Example - config/packages/scheduler.yaml:**
+```yaml
+framework:
+    scheduler:
+        tasks:
+            backup:
+                service: App\Scheduler\BackupTask
+                frequency: '0 2 * * *'  # Daily at 2 AM
 ```
 
 ### Database Maintenance

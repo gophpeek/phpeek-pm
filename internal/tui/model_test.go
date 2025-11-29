@@ -721,3 +721,425 @@ func TestPreviousWizardStep(t *testing.T) {
 		})
 	}
 }
+
+// TestNewModel tests NewModel creates model with manager in embedded mode
+func TestNewModel(t *testing.T) {
+	// Create model without manager (nil is acceptable for testing)
+	m := NewModel(nil)
+
+	if m.isRemote {
+		t.Error("Expected isRemote to be false for embedded mode")
+	}
+
+	if m.client != nil {
+		t.Error("Expected client to be nil for embedded mode")
+	}
+
+	if m.currentView != viewProcessList {
+		t.Errorf("Expected currentView %v, got %v", viewProcessList, m.currentView)
+	}
+
+	if m.processCache == nil {
+		t.Error("Expected processCache to be initialized")
+	}
+
+	if m.logBuffer == nil {
+		t.Error("Expected logBuffer to be initialized")
+	}
+
+	if cap(m.logBuffer) != 1000 {
+		t.Errorf("Expected logBuffer capacity 1000, got %d", cap(m.logBuffer))
+	}
+
+	if m.logsPaused {
+		t.Error("Expected logsPaused to be false")
+	}
+
+	if m.logScope != logScopeStack {
+		t.Errorf("Expected logScope %v, got %v", logScopeStack, m.logScope)
+	}
+
+	if m.logReturn != viewProcessList {
+		t.Errorf("Expected logReturn %v, got %v", viewProcessList, m.logReturn)
+	}
+
+	if m.selectedIndex != 0 {
+		t.Errorf("Expected selectedIndex 0, got %d", m.selectedIndex)
+	}
+}
+
+// TestNewRemoteModel tests NewRemoteModel creates model in remote mode
+func TestNewRemoteModel(t *testing.T) {
+	apiURL := "http://localhost:9180"
+	auth := "test-token"
+
+	m := NewRemoteModel(apiURL, auth)
+
+	if !m.isRemote {
+		t.Error("Expected isRemote to be true for remote mode")
+	}
+
+	if m.client == nil {
+		t.Error("Expected client to be non-nil for remote mode")
+	}
+
+	if m.manager != nil {
+		t.Error("Expected manager to be nil for remote mode")
+	}
+
+	if m.currentView != viewProcessList {
+		t.Errorf("Expected currentView %v, got %v", viewProcessList, m.currentView)
+	}
+
+	if m.processCache == nil {
+		t.Error("Expected processCache to be initialized")
+	}
+
+	if m.logBuffer == nil {
+		t.Error("Expected logBuffer to be initialized")
+	}
+
+	if m.logsPaused {
+		t.Error("Expected logsPaused to be false")
+	}
+
+	if m.selectedIndex != 0 {
+		t.Errorf("Expected selectedIndex 0, got %d", m.selectedIndex)
+	}
+}
+
+// TestNewRemoteModel_EmptyURL tests remote model with empty URL
+func TestNewRemoteModel_EmptyURL(t *testing.T) {
+	m := NewRemoteModel("", "")
+
+	if !m.isRemote {
+		t.Error("Expected isRemote to be true")
+	}
+
+	if m.client == nil {
+		t.Error("Expected client to be non-nil even with empty URL")
+	}
+}
+
+// TestTriggerAction tests the triggerAction method
+func TestTriggerAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         actionType
+		target         string
+		expectedNilCmd bool
+	}{
+		{
+			name:           "trigger with empty target returns nil",
+			action:         actionRestart,
+			target:         "",
+			expectedNilCmd: true,
+		},
+		{
+			name:           "trigger with valid target returns cmd",
+			action:         actionStart,
+			target:         "test-process",
+			expectedNilCmd: false,
+		},
+		{
+			name:           "trigger stop with valid target",
+			action:         actionStop,
+			target:         "nginx",
+			expectedNilCmd: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: true,
+				client:   NewAPIClient("http://localhost:9999", ""),
+			}
+
+			cmd := m.triggerAction(tt.action, tt.target)
+
+			if tt.expectedNilCmd {
+				if cmd != nil {
+					t.Error("Expected nil cmd for empty target")
+				}
+			} else {
+				if cmd == nil {
+					t.Error("Expected non-nil cmd for valid target")
+				}
+				// Note: pendingAction and pendingTarget are cleared after executeAction runs,
+				// which is called inside triggerAction. This is expected behavior.
+				// The important verification is that cmd is non-nil for valid targets.
+			}
+		})
+	}
+}
+
+// TestExecuteAction_EmptyTarget tests executeAction with no pending action
+func TestExecuteAction_EmptyTarget(t *testing.T) {
+	m := &Model{
+		pendingAction: actionNone,
+		pendingTarget: "",
+	}
+
+	cmd := m.executeAction()
+
+	if cmd != nil {
+		t.Error("Expected nil cmd when pendingAction is actionNone")
+	}
+
+	if m.showConfirmation {
+		t.Error("Expected showConfirmation to be false")
+	}
+}
+
+// TestExecuteAction_NoTarget tests executeAction with action but no target
+func TestExecuteAction_NoTarget(t *testing.T) {
+	m := &Model{
+		pendingAction: actionRestart,
+		pendingTarget: "",
+	}
+
+	cmd := m.executeAction()
+
+	if cmd != nil {
+		t.Error("Expected nil cmd when pendingTarget is empty")
+	}
+}
+
+// TestSetCursorForCurrentStep tests cursor positioning in wizard
+func TestSetCursorForCurrentStep(t *testing.T) {
+	tests := []struct {
+		name           string
+		step           int
+		wizardName     string
+		wizardCommand  string
+		expectedCursor int
+	}{
+		{
+			name:           "step 0 - name",
+			step:           0,
+			wizardName:     "test-proc",
+			expectedCursor: 9, // len("test-proc")
+		},
+		{
+			name:           "step 1 - command",
+			step:           1,
+			wizardCommand:  "php artisan queue:work",
+			expectedCursor: 22, // len("php artisan queue:work")
+		},
+		{
+			name:           "step 2 - no cursor",
+			step:           2,
+			expectedCursor: 0,
+		},
+		{
+			name:           "step 3 - no cursor",
+			step:           3,
+			expectedCursor: 0,
+		},
+		{
+			name:           "step 4 - no cursor",
+			step:           4,
+			expectedCursor: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				wizardStep:        tt.step,
+				wizardName:        tt.wizardName,
+				wizardCommandLine: tt.wizardCommand,
+				wizardCursor:      999, // Initial value to ensure it changes
+			}
+
+			m.setCursorForCurrentStep()
+
+			if m.wizardCursor != tt.expectedCursor {
+				t.Errorf("Expected cursor %d, got %d", tt.expectedCursor, m.wizardCursor)
+			}
+		})
+	}
+}
+
+// TestTabConstants verifies tab constants are properly defined
+func TestTabConstants(t *testing.T) {
+	// Verify tab names match expected values
+	expectedNames := []string{"Processes", "Scheduled", "Oneshot", "System"}
+	if len(tabNames) != len(expectedNames) {
+		t.Fatalf("Expected %d tab names, got %d", len(expectedNames), len(tabNames))
+	}
+
+	for i, expected := range expectedNames {
+		if tabNames[i] != expected {
+			t.Errorf("Expected tabNames[%d] = %q, got %q", i, expected, tabNames[i])
+		}
+	}
+
+	// Verify tab shortcuts
+	expectedShortcuts := []string{"1", "2", "3", "4"}
+	if len(tabShortcuts) != len(expectedShortcuts) {
+		t.Fatalf("Expected %d tab shortcuts, got %d", len(expectedShortcuts), len(tabShortcuts))
+	}
+
+	for i, expected := range expectedShortcuts {
+		if tabShortcuts[i] != expected {
+			t.Errorf("Expected tabShortcuts[%d] = %q, got %q", i, expected, tabShortcuts[i])
+		}
+	}
+}
+
+// TestViewModeConstants verifies view mode constants
+func TestViewModeConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     viewMode
+		expected int
+	}{
+		{"viewProcessList", viewProcessList, 0},
+		{"viewProcessDetail", viewProcessDetail, 1},
+		{"viewLogs", viewLogs, 2},
+		{"viewHelp", viewHelp, 3},
+		{"viewWizard", viewWizard, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if int(tt.mode) != tt.expected {
+				t.Errorf("Expected %s = %d, got %d", tt.name, tt.expected, int(tt.mode))
+			}
+		})
+	}
+}
+
+// TestActionTypeConstants verifies action type constants
+func TestActionTypeConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   actionType
+		expected int
+	}{
+		{"actionNone", actionNone, 0},
+		{"actionRestart", actionRestart, 1},
+		{"actionStop", actionStop, 2},
+		{"actionStart", actionStart, 3},
+		{"actionScale", actionScale, 4},
+		{"actionDelete", actionDelete, 5},
+		{"actionSchedulePause", actionSchedulePause, 6},
+		{"actionScheduleResume", actionScheduleResume, 7},
+		{"actionScheduleTrigger", actionScheduleTrigger, 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if int(tt.action) != tt.expected {
+				t.Errorf("Expected %s = %d, got %d", tt.name, tt.expected, int(tt.action))
+			}
+		})
+	}
+}
+
+// TestLogScopeConstants verifies log scope constants
+func TestLogScopeConstants(t *testing.T) {
+	if logScopeStack != 0 {
+		t.Errorf("Expected logScopeStack = 0, got %d", logScopeStack)
+	}
+	if logScopeProcess != 1 {
+		t.Errorf("Expected logScopeProcess = 1, got %d", logScopeProcess)
+	}
+}
+
+// TestWizardModeConstants verifies wizard mode constants
+func TestWizardModeConstants(t *testing.T) {
+	if wizardModeCreate != 0 {
+		t.Errorf("Expected wizardModeCreate = 0, got %d", wizardModeCreate)
+	}
+	if wizardModeEdit != 1 {
+		t.Errorf("Expected wizardModeEdit = 1, got %d", wizardModeEdit)
+	}
+}
+
+// TestTabTypeConstants verifies tab type constants
+func TestTabTypeConstants(t *testing.T) {
+	tests := []struct {
+		name     string
+		tab      tabType
+		expected int
+	}{
+		{"tabProcesses", tabProcesses, 0},
+		{"tabScheduled", tabScheduled, 1},
+		{"tabOneshot", tabOneshot, 2},
+		{"tabSystem", tabSystem, 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if int(tt.tab) != tt.expected {
+				t.Errorf("Expected %s = %d, got %d", tt.name, tt.expected, int(tt.tab))
+			}
+		})
+	}
+}
+
+// TestActionResultMsg tests action result message structure
+func TestActionResultMsg(t *testing.T) {
+	tests := []struct {
+		name    string
+		success bool
+		message string
+	}{
+		{
+			name:    "success message",
+			success: true,
+			message: "✓ Restarted php-fpm",
+		},
+		{
+			name:    "failure message",
+			success: false,
+			message: "✗ Error: connection refused",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := actionResultMsg{
+				success: tt.success,
+				message: tt.message,
+			}
+
+			if msg.success != tt.success {
+				t.Errorf("Expected success %v, got %v", tt.success, msg.success)
+			}
+
+			if msg.message != tt.message {
+				t.Errorf("Expected message %q, got %q", tt.message, msg.message)
+			}
+		})
+	}
+}
+
+// TestStartEditWizard_NilConfig tests edit wizard with nil config
+func TestStartEditWizard_NilConfig(t *testing.T) {
+	m := &Model{
+		currentView: viewProcessList,
+	}
+
+	m.startEditWizard("test-process", nil)
+
+	if m.currentView != viewWizard {
+		t.Errorf("Expected currentView %v, got %v", viewWizard, m.currentView)
+	}
+
+	if m.wizardMode != wizardModeEdit {
+		t.Errorf("Expected wizardMode edit, got %v", m.wizardMode)
+	}
+
+	// Default values should be used
+	if m.wizardScale != 1 {
+		t.Errorf("Expected default wizardScale 1, got %d", m.wizardScale)
+	}
+
+	if m.wizardRestart != "always" {
+		t.Errorf("Expected default wizardRestart 'always', got %q", m.wizardRestart)
+	}
+}

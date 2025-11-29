@@ -1,6 +1,6 @@
 ---
 title: "Introduction"
-description: "Production-grade PID 1 process manager for Docker containers with Laravel-first design"
+description: "Production-grade PID 1 process manager for PHP applications in Docker containers"
 weight: 1
 ---
 
@@ -10,14 +10,14 @@ PHPeek PM is a production-grade process manager designed specifically for runnin
 
 ## What is PHPeek PM?
 
-PHPeek PM manages multiple processes within a single Docker container, making it ideal for Laravel applications that need to run:
+PHPeek PM manages multiple processes within a single Docker container, making it ideal for PHP applications that need to run:
 
 - PHP-FPM for web requests
 - Nginx as a reverse proxy
-- Laravel Horizon for queue management
-- Laravel Reverb for WebSocket connections
-- Multiple queue workers with different priorities
-- Laravel Scheduler for cron jobs
+- Queue workers for background job processing
+- WebSocket servers for real-time communication
+- Scheduled tasks (cron jobs)
+- Framework-specific daemons (Horizon, Messenger, wp-cron, etc.)
 
 ## Why PHPeek PM?
 
@@ -46,10 +46,11 @@ PHPeek PM manages multiple processes within a single Docker container, making it
 ## Who Should Use PHPeek PM?
 
 **Perfect For**
-- Laravel applications needing multiple services in one container
+- PHP applications needing multiple services in one container
 - Production deployments requiring observability
 - Teams wanting simplified Docker orchestration
 - Applications with queue workers and scheduled tasks
+- Laravel, Symfony, WordPress, or any PHP framework
 
 **Not Ideal For**
 - Simple single-process applications
@@ -85,13 +86,13 @@ PHPeek PM manages multiple processes within a single Docker container, making it
 │  └──────────────────────────────────────────┘ │
 │                                                 │
 │  ┌──────────┐ ┌──────────┐ ┌────────┐        │
-│  │ PHP-FPM  │ │  Nginx   │ │Horizon │        │
-│  │ (scale 2)│ │          │ │        │        │
+│  │ PHP-FPM  │ │  Nginx   │ │ Queue  │        │
+│  │ (scale 2)│ │          │ │Workers │        │
 │  └──────────┘ └──────────┘ └────────┘        │
 │                                                 │
 │  ┌──────────┐ ┌──────────────────────┐       │
-│  │ Queue    │ │   Cron Scheduler     │       │
-│  │(scale 3) │ │  • Standard 5-field  │       │
+│  │ WebSocket│ │   Cron Scheduler     │       │
+│  │  Server  │ │  • Standard 5-field  │       │
 │  │          │ │  • Task statistics   │       │
 │  │          │ │  • Heartbeat pings   │       │
 │  └──────────┘ └──────────────────────┘       │
@@ -137,7 +138,7 @@ PHPeek PM manages multiple processes within a single Docker container, making it
 - Auto-detect Laravel, Symfony, WordPress
 - Framework-specific permission setup
 - Configuration validation
-- Laravel Artisan command support (Horizon, queue workers, scheduler)
+- Support for framework CLIs (artisan, console, wp-cli)
 
 ## Quick Example
 
@@ -165,14 +166,15 @@ processes:
     depends_on: [php-fpm]
     restart: always
 
-  horizon:
+  # Laravel: php artisan queue:work
+  # Symfony: php bin/console messenger:consume
+  # Custom: php /app/worker.php
+  queue-worker:
     enabled: true
-    command: ["php", "artisan", "horizon"]
+    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3"]
     depends_on: [php-fpm]
-    shutdown:
-      pre_stop_hook:
-        command: ["php", "artisan", "horizon:terminate"]
-        timeout: 60
+    scale: 3
+    restart: always
 ```
 
 ## Next Steps
@@ -180,7 +182,7 @@ processes:
 - [Installation](getting-started/installation) - Get PHPeek PM installed
 - [Quick Start](getting-started/quickstart) - 5-minute getting started guide
 - [Configuration](configuration/overview) - Complete configuration reference
-- [Examples](examples/laravel-complete) - Real-world configuration examples
+- [Examples](examples/) - Real-world configuration examples
 
 ## Community
 

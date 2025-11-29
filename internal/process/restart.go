@@ -4,13 +4,30 @@ import (
 	"time"
 )
 
-// RestartPolicy defines restart behavior
+// RestartPolicy defines the restart behavior for a process.
+// Implementations determine whether a process should be restarted after exit
+// and calculate the backoff delay between restart attempts.
+//
+// The process manager uses RestartPolicy to implement automatic restart
+// with exponential backoff, preventing restart storms while ensuring
+// services recover from transient failures.
+//
+// Built-in implementations:
+//   - AlwaysRestartPolicy: Restart regardless of exit code
+//   - OnFailureRestartPolicy: Restart only on non-zero exit codes
+//   - NeverRestartPolicy: Never restart (for oneshot/batch processes)
 type RestartPolicy interface {
+	// ShouldRestart returns true if the process should be restarted.
+	// exitCode is the process exit code, restartCount is the number of restarts so far.
 	ShouldRestart(exitCode int, restartCount int) bool
+	// BackoffDuration returns the delay before the next restart attempt.
+	// Typically implements exponential backoff with a maximum cap.
 	BackoffDuration(restartCount int) time.Duration
 }
 
-// AlwaysRestartPolicy always restarts processes up to max attempts
+// AlwaysRestartPolicy restarts processes regardless of exit code, up to maxAttempts.
+// Use this for long-running services that should always be kept running.
+// Set maxAttempts to 0 for unlimited restarts.
 type AlwaysRestartPolicy struct {
 	maxAttempts    int
 	initialBackoff time.Duration
@@ -37,7 +54,9 @@ func (p *AlwaysRestartPolicy) BackoffDuration(restartCount int) time.Duration {
 	return calculateBackoff(p.initialBackoff, p.maxBackoff, restartCount)
 }
 
-// OnFailureRestartPolicy restarts only on non-zero exit codes
+// OnFailureRestartPolicy restarts processes only when they exit with a non-zero code.
+// Clean exits (exit code 0) are not restarted. Use this for services where normal
+// termination should be respected but crashes should trigger recovery.
 type OnFailureRestartPolicy struct {
 	maxAttempts    int
 	initialBackoff time.Duration
@@ -67,7 +86,9 @@ func (p *OnFailureRestartPolicy) BackoffDuration(restartCount int) time.Duration
 	return calculateBackoff(p.initialBackoff, p.maxBackoff, restartCount)
 }
 
-// NeverRestartPolicy never restarts processes
+// NeverRestartPolicy never restarts processes regardless of exit code.
+// Use this for oneshot processes, batch jobs, and scheduled tasks that
+// should run once and exit.
 type NeverRestartPolicy struct{}
 
 // NewNeverRestartPolicy creates a new never restart policy
@@ -83,7 +104,17 @@ func (p *NeverRestartPolicy) BackoffDuration(restartCount int) time.Duration {
 	return 0
 }
 
-// NewRestartPolicy creates a restart policy based on type
+// NewRestartPolicy creates a restart policy based on the policy type string.
+// Supported types:
+//   - "always": Restart regardless of exit code (for long-running services)
+//   - "on-failure": Restart only on non-zero exit codes (for services that can exit cleanly)
+//   - "never" or any other value: Never restart (for oneshot/batch processes)
+//
+// Parameters:
+//   - policyType: One of "always", "on-failure", or "never"
+//   - maxAttempts: Maximum restart attempts (0 = unlimited for always/on-failure)
+//   - initial: Initial backoff delay between restarts
+//   - max: Maximum backoff delay (exponential backoff capped at this value)
 func NewRestartPolicy(policyType string, maxAttempts int, initial, max time.Duration) RestartPolicy {
 	switch policyType {
 	case "always":

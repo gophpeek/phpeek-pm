@@ -225,132 +225,158 @@ func (m *Model) updateProcessTable(processes []process.ProcessInfo) {
 	m.updateScheduledTable(processes)
 
 	// Filter out scheduled processes - they go to the Scheduled tab
+	regularProcs := m.filterRegularProcesses(processes)
+
+	headers := []string{"NAME", "TYPE", "STATE", "HEALTH", "SCALE", "CPU", "RAM", "UPTIME", "RESTARTS"}
+	colWidths := m.initColumnWidths(headers)
+
+	displayRows := make([]processDisplayRow, 0, len(regularProcs))
+	cursorRows := make([]table.Row, 0, len(regularProcs))
+
+	for _, proc := range regularProcs {
+		row := m.buildProcessDisplayRow(proc)
+		displayRows = append(displayRows, row)
+		cursorRows = append(cursorRows, table.Row{proc.Name})
+		m.updateColumnWidths(colWidths, row)
+	}
+
+	m.applyProcessTableLayout(displayRows, cursorRows, colWidths, headers)
+}
+
+// filterRegularProcesses filters out scheduled processes and sorts by name
+func (m *Model) filterRegularProcesses(processes []process.ProcessInfo) []process.ProcessInfo {
 	regularProcs := make([]process.ProcessInfo, 0)
 	for _, proc := range processes {
 		if proc.Type != "scheduled" {
 			regularProcs = append(regularProcs, proc)
 		}
 	}
-
-	// Sort processes alphabetically by name for stable display order
 	sort.Slice(regularProcs, func(i, j int) bool {
 		return regularProcs[i].Name < regularProcs[j].Name
 	})
+	return regularProcs
+}
 
-	headers := []string{"NAME", "TYPE", "STATE", "HEALTH", "SCALE", "CPU", "RAM", "UPTIME", "RESTARTS"}
-
+// initColumnWidths initializes column widths based on header lengths
+func (m *Model) initColumnWidths(headers []string) []int {
 	colWidths := make([]int, len(headers))
 	for i, header := range headers {
 		colWidths[i] = lipgloss.Width(header)
 	}
+	return colWidths
+}
 
-	displayRows := make([]processDisplayRow, 0, len(regularProcs))
-	cursorRows := make([]table.Row, 0, len(regularProcs))
+// buildProcessDisplayRow creates a display row for a regular process
+func (m *Model) buildProcessDisplayRow(proc process.ProcessInfo) processDisplayRow {
+	stats := m.calculateProcessStats(proc)
+	stateText, stateStyle := stateDisplay(proc.State)
+	healthText, healthStyle := m.determineHealthDisplay(proc, stats)
+	nameStyle := m.determineNameStyle(proc.State)
+	scaleText := m.formatScaleText(stats.currentInstances, proc.DesiredScale, proc.MaxScale)
 
-	for _, proc := range regularProcs {
-		var row processDisplayRow
+	return processDisplayRow{
+		name:         proc.Name,
+		nameStyle:    nameStyle,
+		procType:     proc.Type,
+		state:        stateText,
+		rawState:     proc.State,
+		stateStyle:   stateStyle,
+		health:       healthText,
+		healthStyle:  healthStyle,
+		scale:        scaleText,
+		currentScale: stats.currentInstances,
+		desiredScale: proc.DesiredScale,
+		maxScale:     proc.MaxScale,
+		cpuUsage:     formatCPUUsage(proc.CPUPercent),
+		memoryUsage:  formatMemoryUsage(proc.MemoryRSSBytes),
+		uptime:       formatUptime(stats.oldestStart),
+		restarts:     fmt.Sprintf("%d", stats.totalRestarts),
+	}
+}
 
-		// Regular process handling (longrun/oneshot)
-		{
-			// Regular process handling
-			currentInstances := len(proc.Instances)
-			totalRestarts := 0
-			oldestStart := int64(0)
-			allHealthy := true
-			hasFailed := false
+// processStats holds computed statistics for a process
+type processStats struct {
+	currentInstances int
+	totalRestarts    int
+	oldestStart      int64
+	allHealthy       bool
+	hasFailed        bool
+}
 
-			for _, inst := range proc.Instances {
-				totalRestarts += inst.RestartCount
-				if oldestStart == 0 || inst.StartedAt < oldestStart {
-					oldestStart = inst.StartedAt
-				}
-				if inst.State != "running" {
-					allHealthy = false
-					if inst.State == "failed" {
-						hasFailed = true
-					}
-				}
-			}
+// calculateProcessStats computes statistics from process instances
+func (m *Model) calculateProcessStats(proc process.ProcessInfo) processStats {
+	stats := processStats{
+		currentInstances: len(proc.Instances),
+		allHealthy:       true,
+	}
 
-			stateText, stateStyle := stateDisplay(proc.State)
-			healthy := allHealthy && currentInstances > 0
-			var healthText string
-			var healthStyle lipgloss.Style
-			switch {
-			case proc.State != string(process.StateRunning) && proc.State != "running":
-				healthText = "–"
-				healthStyle = dimStyle
-			case hasFailed:
-				healthText, healthStyle = healthDisplay(false)
-			case currentInstances != proc.DesiredScale:
-				healthText = "⟳ Scaling"
-				healthStyle = highlightStyle
-			case !allHealthy:
-				healthText = "⟳ Scaling"
-				healthStyle = highlightStyle
-			default:
-				healthText, healthStyle = healthDisplay(healthy)
-			}
-
-			var nameStyle lipgloss.Style
-			switch proc.State {
-			case "running":
-				nameStyle = successStyle
-			case "failed":
-				nameStyle = errorStyle
-			default:
-				nameStyle = warnStyle
-			}
-
-			var scaleText string
-			if proc.MaxScale > 0 {
-				scaleText = fmt.Sprintf("%d/%d/%d", currentInstances, proc.DesiredScale, proc.MaxScale)
-			} else {
-				scaleText = fmt.Sprintf("%d/%d/-", currentInstances, proc.DesiredScale)
-			}
-
-			row = processDisplayRow{
-				name:         proc.Name,
-				nameStyle:    nameStyle,
-				procType:     proc.Type,
-				state:        stateText,
-				rawState:     proc.State,
-				stateStyle:   stateStyle,
-				health:       healthText,
-				healthStyle:  healthStyle,
-				scale:        scaleText,
-				currentScale: currentInstances,
-				desiredScale: proc.DesiredScale,
-				maxScale:     proc.MaxScale,
-				cpuUsage:     formatCPUUsage(proc.CPUPercent),
-				memoryUsage:  formatMemoryUsage(proc.MemoryRSSBytes),
-				uptime:       formatUptime(oldestStart),
-				restarts:     fmt.Sprintf("%d", totalRestarts),
-			}
+	for _, inst := range proc.Instances {
+		stats.totalRestarts += inst.RestartCount
+		if stats.oldestStart == 0 || inst.StartedAt < stats.oldestStart {
+			stats.oldestStart = inst.StartedAt
 		}
-
-		displayRows = append(displayRows, row)
-		cursorRows = append(cursorRows, table.Row{proc.Name})
-
-		values := []string{
-			row.name,
-			row.procType,
-			row.state,
-			row.health,
-			row.scale,
-			row.cpuUsage,
-			row.memoryUsage,
-			row.uptime,
-			row.restarts,
-		}
-
-		for i, value := range values {
-			if w := lipgloss.Width(value); w > colWidths[i] {
-				colWidths[i] = w
+		if inst.State != "running" {
+			stats.allHealthy = false
+			if inst.State == "failed" {
+				stats.hasFailed = true
 			}
 		}
 	}
+	return stats
+}
 
+// determineHealthDisplay determines the health text and style for a process
+func (m *Model) determineHealthDisplay(proc process.ProcessInfo, stats processStats) (string, lipgloss.Style) {
+	switch {
+	case proc.State != string(process.StateRunning) && proc.State != "running":
+		return "–", dimStyle
+	case stats.hasFailed:
+		return healthDisplay(false)
+	case stats.currentInstances != proc.DesiredScale:
+		return "⟳ Scaling", highlightStyle
+	case !stats.allHealthy:
+		return "⟳ Scaling", highlightStyle
+	default:
+		healthy := stats.allHealthy && stats.currentInstances > 0
+		return healthDisplay(healthy)
+	}
+}
+
+// determineNameStyle returns the style for the process name based on state
+func (m *Model) determineNameStyle(state string) lipgloss.Style {
+	switch state {
+	case "running":
+		return successStyle
+	case "failed":
+		return errorStyle
+	default:
+		return warnStyle
+	}
+}
+
+// formatScaleText formats the scale display string
+func (m *Model) formatScaleText(current, desired, max int) string {
+	if max > 0 {
+		return fmt.Sprintf("%d/%d/%d", current, desired, max)
+	}
+	return fmt.Sprintf("%d/%d/-", current, desired)
+}
+
+// updateColumnWidths updates column widths based on row values
+func (m *Model) updateColumnWidths(colWidths []int, row processDisplayRow) {
+	values := []string{
+		row.name, row.procType, row.state, row.health,
+		row.scale, row.cpuUsage, row.memoryUsage, row.uptime, row.restarts,
+	}
+	for i, value := range values {
+		if w := lipgloss.Width(value); w > colWidths[i] {
+			colWidths[i] = w
+		}
+	}
+}
+
+// applyProcessTableLayout applies the final layout to the process table
+func (m *Model) applyProcessTableLayout(displayRows []processDisplayRow, cursorRows []table.Row, colWidths []int, headers []string) {
 	totalWidth := 0
 	for _, w := range colWidths {
 		totalWidth += w
@@ -371,18 +397,24 @@ func (m *Model) updateProcessTable(processes []process.ProcessInfo) {
 	m.processTable.SetColumns(m.defaultColumns())
 	m.processTable.SetWidth(available + separatorWidth)
 	m.processTable.SetRows(cursorRows)
-	if len(m.tableData) == 0 {
+
+	m.clampSelectedIndex(len(m.tableData))
+	m.processTable.SetCursor(m.selectedIndex)
+	m.ensureCursorVisible()
+}
+
+// clampSelectedIndex ensures the selected index is within valid bounds
+func (m *Model) clampSelectedIndex(dataLen int) {
+	if dataLen == 0 {
 		m.selectedIndex = 0
 	} else {
-		if m.selectedIndex >= len(m.tableData) {
-			m.selectedIndex = len(m.tableData) - 1
+		if m.selectedIndex >= dataLen {
+			m.selectedIndex = dataLen - 1
 		}
 		if m.selectedIndex < 0 {
 			m.selectedIndex = 0
 		}
 	}
-	m.processTable.SetCursor(m.selectedIndex)
-	m.ensureCursorVisible()
 }
 
 // ensureCursorVisible keeps the cursor within the visible viewport
@@ -743,13 +775,22 @@ func (m *Model) updateScheduledTable(processes []process.ProcessInfo) {
 			nextRunStyle = highlightStyle
 		}
 
-		// Exit code from last run (placeholder - would need history API)
+		// Exit code from last run (from execution history)
 		exitCodeText := "-"
 		var exitCodeStyle lipgloss.Style = dimStyle
-		if proc.LastRun > 0 {
-			// If we have last run info, show exit code
-			exitCodeText = "0" // Default to success - TODO: get from history
-			exitCodeStyle = successStyle
+		if proc.LastExitCode != nil {
+			exitCodeText = fmt.Sprintf("%d", *proc.LastExitCode)
+			if *proc.LastExitCode == 0 {
+				exitCodeStyle = successStyle
+			} else {
+				exitCodeStyle = errorStyle
+			}
+		}
+
+		// Success rate formatting
+		successRateText := "-"
+		if proc.RunCount > 0 {
+			successRateText = fmt.Sprintf("%.0f%%", proc.SuccessRate)
 		}
 
 		row := scheduledDisplayRow{
@@ -765,8 +806,8 @@ func (m *Model) updateScheduledTable(processes []process.ProcessInfo) {
 			nextRunStyle:  nextRunStyle,
 			lastExitCode:  exitCodeText,
 			exitCodeStyle: exitCodeStyle,
-			runCount:      0, // TODO: get from history
-			successRate:   "-",
+			runCount:      proc.RunCount,
+			successRate:   successRateText,
 			rawLastRun:    proc.LastRun,
 			rawNextRun:    proc.NextRun,
 		}

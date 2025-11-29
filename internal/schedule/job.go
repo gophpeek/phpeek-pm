@@ -10,7 +10,15 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// JobState represents the current state of a scheduled job
+// JobState represents the current execution state of a scheduled job.
+// The state machine transitions are:
+//
+//	Idle → Executing (on trigger/schedule)
+//	Executing → Idle (on completion)
+//	Idle → Paused (on pause request)
+//	Paused → Idle (on resume request)
+//
+// Executing → Paused is not allowed; jobs must complete before pausing.
 type JobState int
 
 const (
@@ -36,14 +44,36 @@ func (s JobState) String() string {
 	}
 }
 
-// JobExecutor is the interface for executing a scheduled job
+// JobExecutor defines the interface for executing scheduled jobs.
+// Implementations handle the actual process spawning and lifecycle management.
+//
+// The Execute method is called by the scheduler when a job triggers. It should:
+//   - Spawn the configured process with appropriate environment
+//   - Wait for completion or context cancellation
+//   - Return the exit code (0 for success) and any execution error
+//
+// The context carries cancellation signals and execution timeouts. Implementations
+// must respect context cancellation for graceful job termination.
 type JobExecutor interface {
-	// Execute runs the job and returns when complete
-	// Returns exit code and error
+	// Execute runs the job and blocks until completion or cancellation.
+	// Returns the process exit code and any execution error.
 	Execute(ctx context.Context, processName string) (int, error)
 }
 
-// ScheduledJob represents a single scheduled job with state management
+// ScheduledJob represents a single scheduled job with complete state management.
+// It wraps a cron schedule with execution tracking, pause/resume capabilities,
+// and support for both scheduled and manual triggering.
+//
+// Key features:
+//   - Cron-based scheduling with standard 5-field expressions
+//   - Execution history with configurable retention
+//   - Overlap prevention (jobs don't run concurrently by default)
+//   - Configurable timeouts and concurrency limits
+//   - Pause/resume without removing from scheduler
+//   - Manual triggering (async or sync with exit code)
+//
+// ScheduledJob implements cron.Job interface for integration with robfig/cron.
+// All public methods are thread-safe for concurrent access.
 type ScheduledJob struct {
 	Name          string
 	Schedule      string
@@ -67,13 +97,31 @@ type ScheduledJob struct {
 	executionMu sync.Mutex // Separate mutex for execution to allow state reads during execution
 }
 
-// JobOptions contains optional configuration for a scheduled job
+// JobOptions contains optional configuration for a scheduled job.
+// All fields have sensible zero-value defaults for basic operation.
 type JobOptions struct {
-	Timeout       time.Duration // Execution timeout (0 = no timeout)
-	MaxConcurrent int           // Max concurrent executions (0/1 = no overlap)
+	// Timeout specifies the maximum execution duration. When exceeded, the
+	// job's context is cancelled. Zero means no timeout (run until completion).
+	Timeout time.Duration
+
+	// MaxConcurrent limits how many instances can run simultaneously.
+	// 0 or 1 means no overlap (skip if already running), >1 allows parallel runs.
+	// Use with caution as parallel runs may cause resource contention.
+	MaxConcurrent int
 }
 
-// NewScheduledJob creates a new ScheduledJob
+// NewScheduledJob creates a new ScheduledJob with default options.
+// This is a convenience wrapper around NewScheduledJobWithOptions.
+//
+// Parameters:
+//   - name: Unique identifier for the job (used in logs and API)
+//   - scheduleExpr: Cron expression (5 fields: minute hour day-of-month month day-of-week)
+//   - timezone: IANA timezone name (e.g., "America/New_York") or empty for local
+//   - historySize: Maximum execution history entries to retain
+//   - executor: Implementation that runs the actual job process
+//   - logger: Structured logger for job events
+//
+// Returns an error if the schedule expression is invalid.
 func NewScheduledJob(name, scheduleExpr, timezone string, historySize int, executor JobExecutor, logger *slog.Logger) (*ScheduledJob, error) {
 	return NewScheduledJobWithOptions(name, scheduleExpr, timezone, historySize, executor, logger, JobOptions{})
 }
@@ -229,8 +277,9 @@ func (j *ScheduledJob) TriggerSync(ctx context.Context) (int, error) {
 }
 
 // execute runs the job (internal)
+// Error handling is done within executeSync (logging, state updates, callbacks)
 func (j *ScheduledJob) execute(ctx context.Context, triggered string) {
-	j.executeSync(ctx, triggered)
+	_, _ = j.executeSync(ctx, triggered)
 }
 
 // executeSync runs the job synchronously and returns the result
@@ -298,7 +347,8 @@ func (j *ScheduledJob) executeSync(ctx context.Context, triggered string) (int, 
 	return exitCode, execErr
 }
 
-// Status returns the current status of the job
+// JobStatus provides a snapshot of a scheduled job's current state.
+// This struct is returned by the Status() method and is safe to serialize to JSON.
 type JobStatus struct {
 	Name          string       `json:"name"`
 	Schedule      string       `json:"schedule"`

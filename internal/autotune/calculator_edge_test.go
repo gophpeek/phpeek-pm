@@ -38,6 +38,7 @@ func TestNewCalculator_ValidProfile(t *testing.T) {
 
 			if calc == nil {
 				t.Errorf("Expected non-nil calculator for valid profile %s", profile)
+				return
 			}
 
 			// Verify calculator fields

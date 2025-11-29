@@ -6,7 +6,7 @@ weight: 20
 
 # Features
 
-PHPeek PM provides production-grade process management features designed specifically for Laravel applications in Docker containers.
+PHPeek PM provides production-grade process management features designed for PHP applications in Docker containers. Whether you're running Laravel, WordPress, Symfony, or any PHP framework, these features help you manage multi-process containers reliably.
 
 ## Core Features
 
@@ -42,11 +42,11 @@ processes:
 processes:
   backup-job:
     enabled: true
-    command: ["php", "artisan", "backup:run"]
+    command: ["php", "/app/scripts/backup.php"]
     schedule: "0 2 * * *"  # Daily at 2 AM
 ```
 
 ## See Also
 
 - [Configuration Overview](../configuration/overview) - All configuration options
-- [Examples](../examples/laravel-complete) - Real-world configurations
+- [Examples](../examples/) - Real-world configurations

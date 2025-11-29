@@ -470,6 +470,487 @@ func TestDetectContainerResources_FallbackToHost(t *testing.T) {
 	t.Logf("Fallback resources: %s", resources.String())
 }
 
+// TestParseCgroupV2Memory tests the cgroup v2 memory parsing function
+func TestParseCgroupV2Memory(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		expectBytes  int64
+		expectMB     int
+	}{
+		{
+			name:        "valid 2GB limit",
+			content:     "2147483648\n",
+			expectBytes: 2147483648,
+			expectMB:    2048,
+		},
+		{
+			name:        "valid 1GB limit",
+			content:     "1073741824\n",
+			expectBytes: 1073741824,
+			expectMB:    1024,
+		},
+		{
+			name:        "valid 512MB limit",
+			content:     "536870912\n",
+			expectBytes: 536870912,
+			expectMB:    512,
+		},
+		{
+			name:        "unlimited memory (max)",
+			content:     "max\n",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "unlimited no newline",
+			content:     "max",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "with whitespace",
+			content:     "  1073741824  \n",
+			expectBytes: 1073741824,
+			expectMB:    1024,
+		},
+		{
+			name:        "invalid content",
+			content:     "invalid\n",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "empty content",
+			content:     "",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "256MB limit",
+			content:     "268435456",
+			expectBytes: 268435456,
+			expectMB:    256,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &ContainerResources{}
+			parseCgroupV2Memory(r, tt.content)
+
+			if r.MemoryLimitBytes != tt.expectBytes {
+				t.Errorf("MemoryLimitBytes = %d, want %d", r.MemoryLimitBytes, tt.expectBytes)
+			}
+			if r.MemoryLimitMB != tt.expectMB {
+				t.Errorf("MemoryLimitMB = %d, want %d", r.MemoryLimitMB, tt.expectMB)
+			}
+		})
+	}
+}
+
+// TestParseCgroupV2CPU tests the cgroup v2 CPU parsing function
+func TestParseCgroupV2CPU(t *testing.T) {
+	tests := []struct {
+		name       string
+		content    string
+		expectCPUs int
+		startCPUs  int // Starting CPU value to test "unchanged" cases
+	}{
+		{
+			name:       "2 CPUs",
+			content:    "200000 100000\n",
+			expectCPUs: 2,
+			startCPUs:  0,
+		},
+		{
+			name:       "4 CPUs",
+			content:    "400000 100000\n",
+			expectCPUs: 4,
+			startCPUs:  0,
+		},
+		{
+			name:       "1 CPU",
+			content:    "100000 100000\n",
+			expectCPUs: 1,
+			startCPUs:  0,
+		},
+		{
+			name:       "fractional 1.5 CPUs rounds up to 2",
+			content:    "150000 100000\n",
+			expectCPUs: 2,
+			startCPUs:  0,
+		},
+		{
+			name:       "fractional 0.5 CPU rounds up to 1",
+			content:    "50000 100000\n",
+			expectCPUs: 1,
+			startCPUs:  0,
+		},
+		{
+			name:       "fractional 2.25 CPUs rounds up to 3",
+			content:    "225000 100000\n",
+			expectCPUs: 3,
+			startCPUs:  0,
+		},
+		{
+			name:       "unlimited CPUs (max) keeps default",
+			content:    "max 100000\n",
+			expectCPUs: 4, // Should keep startCPUs
+			startCPUs:  4,
+		},
+		{
+			name:       "single value unchanged",
+			content:    "200000\n",
+			expectCPUs: 8, // Should keep startCPUs
+			startCPUs:  8,
+		},
+		{
+			name:       "invalid format unchanged",
+			content:    "invalid\n",
+			expectCPUs: 2, // Should keep startCPUs
+			startCPUs:  2,
+		},
+		{
+			name:       "empty unchanged",
+			content:    "",
+			expectCPUs: 4, // Should keep startCPUs
+			startCPUs:  4,
+		},
+		{
+			name:       "zero period unchanged",
+			content:    "200000 0\n",
+			expectCPUs: 2, // Should keep startCPUs
+			startCPUs:  2,
+		},
+		{
+			name:       "non-standard period",
+			content:    "500000 250000\n",
+			expectCPUs: 2, // 500000/250000 = 2
+			startCPUs:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &ContainerResources{CPULimit: tt.startCPUs}
+			parseCgroupV2CPU(r, tt.content)
+
+			if r.CPULimit != tt.expectCPUs {
+				t.Errorf("CPULimit = %d, want %d", r.CPULimit, tt.expectCPUs)
+			}
+		})
+	}
+}
+
+// TestParseCgroupV1Memory tests the cgroup v1 memory parsing function
+func TestParseCgroupV1Memory(t *testing.T) {
+	tests := []struct {
+		name         string
+		content      string
+		expectBytes  int64
+		expectMB     int
+	}{
+		{
+			name:        "valid 2GB limit",
+			content:     "2147483648\n",
+			expectBytes: 2147483648,
+			expectMB:    2048,
+		},
+		{
+			name:        "valid 1GB limit",
+			content:     "1073741824",
+			expectBytes: 1073741824,
+			expectMB:    1024,
+		},
+		{
+			name:        "valid 512MB limit",
+			content:     "536870912\n",
+			expectBytes: 536870912,
+			expectMB:    512,
+		},
+		{
+			name:        "unlimited memory (very large value)",
+			content:     "9223372036854771712\n", // Near max int64
+			expectBytes: 0,                       // Should be ignored as unlimited
+			expectMB:    0,
+		},
+		{
+			name:        "unlimited 1PB threshold",
+			content:     "1125899906842624\n", // 1PB - exactly at threshold
+			expectBytes: 0,                   // Should be ignored
+			expectMB:    0,
+		},
+		{
+			name:        "just under 1PB valid",
+			content:     "1125899906842623\n", // 1 byte under 1PB
+			expectBytes: 1125899906842623,
+			expectMB:    1073741823,
+		},
+		{
+			name:        "with whitespace",
+			content:     "  1073741824  \n",
+			expectBytes: 1073741824,
+			expectMB:    1024,
+		},
+		{
+			name:        "invalid content",
+			content:     "invalid\n",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "empty content",
+			content:     "",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "negative value",
+			content:     "-1\n",
+			expectBytes: 0,
+			expectMB:    0,
+		},
+		{
+			name:        "256MB limit",
+			content:     "268435456",
+			expectBytes: 268435456,
+			expectMB:    256,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &ContainerResources{}
+			parseCgroupV1Memory(r, tt.content)
+
+			if r.MemoryLimitBytes != tt.expectBytes {
+				t.Errorf("MemoryLimitBytes = %d, want %d", r.MemoryLimitBytes, tt.expectBytes)
+			}
+			if r.MemoryLimitMB != tt.expectMB {
+				t.Errorf("MemoryLimitMB = %d, want %d", r.MemoryLimitMB, tt.expectMB)
+			}
+		})
+	}
+}
+
+// TestParseMeminfo tests the meminfo parsing function
+func TestParseMeminfo(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectBytes int64
+		expectError bool
+	}{
+		{
+			name: "valid meminfo 16GB",
+			content: `MemTotal:       16384000 kB
+MemFree:         1234567 kB
+MemAvailable:    8765432 kB
+Buffers:          123456 kB
+Cached:          2345678 kB`,
+			expectBytes: 16384000 * 1024,
+			expectError: false,
+		},
+		{
+			name: "valid meminfo 8GB",
+			content: `MemTotal:       8388608 kB
+MemFree:         1000000 kB`,
+			expectBytes: 8388608 * 1024,
+			expectError: false,
+		},
+		{
+			name: "valid meminfo 32GB with tabs",
+			content: `MemTotal:	32768000 kB
+MemFree:	2000000 kB`,
+			expectBytes: 32768000 * 1024,
+			expectError: false,
+		},
+		{
+			name:        "memtotal not found",
+			content:     "MemFree:  1234567 kB\nBuffers:  123456 kB\n",
+			expectBytes: 0,
+			expectError: true,
+		},
+		{
+			name:        "empty content",
+			content:     "",
+			expectBytes: 0,
+			expectError: true,
+		},
+		{
+			name:        "malformed memtotal",
+			content:     "MemTotal: invalid kB\n",
+			expectBytes: 0,
+			expectError: true,
+		},
+		{
+			name:        "memtotal no value",
+			content:     "MemTotal:\n",
+			expectBytes: 0,
+			expectError: true,
+		},
+		{
+			name: "real world meminfo format",
+			content: `MemTotal:       65536000 kB
+MemFree:         5555555 kB
+MemAvailable:   45000000 kB
+Buffers:         1234567 kB
+Cached:         20000000 kB
+SwapCached:            0 kB
+Active:         30000000 kB
+Inactive:       10000000 kB
+Active(anon):   25000000 kB
+Inactive(anon):        0 kB
+Active(file):    5000000 kB
+Inactive(file): 10000000 kB`,
+			expectBytes: 65536000 * 1024,
+			expectError: false,
+		},
+		{
+			name: "memtotal in middle of content",
+			content: `MemFree:  1234567 kB
+MemTotal: 8388608 kB
+Buffers:  123456 kB`,
+			expectBytes: 8388608 * 1024,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseMeminfo(tt.content)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("parseMeminfo() expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("parseMeminfo() unexpected error: %v", err)
+				}
+				if result != tt.expectBytes {
+					t.Errorf("parseMeminfo() = %d, want %d", result, tt.expectBytes)
+				}
+			}
+		})
+	}
+}
+
+// TestParseCgroupV1CPU tests the cgroup v1 CPU parsing function
+func TestParseCgroupV1CPU(t *testing.T) {
+	tests := []struct {
+		name          string
+		quotaContent  string
+		periodContent string
+		expectCPUs    int
+		startCPUs     int
+	}{
+		{
+			name:          "2 CPUs",
+			quotaContent:  "200000\n",
+			periodContent: "100000\n",
+			expectCPUs:    2,
+			startCPUs:     0,
+		},
+		{
+			name:          "4 CPUs",
+			quotaContent:  "400000\n",
+			periodContent: "100000\n",
+			expectCPUs:    4,
+			startCPUs:     0,
+		},
+		{
+			name:          "1 CPU",
+			quotaContent:  "100000\n",
+			periodContent: "100000\n",
+			expectCPUs:    1,
+			startCPUs:     0,
+		},
+		{
+			name:          "fractional 1.5 rounds up to 2",
+			quotaContent:  "150000\n",
+			periodContent: "100000\n",
+			expectCPUs:    2,
+			startCPUs:     0,
+		},
+		{
+			name:          "fractional 0.5 rounds up to 1",
+			quotaContent:  "50000\n",
+			periodContent: "100000\n",
+			expectCPUs:    1,
+			startCPUs:     0,
+		},
+		{
+			name:          "unlimited quota -1 unchanged",
+			quotaContent:  "-1\n",
+			periodContent: "100000\n",
+			expectCPUs:    4, // Should keep startCPUs
+			startCPUs:     4,
+		},
+		{
+			name:          "zero quota unchanged",
+			quotaContent:  "0\n",
+			periodContent: "100000\n",
+			expectCPUs:    8, // Should keep startCPUs
+			startCPUs:     8,
+		},
+		{
+			name:          "zero period unchanged",
+			quotaContent:  "200000\n",
+			periodContent: "0\n",
+			expectCPUs:    2, // Should keep startCPUs
+			startCPUs:     2,
+		},
+		{
+			name:          "invalid quota unchanged",
+			quotaContent:  "invalid\n",
+			periodContent: "100000\n",
+			expectCPUs:    4, // Should keep startCPUs
+			startCPUs:     4,
+		},
+		{
+			name:          "invalid period unchanged",
+			quotaContent:  "200000\n",
+			periodContent: "invalid\n",
+			expectCPUs:    4, // Should keep startCPUs
+			startCPUs:     4,
+		},
+		{
+			name:          "both invalid unchanged",
+			quotaContent:  "invalid\n",
+			periodContent: "invalid\n",
+			expectCPUs:    2, // Should keep startCPUs
+			startCPUs:     2,
+		},
+		{
+			name:          "with whitespace",
+			quotaContent:  "  200000  \n",
+			periodContent: "  100000  \n",
+			expectCPUs:    2,
+			startCPUs:     0,
+		},
+		{
+			name:          "non-standard period",
+			quotaContent:  "500000\n",
+			periodContent: "250000\n",
+			expectCPUs:    2, // 500000/250000 = 2
+			startCPUs:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &ContainerResources{CPULimit: tt.startCPUs}
+			parseCgroupV1CPU(r, tt.quotaContent, tt.periodContent)
+
+			if r.CPULimit != tt.expectCPUs {
+				t.Errorf("CPULimit = %d, want %d", r.CPULimit, tt.expectCPUs)
+			}
+		})
+	}
+}
+
 // TestContainerResources_ConsistencyChecks tests internal consistency
 func TestContainerResources_ConsistencyChecks(t *testing.T) {
 	tests := []struct {

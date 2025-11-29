@@ -1456,6 +1456,257 @@ func TestAPIClient_SaveConfig(t *testing.T) {
 	}
 }
 
+// TestAPIClient_PauseSchedule tests pausing scheduled jobs via API
+func TestAPIClient_PauseSchedule(t *testing.T) {
+	tests := []struct {
+		name         string
+		processName  string
+		serverStatus int
+		wantErr      bool
+	}{
+		{
+			name:         "successful pause",
+			processName:  "test-cron",
+			serverStatus: http.StatusOK,
+			wantErr:      false,
+		},
+		{
+			name:         "accepted status",
+			processName:  "scheduled-task",
+			serverStatus: http.StatusAccepted,
+			wantErr:      false,
+		},
+		{
+			name:         "not found",
+			processName:  "unknown",
+			serverStatus: http.StatusNotFound,
+			wantErr:      true,
+		},
+		{
+			name:         "already paused",
+			processName:  "paused-task",
+			serverStatus: http.StatusBadRequest,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				expectedPath := "/api/v1/processes/" + tt.processName + "/schedule/pause"
+				if r.URL.Path != expectedPath {
+					t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
+				}
+
+				if r.Method != "POST" {
+					t.Errorf("Expected POST method, got %s", r.Method)
+				}
+
+				w.WriteHeader(tt.serverStatus)
+				if tt.wantErr {
+					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+				}
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.PauseSchedule(tt.processName)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PauseSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_ResumeSchedule tests resuming paused scheduled jobs via API
+func TestAPIClient_ResumeSchedule(t *testing.T) {
+	tests := []struct {
+		name         string
+		processName  string
+		serverStatus int
+		wantErr      bool
+	}{
+		{
+			name:         "successful resume",
+			processName:  "test-cron",
+			serverStatus: http.StatusOK,
+			wantErr:      false,
+		},
+		{
+			name:         "accepted status",
+			processName:  "scheduled-task",
+			serverStatus: http.StatusAccepted,
+			wantErr:      false,
+		},
+		{
+			name:         "not found",
+			processName:  "unknown",
+			serverStatus: http.StatusNotFound,
+			wantErr:      true,
+		},
+		{
+			name:         "not paused",
+			processName:  "running-task",
+			serverStatus: http.StatusBadRequest,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				expectedPath := "/api/v1/processes/" + tt.processName + "/schedule/resume"
+				if r.URL.Path != expectedPath {
+					t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
+				}
+
+				if r.Method != "POST" {
+					t.Errorf("Expected POST method, got %s", r.Method)
+				}
+
+				w.WriteHeader(tt.serverStatus)
+				if tt.wantErr {
+					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+				}
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.ResumeSchedule(tt.processName)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ResumeSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_TriggerSchedule tests manually triggering scheduled jobs via API
+func TestAPIClient_TriggerSchedule(t *testing.T) {
+	tests := []struct {
+		name         string
+		processName  string
+		serverStatus int
+		wantErr      bool
+	}{
+		{
+			name:         "successful trigger",
+			processName:  "test-cron",
+			serverStatus: http.StatusOK,
+			wantErr:      false,
+		},
+		{
+			name:         "accepted status",
+			processName:  "scheduled-task",
+			serverStatus: http.StatusAccepted,
+			wantErr:      false,
+		},
+		{
+			name:         "not found",
+			processName:  "unknown",
+			serverStatus: http.StatusNotFound,
+			wantErr:      true,
+		},
+		{
+			name:         "server error",
+			processName:  "failing-task",
+			serverStatus: http.StatusInternalServerError,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				expectedPath := "/api/v1/processes/" + tt.processName + "/schedule/trigger"
+				if r.URL.Path != expectedPath {
+					t.Errorf("Expected path %s, got %s", expectedPath, r.URL.Path)
+				}
+
+				if r.Method != "POST" {
+					t.Errorf("Expected POST method, got %s", r.Method)
+				}
+
+				w.WriteHeader(tt.serverStatus)
+				if tt.wantErr {
+					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+				}
+			}))
+			defer server.Close()
+
+			client := NewAPIClient(server.URL, "")
+			err := client.TriggerSchedule(tt.processName)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TriggerSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestAPIClient_ScheduleActions_NetworkError tests network failure handling for schedule actions
+func TestAPIClient_ScheduleActions_NetworkError(t *testing.T) {
+	client := &APIClient{
+		baseURL: "http://localhost:0", // Invalid port
+		client:  &http.Client{Timeout: 100 * time.Millisecond},
+	}
+
+	// Test PauseSchedule
+	err := client.PauseSchedule("test")
+	if err == nil {
+		t.Error("Expected error for PauseSchedule network failure, got nil")
+	}
+
+	// Test ResumeSchedule
+	err = client.ResumeSchedule("test")
+	if err == nil {
+		t.Error("Expected error for ResumeSchedule network failure, got nil")
+	}
+
+	// Test TriggerSchedule
+	err = client.TriggerSchedule("test")
+	if err == nil {
+		t.Error("Expected error for TriggerSchedule network failure, got nil")
+	}
+}
+
+// TestAPIClient_ScheduleActions_WithAuth tests schedule actions with authentication
+func TestAPIClient_ScheduleActions_WithAuth(t *testing.T) {
+	expectedAuth := "schedule-token-123"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer "+expectedAuth {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewAPIClient(server.URL, expectedAuth)
+
+	// Test PauseSchedule with auth
+	err := client.PauseSchedule("test-cron")
+	if err != nil {
+		t.Errorf("PauseSchedule() with auth failed: %v", err)
+	}
+
+	// Test ResumeSchedule with auth
+	err = client.ResumeSchedule("test-cron")
+	if err != nil {
+		t.Errorf("ResumeSchedule() with auth failed: %v", err)
+	}
+
+	// Test TriggerSchedule with auth
+	err = client.TriggerSchedule("test-cron")
+	if err != nil {
+		t.Errorf("TriggerSchedule() with auth failed: %v", err)
+	}
+}
+
 // TestAPIClient_GetOneshotHistory tests oneshot history retrieval via API
 func TestAPIClient_GetOneshotHistory(t *testing.T) {
 	tests := []struct {

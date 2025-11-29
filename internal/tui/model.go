@@ -130,17 +130,14 @@ type Model struct {
 	// k9s-style tab data
 	// Processes tab uses: tableData, selectedIndex, tableOffset (existing fields)
 	// Scheduled tab uses: scheduledData, scheduledIndex, scheduledOffset
-	scheduledData      []scheduledDisplayRow // Scheduled/cron jobs
-	scheduledIndex     int
-	scheduledOffset    int
-	scheduledColWidths []int
-	executionHistory   []ExecutionHistoryEntry // Execution history for selected scheduled job
+	scheduledData   []scheduledDisplayRow // Scheduled/cron jobs
+	scheduledIndex  int
+	scheduledOffset int
 
 	// Oneshot tab data
-	oneshotData      []oneshotDisplayRow // Oneshot execution history
-	oneshotIndex     int
-	oneshotOffset    int
-	oneshotColWidths []int
+	oneshotData   []oneshotDisplayRow // Oneshot execution history
+	oneshotIndex  int
+	oneshotOffset int
 
 	// System tab data
 	systemMenuIndex int // Currently selected system menu option
@@ -253,88 +250,126 @@ func (m *Model) executeAction() tea.Cmd {
 
 	// Return async command to execute action
 	return func() tea.Msg {
-		var err error
-		var successMsg string
-
-		switch action {
-		case actionRestart:
-			successMsg = fmt.Sprintf("✓ Restarted %s", target)
-			if m.isRemote {
-				err = m.client.RestartProcess(target)
-			} else {
-				// Embedded mode restart
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err = m.manager.RestartProcess(ctx, target)
-			}
-
-		case actionStop:
-			successMsg = fmt.Sprintf("✓ Stopped %s", target)
-			if m.isRemote {
-				err = m.client.StopProcess(target)
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err = m.manager.StopProcess(ctx, target)
-			}
-
-		case actionStart:
-			successMsg = fmt.Sprintf("✓ Started %s", target)
-			if m.isRemote {
-				err = m.client.StartProcess(target)
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err = m.manager.StartProcess(ctx, target)
-			}
-
-		case actionScale:
-			// Scale is handled separately in executeScale
-			return nil
-
-		case actionDelete:
-			successMsg = fmt.Sprintf("✓ Removed %s", target)
-			if m.isRemote {
-				err = m.client.DeleteProcess(target)
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err = m.manager.RemoveProcess(ctx, target)
-			}
-
-		case actionSchedulePause:
-			successMsg = fmt.Sprintf("✓ Paused schedule %s", target)
-			if m.isRemote {
-				err = m.client.PauseSchedule(target)
-			} else {
-				err = m.manager.PauseSchedule(target)
-			}
-
-		case actionScheduleResume:
-			successMsg = fmt.Sprintf("✓ Resumed schedule %s", target)
-			if m.isRemote {
-				err = m.client.ResumeSchedule(target)
-			} else {
-				err = m.manager.ResumeSchedule(target)
-			}
-
-		case actionScheduleTrigger:
-			successMsg = fmt.Sprintf("✓ Triggered %s", target)
-			if m.isRemote {
-				err = m.client.TriggerSchedule(target)
-			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err = m.manager.TriggerSchedule(ctx, target)
-			}
-		}
-
+		successMsg, err := m.dispatchAction(action, target)
 		if err != nil {
 			return actionResultMsg{success: false, message: fmt.Sprintf("✗ Error: %v", err)}
 		}
-
+		if successMsg == "" {
+			return nil
+		}
 		return actionResultMsg{success: true, message: successMsg}
 	}
+}
+
+// dispatchAction routes actions to their handlers and returns success message or error
+func (m *Model) dispatchAction(action actionType, target string) (string, error) {
+	switch action {
+	case actionRestart:
+		return m.executeRestart(target)
+	case actionStop:
+		return m.executeStop(target)
+	case actionStart:
+		return m.executeStart(target)
+	case actionScale:
+		return "", nil // Scale is handled separately in executeScale
+	case actionDelete:
+		return m.executeDelete(target)
+	case actionSchedulePause:
+		return m.executeSchedulePause(target)
+	case actionScheduleResume:
+		return m.executeScheduleResume(target)
+	case actionScheduleTrigger:
+		return m.executeScheduleTrigger(target)
+	default:
+		return "", nil
+	}
+}
+
+// executeRestart handles process restart action
+func (m *Model) executeRestart(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.RestartProcess(target)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = m.manager.RestartProcess(ctx, target)
+	}
+	return fmt.Sprintf("✓ Restarted %s", target), err
+}
+
+// executeStop handles process stop action
+func (m *Model) executeStop(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.StopProcess(target)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = m.manager.StopProcess(ctx, target)
+	}
+	return fmt.Sprintf("✓ Stopped %s", target), err
+}
+
+// executeStart handles process start action
+func (m *Model) executeStart(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.StartProcess(target)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = m.manager.StartProcess(ctx, target)
+	}
+	return fmt.Sprintf("✓ Started %s", target), err
+}
+
+// executeDelete handles process delete action
+func (m *Model) executeDelete(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.DeleteProcess(target)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = m.manager.RemoveProcess(ctx, target)
+	}
+	return fmt.Sprintf("✓ Removed %s", target), err
+}
+
+// executeSchedulePause handles schedule pause action
+func (m *Model) executeSchedulePause(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.PauseSchedule(target)
+	} else {
+		err = m.manager.PauseSchedule(target)
+	}
+	return fmt.Sprintf("✓ Paused schedule %s", target), err
+}
+
+// executeScheduleResume handles schedule resume action
+func (m *Model) executeScheduleResume(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.ResumeSchedule(target)
+	} else {
+		err = m.manager.ResumeSchedule(target)
+	}
+	return fmt.Sprintf("✓ Resumed schedule %s", target), err
+}
+
+// executeScheduleTrigger handles schedule trigger action
+func (m *Model) executeScheduleTrigger(target string) (string, error) {
+	var err error
+	if m.isRemote {
+		err = m.client.TriggerSchedule(target)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err = m.manager.TriggerSchedule(ctx, target)
+	}
+	return fmt.Sprintf("✓ Triggered %s", target), err
 }
 
 // actionResultMsg carries the result of an async action

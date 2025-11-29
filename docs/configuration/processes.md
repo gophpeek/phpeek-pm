@@ -68,14 +68,20 @@ command: ["php-fpm", "-F", "-R"]
 # Nginx
 command: ["nginx", "-g", "daemon off;"]
 
-# Laravel Queue
+# Laravel Queue Worker
 command: ["php", "artisan", "queue:work", "--tries=3"]
 
 # Laravel Horizon
 command: ["php", "artisan", "horizon"]
 
-# Laravel Reverb
-command: ["php", "artisan", "reverb:start"]
+# Symfony Messenger
+command: ["php", "bin/console", "messenger:consume", "async"]
+
+# WordPress Cron
+command: ["php", "/var/www/html/wp-cron.php"]
+
+# Custom PHP Worker
+command: ["php", "/app/worker.php"]
 ```
 
 ### restart
@@ -517,4 +523,4 @@ See [Environment Variables](environment-variables) for complete reference.
 - [Health Checks](health-checks) - Configure health monitoring
 - [Lifecycle Hooks](lifecycle-hooks) - Pre/post start/stop hooks
 - [Environment Variables](environment-variables) - ENV var reference
-- [Examples](../examples/laravel-complete) - Real-world configurations
+- [Examples](../examples/) - Real-world configurations

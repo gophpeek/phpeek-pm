@@ -10,7 +10,22 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// Scheduler coordinates all scheduled jobs
+// Scheduler coordinates all scheduled jobs using cron-style scheduling.
+// It wraps the robfig/cron library to provide job management, execution
+// tracking, pause/resume capabilities, and manual triggering.
+//
+// The Scheduler uses standard 5-field cron expressions (minute, hour, day-of-month,
+// month, day-of-week) without second-level precision. Timezone support is
+// available for each job.
+//
+// Key features:
+//   - Job lifecycle management (add, remove, pause, resume)
+//   - Manual job triggering (async or sync with exit code)
+//   - Execution history tracking per job
+//   - Concurrent execution limits and timeouts
+//   - Thread-safe operations
+//
+// Scheduler is safe for concurrent use from multiple goroutines.
 type Scheduler struct {
 	cron        *cron.Cron
 	jobs        map[string]*ScheduledJob

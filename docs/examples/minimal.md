@@ -220,6 +220,6 @@ PHPEEK_PM_GLOBAL_LOG_LEVEL=debug ./phpeek-pm
 ## See Also
 
 - [Quick Start](../getting-started/quickstart) - Step-by-step tutorial
-- [Laravel Complete](laravel-complete) - Add Nginx and Laravel services
+- [Laravel Complete](laravel-complete) - Full PHP stack with Nginx (adapt for other frameworks)
 - [Process Configuration](../configuration/processes) - All process options
 - [Docker Integration](../getting-started/docker-integration) - Docker patterns

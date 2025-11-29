@@ -69,30 +69,13 @@ func detectCgroupV2Resources(r *ContainerResources) error {
 	// Read memory limit from cgroup v2
 	memMax, err := os.ReadFile("/sys/fs/cgroup/memory.max")
 	if err == nil {
-		memStr := strings.TrimSpace(string(memMax))
-		if memStr != "max" {
-			if memLimit, err := strconv.ParseInt(memStr, 10, 64); err == nil {
-				r.MemoryLimitBytes = memLimit
-				r.MemoryLimitMB = int(memLimit / (1024 * 1024))
-			}
-		}
+		parseCgroupV2Memory(r, string(memMax))
 	}
 
 	// Read CPU quota and period from cgroup v2
 	cpuMax, err := os.ReadFile("/sys/fs/cgroup/cpu.max")
 	if err == nil {
-		parts := strings.Fields(strings.TrimSpace(string(cpuMax)))
-		if len(parts) == 2 && parts[0] != "max" {
-			quota, err1 := strconv.ParseInt(parts[0], 10, 64)
-			period, err2 := strconv.ParseInt(parts[1], 10, 64)
-			if err1 == nil && err2 == nil && period > 0 {
-				// CPU limit = quota / period (fractional CPUs supported)
-				cpus := int((quota + period - 1) / period) // Round up
-				if cpus > 0 {
-					r.CPULimit = cpus
-				}
-			}
-		}
+		parseCgroupV2CPU(r, string(cpuMax))
 	}
 
 	// If memory limit found, consider it a success
@@ -103,38 +86,48 @@ func detectCgroupV2Resources(r *ContainerResources) error {
 	return fmt.Errorf("cgroup v2 limits not found")
 }
 
+// parseCgroupV2Memory parses cgroup v2 memory.max content
+func parseCgroupV2Memory(r *ContainerResources, content string) {
+	memStr := strings.TrimSpace(content)
+	if memStr != "max" {
+		if memLimit, err := strconv.ParseInt(memStr, 10, 64); err == nil {
+			r.MemoryLimitBytes = memLimit
+			r.MemoryLimitMB = int(memLimit / (1024 * 1024))
+		}
+	}
+}
+
+// parseCgroupV2CPU parses cgroup v2 cpu.max content
+func parseCgroupV2CPU(r *ContainerResources, content string) {
+	parts := strings.Fields(strings.TrimSpace(content))
+	if len(parts) == 2 && parts[0] != "max" {
+		quota, err1 := strconv.ParseInt(parts[0], 10, 64)
+		period, err2 := strconv.ParseInt(parts[1], 10, 64)
+		if err1 == nil && err2 == nil && period > 0 {
+			// CPU limit = quota / period (fractional CPUs supported)
+			cpus := int((quota + period - 1) / period) // Round up
+			if cpus > 0 {
+				r.CPULimit = cpus
+			}
+		}
+	}
+}
+
 // detectCgroupV1Resources reads cgroup v1 hierarchy
 func detectCgroupV1Resources(r *ContainerResources) error {
 	// Read memory limit from cgroup v1
 	memLimit, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes")
 	if err == nil {
-		memStr := strings.TrimSpace(string(memLimit))
-		if limit, err := strconv.ParseInt(memStr, 10, 64); err == nil {
-			// cgroup v1 sets very large values when unlimited
-			if limit < (1 << 50) { // Less than ~1PB = realistic limit
-				r.MemoryLimitBytes = limit
-				r.MemoryLimitMB = int(limit / (1024 * 1024))
-			}
-		}
+		parseCgroupV1Memory(r, string(memLimit))
 	}
 
 	// Read CPU quota from cgroup v1
 	quota, err := os.ReadFile("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
 	if err == nil {
-		quotaStr := strings.TrimSpace(string(quota))
-		if quotaVal, err := strconv.ParseInt(quotaStr, 10, 64); err == nil && quotaVal > 0 {
-			// Read CPU period
-			period, err := os.ReadFile("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
-			if err == nil {
-				periodStr := strings.TrimSpace(string(period))
-				if periodVal, err := strconv.ParseInt(periodStr, 10, 64); err == nil && periodVal > 0 {
-					// CPU limit = quota / period
-					cpus := int((quotaVal + periodVal - 1) / periodVal) // Round up
-					if cpus > 0 {
-						r.CPULimit = cpus
-					}
-				}
-			}
+		// Read CPU period
+		period, err := os.ReadFile("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+		if err == nil {
+			parseCgroupV1CPU(r, string(quota), string(period))
 		}
 	}
 
@@ -146,6 +139,36 @@ func detectCgroupV1Resources(r *ContainerResources) error {
 	return fmt.Errorf("cgroup v1 limits not found")
 }
 
+// parseCgroupV1Memory parses cgroup v1 memory.limit_in_bytes content
+func parseCgroupV1Memory(r *ContainerResources, content string) {
+	memStr := strings.TrimSpace(content)
+	if limit, err := strconv.ParseInt(memStr, 10, 64); err == nil {
+		// cgroup v1 sets very large values when unlimited
+		// Also reject negative values (invalid)
+		if limit > 0 && limit < (1<<50) { // Positive and less than ~1PB = realistic limit
+			r.MemoryLimitBytes = limit
+			r.MemoryLimitMB = int(limit / (1024 * 1024))
+		}
+	}
+}
+
+// parseCgroupV1CPU parses cgroup v1 cpu.cfs_quota_us and cpu.cfs_period_us content
+func parseCgroupV1CPU(r *ContainerResources, quotaContent, periodContent string) {
+	quotaStr := strings.TrimSpace(quotaContent)
+	periodStr := strings.TrimSpace(periodContent)
+
+	quotaVal, err1 := strconv.ParseInt(quotaStr, 10, 64)
+	periodVal, err2 := strconv.ParseInt(periodStr, 10, 64)
+
+	if err1 == nil && err2 == nil && quotaVal > 0 && periodVal > 0 {
+		// CPU limit = quota / period
+		cpus := int((quotaVal + periodVal - 1) / periodVal) // Round up
+		if cpus > 0 {
+			r.CPULimit = cpus
+		}
+	}
+}
+
 // getHostMemory reads total system memory from /proc/meminfo
 func getHostMemory() (int64, error) {
 	data, err := os.ReadFile("/proc/meminfo")
@@ -153,7 +176,12 @@ func getHostMemory() (int64, error) {
 		return 0, err
 	}
 
-	lines := strings.Split(string(data), "\n")
+	return parseMeminfo(string(data))
+}
+
+// parseMeminfo parses /proc/meminfo content and extracts MemTotal
+func parseMeminfo(content string) (int64, error) {
+	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "MemTotal:") {
 			fields := strings.Fields(line)

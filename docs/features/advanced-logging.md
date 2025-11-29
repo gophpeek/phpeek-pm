@@ -319,7 +319,7 @@ processes:
       labels:
         service: php-fpm
         tier: backend
-        app: laravel
+        app: my-php-app
 
   nginx:
     logging:
@@ -419,12 +419,12 @@ services:
       driver: loki
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-labels: "app=laravel"
+        loki-labels: "app=my-php-app"
 ```
 
 **Query in Grafana:**
 ```logql
-{app="laravel"} | json | line_format "{{.level}} [{{.process}}] {{.msg}}"
+{app="my-php-app"} | json | line_format "{{.level}} [{{.process}}] {{.msg}}"
 ```
 
 ### Elasticsearch Integration
@@ -436,7 +436,7 @@ services:
       driver: fluentd
       options:
         fluentd-address: "localhost:24224"
-        tag: "laravel.{{.Name}}"
+        tag: "php-app.{{.Name}}"
 ```
 
 ### CloudWatch Integration
@@ -448,7 +448,7 @@ services:
       driver: awslogs
       options:
         awslogs-region: us-east-1
-        awslogs-group: /ecs/laravel-app
+        awslogs-group: /ecs/php-app
         awslogs-stream: phpeek-pm
 ```
 

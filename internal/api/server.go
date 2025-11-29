@@ -21,8 +21,8 @@ import (
 	tlsmgr "github.com/gophpeek/phpeek-pm/internal/tls"
 )
 
-// maxRequestBodySize limits request body to prevent memory exhaustion attacks
-const maxRequestBodySize = 8 * 1024 * 1024 // 8MB
+// DefaultMaxRequestBodySize is the default request body size limit (8MB)
+const DefaultMaxRequestBodySize = 8 * 1024 * 1024 // 8MB
 
 // rateLimiter implements a token bucket rate limiter per client IP
 type rateLimiter struct {
@@ -155,26 +155,61 @@ func (tb *tokenBucket) allow() bool {
 	return false
 }
 
-// Server provides REST API for process management
+// Server provides a REST API for process management operations.
+// It supports both TCP and Unix socket listeners, with optional TLS,
+// rate limiting, ACL-based access control, and audit logging.
+//
+// The API exposes endpoints for:
+//   - Process lifecycle management (start, stop, restart)
+//   - Horizontal scaling (scale up/down)
+//   - Log retrieval (per-process and stack-wide)
+//   - Schedule management (pause, resume, trigger)
+//   - Configuration management (save, reload)
+//   - Resource metrics history
+//
+// Security features:
+//   - Bearer token authentication
+//   - Rate limiting (token bucket per client IP)
+//   - ACL-based IP filtering (allow/deny lists)
+//   - Request body size limits
+//   - TLS with certificate hot-reload
+//   - Audit logging for security events
+//
+// Server is safe for concurrent use; all handlers are thread-safe.
 type Server struct {
-	port         int
-	socketPath   string
-	auth         string
-	manager      *process.Manager
-	server       *http.Server
-	socketServer *http.Server
-	logger       *slog.Logger
-	rateLimiter  *rateLimiter
-	aclConfig    *config.ACLConfig
-	aclChecker   *acl.Checker
-	tlsConfig    *config.TLSConfig
-	tlsManager   *tlsmgr.Manager
-	auditLogger  *audit.Logger
+	port               int
+	socketPath         string
+	auth               string
+	maxRequestBodySize int64 // Configurable request body size limit
+	manager            *process.Manager
+	server             *http.Server
+	socketServer       *http.Server
+	socketListener     net.Listener // Stored for explicit cleanup on shutdown
+	logger             *slog.Logger
+	rateLimiter        *rateLimiter
+	aclConfig          *config.ACLConfig
+	aclChecker         *acl.Checker
+	tlsConfig          *config.TLSConfig
+	tlsManager         *tlsmgr.Manager
+	auditLogger        *audit.Logger
 }
 
-// NewServer creates a new API server
-// Rate limiting: 100 requests/second with burst of 200
-func NewServer(port int, socketPath string, auth string, aclCfg *config.ACLConfig, tlsCfg *config.TLSConfig, auditEnabled bool, manager *process.Manager, log *slog.Logger) *Server {
+// NewServer creates a new API server with the specified configuration.
+//
+// Parameters:
+//   - port: TCP port for HTTP/HTTPS listener (0 to disable TCP)
+//   - socketPath: Unix socket path for local connections (empty to disable)
+//   - auth: Bearer token for authentication (empty to disable auth)
+//   - aclCfg: IP-based access control configuration (nil to disable ACL)
+//   - tlsCfg: TLS configuration for HTTPS (nil for plain HTTP)
+//   - auditEnabled: Whether to log security events (auth failures, rate limits)
+//   - maxRequestBodySize: Maximum request body size in bytes (0 = default 8MB)
+//   - manager: Process manager instance for handling operations
+//   - log: Structured logger for server events
+//
+// Rate limiting is always enabled at 100 requests/second with burst of 200.
+// ACL is only applied to TCP connections; Unix socket relies on file permissions.
+func NewServer(port int, socketPath string, auth string, aclCfg *config.ACLConfig, tlsCfg *config.TLSConfig, auditEnabled bool, maxRequestBodySize int64, manager *process.Manager, log *slog.Logger) *Server {
 	// Create ACL checker if enabled
 	var aclChecker *acl.Checker
 	if aclCfg != nil && aclCfg.Enabled {
@@ -193,17 +228,23 @@ func NewServer(port int, socketPath string, auth string, aclCfg *config.ACLConfi
 		log.Info("Audit logging enabled for API server")
 	}
 
+	// Use default if not specified
+	if maxRequestBodySize <= 0 {
+		maxRequestBodySize = DefaultMaxRequestBodySize
+	}
+
 	return &Server{
-		port:        port,
-		socketPath:  socketPath,
-		auth:        auth,
-		aclConfig:   aclCfg,
-		aclChecker:  aclChecker,
-		tlsConfig:   tlsCfg,
-		manager:     manager,
-		logger:      log,
-		rateLimiter: newRateLimiter(100, 200),
-		auditLogger: auditLogger,
+		port:               port,
+		socketPath:         socketPath,
+		auth:               auth,
+		maxRequestBodySize: maxRequestBodySize,
+		aclConfig:          aclCfg,
+		aclChecker:         aclChecker,
+		tlsConfig:          tlsCfg,
+		manager:            manager,
+		logger:             log,
+		rateLimiter:        newRateLimiter(100, 200),
+		auditLogger:        auditLogger,
 	}
 }
 
@@ -317,6 +358,9 @@ func (s *Server) startSocketListener(handler http.Handler) error {
 		return fmt.Errorf("failed to set socket permissions: %w", err)
 	}
 
+	// Store listener for explicit cleanup on shutdown
+	s.socketListener = listener
+
 	s.socketServer = &http.Server{
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
@@ -363,18 +407,25 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop Unix socket server
+	// Stop Unix socket server and listener
 	if s.socketServer != nil {
 		if err := s.socketServer.Shutdown(ctx); err != nil {
 			s.logger.Error("Failed to stop API server (socket) gracefully", "error", err)
 			errors = append(errors, fmt.Errorf("socket: %w", err))
 		}
+	}
 
-		// Clean up socket file
-		if s.socketPath != "" {
-			if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
-				s.logger.Warn("Failed to remove socket file", "error", err)
-			}
+	// Explicitly close socket listener (belt and suspenders with Shutdown)
+	if s.socketListener != nil {
+		if err := s.socketListener.Close(); err != nil && !strings.Contains(err.Error(), "use of closed") {
+			s.logger.Warn("Failed to close socket listener", "error", err)
+		}
+	}
+
+	// Clean up socket file
+	if s.socketPath != "" {
+		if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+			s.logger.Warn("Failed to remove socket file", "error", err)
 		}
 	}
 
@@ -496,7 +547,7 @@ func (s *Server) panicRecoveryMiddleware(next http.HandlerFunc) http.HandlerFunc
 func (s *Server) bodyLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+			r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBodySize)
 		}
 		next(w, r)
 	}
@@ -556,13 +607,30 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse path: /api/v1/processes/{name}/{action}
-	path := r.URL.Path
-	var processName, action string
-
-	// Robust path parsing with validation
-	if len(path) <= len("/api/v1/processes/") {
-		s.respondError(w, http.StatusBadRequest, "invalid path")
+	processName, action, err := s.parseProcessActionPath(r.URL.Path)
+	if err != nil {
+		s.respondError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// Route by HTTP method
+	switch r.Method {
+	case http.MethodGet:
+		s.routeGetRequest(w, r, processName, action)
+	case http.MethodPut:
+		s.handleUpdateProcess(w, r, processName)
+	case http.MethodDelete:
+		s.handleRemoveProcess(w, r, processName)
+	case http.MethodPost:
+		s.routePostRequest(w, r, processName, action)
+	}
+}
+
+// parseProcessActionPath extracts process name and action from the URL path.
+func (s *Server) parseProcessActionPath(path string) (processName, action string, err error) {
+	// Validate path length
+	if len(path) <= len("/api/v1/processes/") {
+		return "", "", fmt.Errorf("invalid path")
 	}
 
 	pathParts := path[len("/api/v1/processes/"):]
@@ -587,67 +655,52 @@ func (s *Server) handleProcessAction(w http.ResponseWriter, r *http.Request) {
 
 	// Validate process name
 	if processName == "" {
-		s.respondError(w, http.StatusBadRequest, "process name required")
+		return "", "", fmt.Errorf("process name required")
+	}
+
+	return processName, action, nil
+}
+
+// routeGetRequest routes GET requests to the appropriate handler.
+func (s *Server) routeGetRequest(w http.ResponseWriter, r *http.Request, processName, action string) {
+	switch action {
+	case "":
+		s.handleGetProcess(w, r, processName)
+	case "logs":
+		s.handleGetLogs(w, r, processName)
+	case "schedule":
+		s.handleGetScheduleStatus(w, r, processName)
+	case "schedule/history":
+		s.handleGetScheduleHistory(w, r, processName)
+	default:
+		s.respondError(w, http.StatusBadRequest, "unknown GET action")
+	}
+}
+
+// routePostRequest routes POST requests to the appropriate action handler.
+func (s *Server) routePostRequest(w http.ResponseWriter, r *http.Request, processName, action string) {
+	if action == "" {
+		s.respondError(w, http.StatusBadRequest, "action required (start|stop|restart|scale)")
 		return
 	}
 
-	// Handle HTTP methods
-	switch r.Method {
-	case http.MethodGet:
-		// GET /api/v1/processes/{name} - get process config
-		// GET /api/v1/processes/{name}/logs - get process logs
-		// GET /api/v1/processes/{name}/schedule - get schedule status
-		// GET /api/v1/processes/{name}/schedule/history - get execution history
-		if action == "" {
-			s.handleGetProcess(w, r, processName)
-		} else if action == "logs" {
-			s.handleGetLogs(w, r, processName)
-		} else if action == "schedule" {
-			s.handleGetScheduleStatus(w, r, processName)
-		} else if action == "schedule/history" {
-			s.handleGetScheduleHistory(w, r, processName)
-		} else {
-			s.respondError(w, http.StatusBadRequest, "unknown GET action")
-		}
-		return
-
-	case http.MethodPut:
-		// PUT /api/v1/processes/{name} - update process
-		s.handleUpdateProcess(w, r, processName)
-		return
-
-	case http.MethodDelete:
-		// DELETE /api/v1/processes/{name} - remove process
-		s.handleRemoveProcess(w, r, processName)
-		return
-
-	case http.MethodPost:
-		// POST /api/v1/processes/{name}/{action} - perform action
-		// Validate action for POST
-		if action == "" {
-			s.respondError(w, http.StatusBadRequest, "action required (start|stop|restart|scale)")
-			return
-		}
-
-		// Route to appropriate handler
-		switch action {
-		case "restart":
-			s.handleRestart(w, r, processName)
-		case "stop":
-			s.handleStop(w, r, processName)
-		case "start":
-			s.handleStart(w, r, processName)
-		case "scale":
-			s.handleScale(w, r, processName)
-		case "schedule/pause":
-			s.handleSchedulePause(w, r, processName)
-		case "schedule/resume":
-			s.handleScheduleResume(w, r, processName)
-		case "schedule/trigger":
-			s.handleScheduleTrigger(w, r, processName)
-		default:
-			s.respondError(w, http.StatusBadRequest, fmt.Sprintf("unknown action: %s (valid: start|stop|restart|scale|schedule/pause|schedule/resume|schedule/trigger)", action))
-		}
+	switch action {
+	case "restart":
+		s.handleRestart(w, r, processName)
+	case "stop":
+		s.handleStop(w, r, processName)
+	case "start":
+		s.handleStart(w, r, processName)
+	case "scale":
+		s.handleScale(w, r, processName)
+	case "schedule/pause":
+		s.handleSchedulePause(w, r, processName)
+	case "schedule/resume":
+		s.handleScheduleResume(w, r, processName)
+	case "schedule/trigger":
+		s.handleScheduleTrigger(w, r, processName)
+	default:
+		s.respondError(w, http.StatusBadRequest, fmt.Sprintf("unknown action: %s (valid: start|stop|restart|scale|schedule/pause|schedule/resume|schedule/trigger)", action))
 	}
 }
 
@@ -1072,14 +1125,14 @@ func (s *Server) Port() int {
 // GET /api/v1/metrics/history?process=name&instance=id&since=timestamp&limit=N
 func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.respondError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	// Check if resource metrics are enabled
 	collector := s.manager.GetResourceCollector()
 	if collector == nil {
-		http.Error(w, `{"error":"Resource metrics not enabled"}`, http.StatusServiceUnavailable)
+		s.respondError(w, http.StatusServiceUnavailable, "Resource metrics not enabled")
 		return
 	}
 
@@ -1089,19 +1142,19 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	instanceID := query.Get("instance")
 
 	if processName == "" || instanceID == "" {
-		http.Error(w, `{"error":"Missing required parameters: process and instance"}`, http.StatusBadRequest)
+		s.respondError(w, http.StatusBadRequest, "Missing required parameters: process and instance")
 		return
 	}
 
 	// Parse optional parameters
 	var since time.Time
 	if sinceStr := query.Get("since"); sinceStr != "" {
-		sinceInt, err := time.Parse(time.RFC3339, sinceStr)
-		if err != nil {
+		sinceInt, parseErr := time.Parse(time.RFC3339, sinceStr)
+		if parseErr != nil {
 			// Try Unix timestamp
 			var unixTime int64
-			if _, err := fmt.Sscanf(sinceStr, "%d", &unixTime); err != nil {
-				http.Error(w, `{"error":"Invalid since parameter format (use RFC3339 or Unix timestamp)"}`, http.StatusBadRequest)
+			if _, scanErr := fmt.Sscanf(sinceStr, "%d", &unixTime); scanErr != nil {
+				s.respondError(w, http.StatusBadRequest, "Invalid since parameter format (use RFC3339 or Unix timestamp)")
 				return
 			}
 			since = time.Unix(unixTime, 0)
@@ -1116,7 +1169,7 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	limit := 100 // default limit
 	if limitStr := query.Get("limit"); limitStr != "" {
 		if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || limit <= 0 || limit > 10000 {
-			http.Error(w, `{"error":"Invalid limit parameter (must be 1-10000)"}`, http.StatusBadRequest)
+			s.respondError(w, http.StatusBadRequest, "Invalid limit parameter (must be 1-10000)")
 			return
 		}
 	}
@@ -1135,14 +1188,20 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode metrics history response",
+			"process", processName,
+			"instance", instanceID,
+			"error", err,
+		)
+	}
 }
 
 // handleOneshotHistory returns oneshot execution history
 // GET /api/v1/oneshot/history?limit=N
 func (s *Server) handleOneshotHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		s.respondError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 

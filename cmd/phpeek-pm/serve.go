@@ -144,7 +144,7 @@ func runServe(cmd *cobra.Command, args []string) {
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	// Start zombie reaper
-	go signals.ReapZombies()
+	go signals.ReapZombies(cfg.Global.ZombieReapInterval)
 
 	// Create audit logger
 	auditLogger := audit.NewLogger(log, cfg.Global.AuditEnabled)
@@ -386,7 +386,7 @@ func startAPIServer(ctx context.Context, cfg *config.Config, pm *process.Manager
 		apiPort = 9180
 	}
 
-	server := api.NewServer(apiPort, cfg.Global.APISocket, cfg.Global.APIAuth, cfg.Global.APIACL, cfg.Global.APITLS, cfg.Global.AuditEnabled, pm, log)
+	server := api.NewServer(apiPort, cfg.Global.APISocket, cfg.Global.APIAuth, cfg.Global.APIACL, cfg.Global.APITLS, cfg.Global.AuditEnabled, cfg.Global.APIMaxRequestBody, pm, log)
 	if err := server.Start(ctx); err != nil {
 		slog.Warn("Failed to start API server (TUI/remote control disabled)", "error", err)
 		return nil

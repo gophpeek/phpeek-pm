@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewValidationResult(t *testing.T) {
@@ -776,5 +777,469 @@ func TestContains(t *testing.T) {
 
 	if contains([]string{}, "a") {
 		t.Error("Expected contains(empty, 'a') to be false")
+	}
+}
+
+// TestValidateComprehensive_UpperBounds tests upper bound validation for configurable values
+func TestValidateComprehensive_UpperBounds(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *Config
+		expectError bool
+		errorField  string
+	}{
+		{
+			name: "shutdown_timeout exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    MaxShutdownTimeout + 1, // Exceeds max
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:     5,
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.shutdown_timeout",
+		},
+		{
+			name: "max_restart_attempts exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    30,
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: MaxRestartAttemptsLimit + 1, // Exceeds max
+					RestartBackoff:     5,
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.max_restart_attempts",
+		},
+		{
+			name: "process scale exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    30,
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:     5,
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        MaxProcessScaleLimit + 1, // Exceeds max
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "processes.test.scale",
+		},
+		{
+			name: "process max_scale exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    30,
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:     5,
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+						MaxScale:     MaxProcessScaleLimit + 1, // Exceeds max
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "processes.test.max_scale",
+		},
+		{
+			name: "schedule_history_size exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:     30,
+					LogLevel:            "info",
+					LogFormat:           "json",
+					MaxRestartAttempts:  3,
+					RestartBackoff:      5,
+					ScheduleHistorySize: MaxScheduleHistorySize + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.schedule_history_size",
+		},
+		{
+			name: "oneshot_history_max_entries exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:          30,
+					LogLevel:                 "info",
+					LogFormat:                "json",
+					MaxRestartAttempts:       3,
+					RestartBackoff:           5,
+					OneshotHistoryMaxEntries: MaxOneshotHistoryEntries + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.oneshot_history_max_entries",
+		},
+		{
+			name: "max_process_scale exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    30,
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:     5,
+					MaxProcessScale:    MaxProcessScaleLimit + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.max_process_scale",
+		},
+		{
+			name: "api_max_request_body exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:   30,
+					LogLevel:          "info",
+					LogFormat:         "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:    5,
+					APIMaxRequestBody: MaxAPIRequestBodySize + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.api_max_request_body",
+		},
+		{
+			name: "all values within limits",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    MaxShutdownTimeout, // At max, not over
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: MaxRestartAttemptsLimit, // At max, not over
+					RestartBackoff:     5,
+					APIPort:            9180,     // Non-privileged port
+					MetricsPort:        9181,     // Non-privileged port
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        MaxProcessScaleLimit, // At max, not over
+					},
+				},
+			},
+			expectError: false,
+			errorField:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.config.ValidateComprehensive()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error for field %s, got none", tt.errorField)
+				} else {
+					// Verify the error field is correct
+					found := false
+					for _, e := range result.Errors {
+						if e.Field == tt.errorField {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected error for field %s, but found errors: %v", tt.errorField, result.Errors)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateComprehensive_ResourceMetricsUpperBounds tests upper bounds for resource metrics
+func TestValidateComprehensive_ResourceMetricsUpperBounds(t *testing.T) {
+	boolTrue := true
+
+	tests := []struct {
+		name        string
+		config      *Config
+		expectError bool
+		errorField  string
+	}{
+		{
+			name: "resource_metrics_interval exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:         30,
+					LogLevel:                "info",
+					LogFormat:               "json",
+					MaxRestartAttempts:      3,
+					RestartBackoff:          5,
+					ResourceMetricsEnabled:  &boolTrue,
+					ResourceMetricsInterval: MaxResourceMetricsInterval + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.resource_metrics_interval",
+		},
+		{
+			name: "resource_metrics_max_samples exceeds max",
+			config: &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:           30,
+					LogLevel:                  "info",
+					LogFormat:                 "json",
+					MaxRestartAttempts:        3,
+					RestartBackoff:            5,
+					ResourceMetricsEnabled:    &boolTrue,
+					ResourceMetricsInterval:   10,
+					ResourceMetricsMaxSamples: MaxResourceMetricsSamples + 1, // Exceeds max
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			},
+			expectError: true,
+			errorField:  "global.resource_metrics_max_samples",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.config.ValidateComprehensive()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error for field %s, got none", tt.errorField)
+				} else {
+					found := false
+					for _, e := range result.Errors {
+						if e.Field == tt.errorField {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected error for field %s, but found errors: %v", tt.errorField, result.Errors)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateComprehensive_ZombieReapIntervalBounds tests bounds for zombie_reap_interval
+func TestValidateComprehensive_ZombieReapIntervalBounds(t *testing.T) {
+	tests := []struct {
+		name               string
+		zombieReapInterval time.Duration
+		expectError        bool
+		errorField         string
+	}{
+		{
+			name:               "below minimum (10ms)",
+			zombieReapInterval: 10 * time.Millisecond, // Below 100ms minimum
+			expectError:        true,
+			errorField:         "global.zombie_reap_interval",
+		},
+		{
+			name:               "below minimum (50ms)",
+			zombieReapInterval: 50 * time.Millisecond, // Below 100ms minimum
+			expectError:        true,
+			errorField:         "global.zombie_reap_interval",
+		},
+		{
+			name:               "at minimum (100ms)",
+			zombieReapInterval: MinZombieReapInterval, // Exactly at minimum
+			expectError:        false,
+			errorField:         "",
+		},
+		{
+			name:               "normal value (1s)",
+			zombieReapInterval: 1 * time.Second, // Normal value
+			expectError:        false,
+			errorField:         "",
+		},
+		{
+			name:               "at maximum (60s)",
+			zombieReapInterval: MaxZombieReapInterval, // Exactly at maximum
+			expectError:        false,
+			errorField:         "",
+		},
+		{
+			name:               "exceeds maximum (61s)",
+			zombieReapInterval: 61 * time.Second, // Above 60s maximum
+			expectError:        true,
+			errorField:         "global.zombie_reap_interval",
+		},
+		{
+			name:               "exceeds maximum (2m)",
+			zombieReapInterval: 2 * time.Minute, // Way above 60s maximum
+			expectError:        true,
+			errorField:         "global.zombie_reap_interval",
+		},
+		{
+			name:               "zero value (uses default)",
+			zombieReapInterval: 0, // Zero means use default, should pass validation
+			expectError:        false,
+			errorField:         "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Global: GlobalConfig{
+					ShutdownTimeout:    30,
+					LogLevel:           "info",
+					LogFormat:          "json",
+					MaxRestartAttempts: 3,
+					RestartBackoff:     5,
+					ZombieReapInterval: tt.zombieReapInterval,
+					APIPort:            9180, // Non-privileged port
+					MetricsPort:        9181, // Non-privileged port
+				},
+				Processes: map[string]*Process{
+					"test": {
+						Enabled:      true,
+						Type:         "longrun",
+						InitialState: "running",
+						Command:      []string{"sleep", "60"},
+						Restart:      "always",
+						Scale:        1,
+					},
+				},
+			}
+
+			result, err := cfg.ValidateComprehensive()
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error for zombie_reap_interval=%v, got none", tt.zombieReapInterval)
+				} else {
+					found := false
+					for _, e := range result.Errors {
+						if e.Field == tt.errorField {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected error for field %s, but found errors: %v", tt.errorField, result.Errors)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error for zombie_reap_interval=%v, got: %v", tt.zombieReapInterval, err)
+				}
+			}
+		})
 	}
 }

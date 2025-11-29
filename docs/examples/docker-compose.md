@@ -1,12 +1,12 @@
 ---
 title: "Docker Compose"
-description: "Multi-container Laravel deployment with Docker Compose, environment-specific profiles, and service orchestration"
+description: "Multi-container PHP deployment with Docker Compose, environment-specific profiles, and service orchestration"
 weight: 35
 ---
 
 # Docker Compose Example
 
-Deploy Laravel applications with Docker Compose using PHPeek PM for process management and environment-specific configuration.
+Deploy PHP applications with Docker Compose using PHPeek PM for process management and environment-specific configuration.
 
 ## Use Cases
 
@@ -35,12 +35,12 @@ services:
       # PHP-FPM auto-tuning
       PHP_FPM_AUTOTUNE_PROFILE: "medium"
 
-      # Laravel environment
+      # Application environment
       APP_ENV: production
       APP_KEY: ${APP_KEY}
       DB_HOST: database
-      DB_DATABASE: laravel
-      DB_USERNAME: laravel
+      DB_DATABASE: app
+      DB_USERNAME: app
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
 
@@ -71,8 +71,8 @@ services:
   database:
     image: mysql:8.0
     environment:
-      MYSQL_DATABASE: laravel
-      MYSQL_USER: laravel
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
       MYSQL_PASSWORD: ${DB_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     ports:
@@ -433,7 +433,7 @@ scrape_configs:
 version: '3.8'
 
 services:
-  # Laravel application with PHPeek PM
+  # PHP application with PHPeek PM
   app:
     build: .
     ports:
@@ -460,8 +460,8 @@ services:
   database:
     image: mysql:8.0
     environment:
-      MYSQL_DATABASE: laravel
-      MYSQL_USER: laravel
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
       MYSQL_PASSWORD: ${DB_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     ports:
@@ -572,7 +572,7 @@ curl http://localhost:9090/metrics
 ### .env
 
 ```bash
-# Laravel
+# Application
 APP_KEY=base64:your-key-here
 APP_ENV=production
 APP_DEBUG=false

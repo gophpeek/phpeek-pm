@@ -48,6 +48,13 @@ type GlobalConfig struct {
 	OneshotHistoryMaxEntries  int              `yaml:"oneshot_history_max_entries" json:"oneshot_history_max_entries"`   // Max oneshot history entries per process (default: 5000)
 	OneshotHistoryMaxAge      time.Duration    `yaml:"oneshot_history_max_age" json:"oneshot_history_max_age"`           // Max age of oneshot history entries (default: 24h)
 	Readiness                 *ReadinessConfig `yaml:"readiness" json:"readiness"`                                       // Container readiness file config for K8s
+	HealthCheckStrict         bool             `yaml:"health_check_strict" json:"health_check_strict"`                   // Fail process startup if health monitor creation fails (default: false)
+	DependencyTimeout         time.Duration    `yaml:"dependency_timeout" json:"dependency_timeout"`                     // Max time to wait for dependencies to become ready (default: 5m)
+	ProcessStartTimeout       time.Duration    `yaml:"process_start_timeout" json:"process_start_timeout"`               // Timeout for starting a single process (default: 30s)
+	ProcessStopTimeout        time.Duration    `yaml:"process_stop_timeout" json:"process_stop_timeout"`                 // Timeout for stopping a single process (default: 60s)
+	MaxProcessScale           int              `yaml:"max_process_scale" json:"max_process_scale"`                       // Maximum instances per process (default: 100)
+	APIMaxRequestBody         int64            `yaml:"api_max_request_body" json:"api_max_request_body"`                 // Max request body size in bytes (default: 8MB)
+	ZombieReapInterval        time.Duration    `yaml:"zombie_reap_interval" json:"zombie_reap_interval"`                 // Interval for zombie process reaping (default: 1s)
 }
 
 // HooksConfig contains lifecycle hooks
@@ -214,13 +221,18 @@ type ReadinessConfig struct {
 	Processes []string `yaml:"processes" json:"processes"` // Specific processes to check (empty = all enabled longrun)
 }
 
-// SetDefaults sets sensible default values for the configuration
-func (c *Config) SetDefaults() {
-	if c.Version == "" {
-		c.Version = "1.0"
-	}
+// setGlobalDefaults sets default values for global configuration
+func (c *Config) setGlobalDefaults() {
+	c.setGlobalBasicDefaults()
+	c.setGlobalAPIMetricsDefaults()
+	c.setGlobalTLSDefaults()
+	c.setGlobalACLDefaults()
+	c.setGlobalTracingDefaults()
+	c.setGlobalHistoryDefaults()
+}
 
-	// Global defaults
+// setGlobalBasicDefaults sets basic global defaults
+func (c *Config) setGlobalBasicDefaults() {
 	if c.Global.ShutdownTimeout == 0 {
 		c.Global.ShutdownTimeout = 30
 	}
@@ -259,7 +271,13 @@ func (c *Config) SetDefaults() {
 		c.Global.LogLevel = "info"
 	}
 	c.Global.LogTimestamps = true
-	// Metrics enabled by default for observability
+	if c.Global.ZombieReapInterval == 0 {
+		c.Global.ZombieReapInterval = 1 * time.Second
+	}
+}
+
+// setGlobalAPIMetricsDefaults sets API and metrics defaults
+func (c *Config) setGlobalAPIMetricsDefaults() {
 	if c.Global.MetricsEnabled == nil {
 		c.Global.SetMetricsEnabled(true)
 	}
@@ -269,72 +287,76 @@ func (c *Config) SetDefaults() {
 	if c.Global.MetricsPath == "" {
 		c.Global.MetricsPath = "/metrics"
 	}
-	// API is enabled by default for TUI/remote control
-	// Can be disabled by explicitly setting api_enabled: false
 	if c.Global.APIEnabled == nil {
 		c.Global.SetAPIEnabled(true)
 	}
 	if c.Global.APIPort == 0 {
 		c.Global.APIPort = 9180
 	}
-	// TLS defaults for API
-	if c.Global.APITLS != nil {
-		if c.Global.APITLS.MinVersion == "" {
-			c.Global.APITLS.MinVersion = "TLS 1.2"
-		}
-		if c.Global.APITLS.ClientAuth == "" {
-			c.Global.APITLS.ClientAuth = "none"
-		}
-		if c.Global.APITLS.AutoReloadInterval == 0 {
-			c.Global.APITLS.AutoReloadInterval = 300 // 5 minutes
-		}
-	}
-	// TLS defaults for Metrics
-	if c.Global.MetricsTLS != nil {
-		if c.Global.MetricsTLS.MinVersion == "" {
-			c.Global.MetricsTLS.MinVersion = "TLS 1.2"
-		}
-		if c.Global.MetricsTLS.ClientAuth == "" {
-			c.Global.MetricsTLS.ClientAuth = "none"
-		}
-		if c.Global.MetricsTLS.AutoReloadInterval == 0 {
-			c.Global.MetricsTLS.AutoReloadInterval = 300 // 5 minutes
-		}
-	}
-	// ACL defaults for API
-	if c.Global.APIACL != nil {
-		if c.Global.APIACL.Mode == "" {
-			c.Global.APIACL.Mode = "allow" // Whitelist approach (deny all except allowed)
-		}
-	}
-	// ACL defaults for Metrics
-	if c.Global.MetricsACL != nil {
-		if c.Global.MetricsACL.Mode == "" {
-			c.Global.MetricsACL.Mode = "allow" // Whitelist approach
-		}
-	}
-	// Enable resource metrics collection by default
 	if c.Global.ResourceMetricsEnabled == nil {
 		c.Global.SetResourceMetricsEnabled(true)
 	}
 	if c.Global.ResourceMetricsInterval == 0 {
-		c.Global.ResourceMetricsInterval = 5 // 5 seconds
+		c.Global.ResourceMetricsInterval = 5
 	}
 	if c.Global.ResourceMetricsMaxSamples == 0 {
-		c.Global.ResourceMetricsMaxSamples = 720 // 1 hour at 5s = 720 samples
+		c.Global.ResourceMetricsMaxSamples = 720
 	}
-	// Distributed tracing disabled by default (opt-in for observability)
+}
+
+// setGlobalTLSDefaults sets TLS defaults for API and Metrics
+func (c *Config) setGlobalTLSDefaults() {
+	if c.Global.APITLS != nil {
+		setTLSConfigDefaults(c.Global.APITLS)
+	}
+	if c.Global.MetricsTLS != nil {
+		setTLSConfigDefaults(c.Global.MetricsTLS)
+	}
+	if c.Global.Readiness != nil {
+		if c.Global.Readiness.Path == "" {
+			c.Global.Readiness.Path = "/tmp/phpeek-ready"
+		}
+		if c.Global.Readiness.Mode == "" {
+			c.Global.Readiness.Mode = "all_healthy"
+		}
+	}
+}
+
+// setTLSConfigDefaults sets defaults for a TLS configuration
+func setTLSConfigDefaults(tls *TLSConfig) {
+	if tls.MinVersion == "" {
+		tls.MinVersion = "TLS 1.2"
+	}
+	if tls.ClientAuth == "" {
+		tls.ClientAuth = "none"
+	}
+	if tls.AutoReloadInterval == 0 {
+		tls.AutoReloadInterval = 300
+	}
+}
+
+// setGlobalACLDefaults sets ACL defaults
+func (c *Config) setGlobalACLDefaults() {
+	if c.Global.APIACL != nil && c.Global.APIACL.Mode == "" {
+		c.Global.APIACL.Mode = "allow"
+	}
+	if c.Global.MetricsACL != nil && c.Global.MetricsACL.Mode == "" {
+		c.Global.MetricsACL.Mode = "allow"
+	}
+}
+
+// setGlobalTracingDefaults sets distributed tracing defaults
+func (c *Config) setGlobalTracingDefaults() {
 	if c.Global.TracingExporter == "" {
-		c.Global.TracingExporter = "stdout" // Default: stdout for development
+		c.Global.TracingExporter = "stdout"
 	}
 	if c.Global.TracingSampleRate == 0 {
-		c.Global.TracingSampleRate = 1.0 // Default: 100% sampling
+		c.Global.TracingSampleRate = 1.0
 	}
 	if c.Global.TracingServiceName == "" {
-		c.Global.TracingServiceName = "phpeek-pm" // Default service name
+		c.Global.TracingServiceName = "phpeek-pm"
 	}
 	if c.Global.TracingEndpoint == "" {
-		// Set default endpoint based on exporter type
 		switch c.Global.TracingExporter {
 		case "otlp-grpc":
 			c.Global.TracingEndpoint = "localhost:4317"
@@ -346,146 +368,158 @@ func (c *Config) SetDefaults() {
 			c.Global.TracingEndpoint = "http://localhost:9411/api/v2/spans"
 		}
 	}
-	// Schedule history defaults
+}
+
+// setGlobalHistoryDefaults sets history-related defaults
+func (c *Config) setGlobalHistoryDefaults() {
 	if c.Global.ScheduleHistorySize == 0 {
-		c.Global.ScheduleHistorySize = 100 // Default: 100 entries per job
+		c.Global.ScheduleHistorySize = 100
 	}
-	// Oneshot history defaults
 	if c.Global.OneshotHistoryMaxEntries == 0 {
-		c.Global.OneshotHistoryMaxEntries = 5000 // Default: 5000 entries per process
+		c.Global.OneshotHistoryMaxEntries = 5000
 	}
 	if c.Global.OneshotHistoryMaxAge == 0 {
-		c.Global.OneshotHistoryMaxAge = 24 * time.Hour // Default: 24 hours
+		c.Global.OneshotHistoryMaxAge = 24 * time.Hour
 	}
-	// Readiness file defaults (for K8s integration)
-	if c.Global.Readiness != nil {
-		if c.Global.Readiness.Path == "" {
-			c.Global.Readiness.Path = "/tmp/phpeek-ready"
+}
+
+// setProcessDefaults sets defaults for a single process
+func (c *Config) setProcessDefaults(name string, proc *Process) {
+	if proc.Type == "" {
+		proc.Type = "longrun"
+	}
+	if proc.InitialState == "" {
+		proc.InitialState = "running"
+	}
+	if proc.Restart == "" {
+		proc.Restart = c.Global.RestartPolicy
+	}
+	if proc.Scale == 0 {
+		proc.Scale = 1
+	}
+	if proc.Schedule != "" && proc.ScheduleTimezone == "" {
+		proc.ScheduleTimezone = "UTC"
+	}
+
+	c.setProcessHealthCheckDefaults(proc)
+	c.setProcessShutdownDefaults(proc)
+	c.setProcessLoggingDefaults(name, proc)
+}
+
+// setProcessHealthCheckDefaults sets health check defaults for a process
+func (c *Config) setProcessHealthCheckDefaults(proc *Process) {
+	if proc.HealthCheck == nil {
+		return
+	}
+	hc := proc.HealthCheck
+	if hc.InitialDelay == 0 {
+		hc.InitialDelay = 5
+	}
+	if hc.Period == 0 {
+		hc.Period = 10
+	}
+	if hc.Timeout == 0 {
+		hc.Timeout = 3
+	}
+	if hc.FailureThreshold == 0 {
+		hc.FailureThreshold = 3
+	}
+	if hc.SuccessThreshold == 0 {
+		hc.SuccessThreshold = 1
+	}
+	if hc.ExpectedStatus == 0 {
+		hc.ExpectedStatus = 200
+	}
+	if hc.Mode == "" {
+		hc.Mode = "both"
+	}
+}
+
+// setProcessShutdownDefaults sets shutdown defaults for a process
+func (c *Config) setProcessShutdownDefaults(proc *Process) {
+	if proc.Shutdown == nil {
+		return
+	}
+	sd := proc.Shutdown
+	if sd.Signal == "" {
+		sd.Signal = "SIGTERM"
+	}
+	if sd.Timeout == 0 {
+		sd.Timeout = 30
+	}
+	if sd.KillSignal == "" {
+		sd.KillSignal = "SIGKILL"
+	}
+}
+
+// setProcessLoggingDefaults sets logging defaults for a process
+func (c *Config) setProcessLoggingDefaults(name string, proc *Process) {
+	stdoutEnabled := true
+	if proc.Stdout != nil {
+		stdoutEnabled = *proc.Stdout
+	}
+	stderrEnabled := true
+	if proc.Stderr != nil {
+		stderrEnabled = *proc.Stderr
+	}
+
+	if proc.Logging == nil {
+		proc.Logging = &LoggingConfig{
+			Stdout: stdoutEnabled,
+			Stderr: stderrEnabled,
+			Labels: map[string]string{"process": name},
 		}
-		if c.Global.Readiness.Mode == "" {
-			c.Global.Readiness.Mode = "all_healthy"
+	} else {
+		if proc.Stdout != nil {
+			proc.Logging.Stdout = *proc.Stdout
+		}
+		if proc.Stderr != nil {
+			proc.Logging.Stderr = *proc.Stderr
+		}
+		if proc.Stdout == nil && !proc.Logging.Stdout {
+			proc.Logging.Stdout = true
+		}
+		if proc.Stderr == nil && !proc.Logging.Stderr {
+			proc.Logging.Stderr = true
 		}
 	}
+
+	c.setProcessLoggingAdvancedDefaults(proc)
+}
+
+// setProcessLoggingAdvancedDefaults sets advanced logging feature defaults
+func (c *Config) setProcessLoggingAdvancedDefaults(proc *Process) {
+	if proc.Logging == nil {
+		return
+	}
+	if proc.Logging.Multiline != nil {
+		if proc.Logging.Multiline.MaxLines == 0 {
+			proc.Logging.Multiline.MaxLines = 100
+		}
+		if proc.Logging.Multiline.Timeout == 0 {
+			proc.Logging.Multiline.Timeout = 1
+		}
+	}
+	if proc.Logging.LevelDetection != nil && proc.Logging.LevelDetection.DefaultLevel == "" {
+		proc.Logging.LevelDetection.DefaultLevel = "info"
+	}
+	if proc.Logging.MinLevel == "" {
+		proc.Logging.MinLevel = "info"
+	}
+}
+
+// SetDefaults sets sensible default values for the configuration
+func (c *Config) SetDefaults() {
+	if c.Version == "" {
+		c.Version = "1.0"
+	}
+
+	// Set global defaults
+	c.setGlobalDefaults()
 
 	// Process defaults
 	for name, proc := range c.Processes {
-		// Default: enabled=true if not explicitly set
-		// Note: YAML unmarshals missing bool as false, so we can't distinguish
-		// between explicit false and missing. For now, processes default to enabled.
-
-		if proc.Type == "" {
-			proc.Type = "longrun" // Default: long-running service
-		}
-		if proc.InitialState == "" {
-			proc.InitialState = "running" // Default: start immediately
-		}
-		if proc.Restart == "" {
-			proc.Restart = c.Global.RestartPolicy
-		}
-		if proc.Scale == 0 {
-			proc.Scale = 1
-		}
-
-		// Schedule defaults
-		if proc.Schedule != "" && proc.ScheduleTimezone == "" {
-			proc.ScheduleTimezone = "UTC" // Default: UTC timezone
-		}
-
-		// Health check defaults
-		if proc.HealthCheck != nil {
-			hc := proc.HealthCheck
-			if hc.InitialDelay == 0 {
-				hc.InitialDelay = 5
-			}
-			if hc.Period == 0 {
-				hc.Period = 10
-			}
-			if hc.Timeout == 0 {
-				hc.Timeout = 3
-			}
-			if hc.FailureThreshold == 0 {
-				hc.FailureThreshold = 3
-			}
-			if hc.SuccessThreshold == 0 {
-				hc.SuccessThreshold = 1
-			}
-			if hc.ExpectedStatus == 0 {
-				hc.ExpectedStatus = 200
-			}
-			if hc.Mode == "" {
-				hc.Mode = "both" // Default: use for both liveness and readiness
-			}
-		}
-
-		// Shutdown defaults
-		if proc.Shutdown != nil {
-			sd := proc.Shutdown
-			if sd.Signal == "" {
-				sd.Signal = "SIGTERM"
-			}
-			if sd.Timeout == 0 {
-				sd.Timeout = 30
-			}
-			if sd.KillSignal == "" {
-				sd.KillSignal = "SIGKILL"
-			}
-		}
-
-		// Logging defaults
-		stdoutEnabled := true
-		if proc.Stdout != nil {
-			stdoutEnabled = *proc.Stdout
-		}
-		stderrEnabled := true
-		if proc.Stderr != nil {
-			stderrEnabled = *proc.Stderr
-		}
-
-		if proc.Logging == nil {
-			proc.Logging = &LoggingConfig{
-				Stdout: stdoutEnabled,
-				Stderr: stderrEnabled,
-				Labels: map[string]string{
-					"process": name,
-				},
-			}
-		} else {
-			if proc.Stdout != nil {
-				proc.Logging.Stdout = *proc.Stdout
-			}
-			if proc.Stderr != nil {
-				proc.Logging.Stderr = *proc.Stderr
-			}
-			if proc.Stdout == nil && !proc.Logging.Stdout {
-				proc.Logging.Stdout = true
-			}
-			if proc.Stderr == nil && !proc.Logging.Stderr {
-				proc.Logging.Stderr = true
-			}
-		}
-
-		// Set defaults for advanced logging features (all disabled by default, opt-in only)
-		if proc.Logging != nil {
-			// Multiline defaults (only set numeric values, keep enabled: false)
-			if proc.Logging.Multiline != nil {
-				if proc.Logging.Multiline.MaxLines == 0 {
-					proc.Logging.Multiline.MaxLines = 100
-				}
-				if proc.Logging.Multiline.Timeout == 0 {
-					proc.Logging.Multiline.Timeout = 1 // 1 second
-				}
-			}
-
-			// Level detection defaults
-			if proc.Logging.LevelDetection != nil && proc.Logging.LevelDetection.DefaultLevel == "" {
-				proc.Logging.LevelDetection.DefaultLevel = "info"
-			}
-
-			// Min level default
-			if proc.Logging.MinLevel == "" {
-				proc.Logging.MinLevel = "info"
-			}
-		}
+		c.setProcessDefaults(name, proc)
 	}
 }
 

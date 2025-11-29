@@ -96,7 +96,7 @@ global:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: laravel-app
+  name: php-app
 spec:
   containers:
     - name: app
@@ -127,16 +127,16 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-app
+  name: php-app
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: laravel
+      app: php
   template:
     metadata:
       labels:
-        app: laravel
+        app: php
     spec:
       containers:
         - name: app
@@ -199,7 +199,7 @@ global:
     content: |
       OK
       version=1.0.0
-      service=laravel-app
+      service=php-app
 ```
 
 Default content (when not specified):
