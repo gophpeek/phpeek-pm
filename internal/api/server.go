@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -504,7 +505,8 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		authHeader := r.Header.Get("Authorization")
 		expectedAuth := fmt.Sprintf("Bearer %s", s.auth)
 
-		if authHeader != expectedAuth {
+		// Use constant-time comparison to prevent timing attacks
+		if subtle.ConstantTimeCompare([]byte(authHeader), []byte(expectedAuth)) != 1 {
 			// Extract IP for audit log
 			ip := r.RemoteAddr
 			if s.aclChecker != nil {
