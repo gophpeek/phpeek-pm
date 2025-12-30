@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -333,5 +334,240 @@ func TestTracerConfig_ServiceVersion(t *testing.T) {
 			defer provider.Shutdown(context.Background())
 		})
 	}
+}
+
+func TestNewProvider_OTLPGrpc_Insecure(t *testing.T) {
+	cfg := TracerConfig{
+		Enabled:     true,
+		Exporter:    "otlp-grpc",
+		Endpoint:    "localhost:4317",
+		ServiceName: "test-service",
+		SampleRate:  1.0,
+		UseTLS:      false, // insecure mode
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// This will create the exporter successfully even without a running server
+	// The connection won't be established until traces are sent
+	provider, err := NewProvider(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewProvider failed: %v", err)
+	}
+	defer provider.Shutdown(context.Background())
+
+	if !provider.Enabled() {
+		t.Error("Provider should be enabled with otlp-grpc exporter")
+	}
+}
+
+func TestNewProvider_OTLPGrpc_WithTLS(t *testing.T) {
+	cfg := TracerConfig{
+		Enabled:     true,
+		Exporter:    "otlp-grpc",
+		Endpoint:    "localhost:4317",
+		ServiceName: "test-service",
+		SampleRate:  1.0,
+		UseTLS:      true, // TLS mode
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// This will create the exporter successfully even without a running server
+	// The connection won't be established until traces are sent
+	provider, err := NewProvider(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewProvider failed: %v", err)
+	}
+	defer provider.Shutdown(context.Background())
+
+	if !provider.Enabled() {
+		t.Error("Provider should be enabled with otlp-grpc exporter")
+	}
+}
+
+func TestCreateOTLPGRPCExporter_Insecure(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exporter, err := createOTLPGRPCExporter(context.Background(), "localhost:4317", false, logger)
+	if err != nil {
+		t.Fatalf("createOTLPGRPCExporter failed: %v", err)
+	}
+	if exporter == nil {
+		t.Error("Expected non-nil exporter")
+	}
+	// Cleanup
+	if exporter != nil {
+		exporter.Shutdown(context.Background())
+	}
+}
+
+func TestCreateOTLPGRPCExporter_WithTLS(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exporter, err := createOTLPGRPCExporter(context.Background(), "localhost:4317", true, logger)
+	if err != nil {
+		t.Fatalf("createOTLPGRPCExporter failed: %v", err)
+	}
+	if exporter == nil {
+		t.Error("Expected non-nil exporter")
+	}
+	// Cleanup
+	if exporter != nil {
+		exporter.Shutdown(context.Background())
+	}
+}
+
+func TestCreateExporter_OTLPGrpc(t *testing.T) {
+	cfg := TracerConfig{
+		Exporter: "otlp-grpc",
+		Endpoint: "localhost:4317",
+		UseTLS:   false,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exporter, err := createExporter(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("createExporter failed: %v", err)
+	}
+	if exporter == nil {
+		t.Error("Expected non-nil exporter")
+	}
+	// Cleanup
+	if exporter != nil {
+		exporter.Shutdown(context.Background())
+	}
+}
+
+func TestCreateExporter_Stdout(t *testing.T) {
+	cfg := TracerConfig{
+		Exporter: "stdout",
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exporter, err := createExporter(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("createExporter failed: %v", err)
+	}
+	if exporter == nil {
+		t.Error("Expected non-nil exporter")
+	}
+}
+
+func TestCreateExporter_Unsupported(t *testing.T) {
+	cfg := TracerConfig{
+		Exporter: "invalid",
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	_, err := createExporter(context.Background(), cfg, logger)
+	if err == nil {
+		t.Error("Expected error for unsupported exporter")
+	}
+}
+
+func TestProvider_Shutdown_WithContext(t *testing.T) {
+	cfg := TracerConfig{
+		Enabled:     true,
+		Exporter:    "stdout",
+		ServiceName: "test-service",
+		SampleRate:  1.0,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	provider, err := NewProvider(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewProvider failed: %v", err)
+	}
+
+	// Create some spans before shutdown
+	tracer := provider.Tracer("test")
+	_, span := tracer.Start(context.Background(), "test-span")
+	span.End()
+
+	// Shutdown with context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = provider.Shutdown(ctx)
+	if err != nil {
+		t.Errorf("Shutdown failed: %v", err)
+	}
+}
+
+func TestProvider_Enabled_WhenDisabled(t *testing.T) {
+	provider := &Provider{
+		tp:     nil,
+		logger: slog.Default(),
+	}
+
+	if provider.Enabled() {
+		t.Error("Provider should not be enabled when tp is nil")
+	}
+}
+
+func TestCreateStdoutExporter(t *testing.T) {
+	exporter, err := createStdoutExporter()
+	if err != nil {
+		t.Fatalf("createStdoutExporter failed: %v", err)
+	}
+	if exporter == nil {
+		t.Error("Expected non-nil exporter")
+	}
+}
+
+func TestProvider_Shutdown_WithCancelledContext(t *testing.T) {
+	cfg := TracerConfig{
+		Enabled:     true,
+		Exporter:    "stdout",
+		ServiceName: "test-service",
+		SampleRate:  1.0,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	provider, err := NewProvider(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewProvider failed: %v", err)
+	}
+
+	// Create some spans to flush
+	tracer := provider.Tracer("test")
+	for i := 0; i < 100; i++ {
+		_, span := tracer.Start(context.Background(), "test-span")
+		span.End()
+	}
+
+	// Try shutdown with already cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// This may or may not error depending on timing, but exercises the shutdown path
+	_ = provider.Shutdown(ctx)
+}
+
+func TestProvider_Shutdown_WithExpiredContext(t *testing.T) {
+	cfg := TracerConfig{
+		Enabled:     true,
+		Exporter:    "stdout",
+		ServiceName: "test-service",
+		SampleRate:  1.0,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	provider, err := NewProvider(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("NewProvider failed: %v", err)
+	}
+
+	// Create spans
+	tracer := provider.Tracer("test")
+	_, span := tracer.Start(context.Background(), "test-span")
+	span.End()
+
+	// Use very short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond) // Ensure context is expired
+
+	// Shutdown with expired context - may trigger error path
+	_ = provider.Shutdown(ctx)
 }
 

@@ -583,3 +583,164 @@ func containsSubstr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestManager_Start_MkdirError(t *testing.T) {
+	// Use a path that cannot be created (inside a file, not a directory)
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "file")
+
+	// Create a regular file
+	if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	// Try to create a readiness file inside that file (impossible)
+	readinessPath := filepath.Join(filePath, "subdir", "ready")
+
+	cfg := &config.ReadinessConfig{
+		Enabled: true,
+		Path:    readinessPath,
+		Mode:    "all_running",
+	}
+	logger := newTestLogger()
+	m := NewManager(cfg, logger)
+
+	err := m.Start(context.Background())
+	if err == nil {
+		t.Error("Expected error when MkdirAll fails")
+	}
+}
+
+func TestManager_CreateReadinessFile_Error(t *testing.T) {
+	tmpDir := t.TempDir()
+	dirPath := filepath.Join(tmpDir, "readonly_dir")
+
+	// Create a directory and make it read-only
+	if err := os.Mkdir(dirPath, 0555); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+	defer os.Chmod(dirPath, 0755) // Restore permissions for cleanup
+
+	readinessPath := filepath.Join(dirPath, "ready")
+
+	cfg := &config.ReadinessConfig{
+		Enabled: true,
+		Path:    readinessPath,
+		Mode:    "all_running",
+	}
+	logger := newTestLogger()
+	m := NewManager(cfg, logger)
+
+	// Start will work (directory already exists)
+	// Manually set tracked processes and update state to trigger createReadinessFile
+	m.SetTrackedProcesses([]string{"test"})
+
+	// This should trigger createReadinessFile which will fail due to read-only directory
+	// It logs an error but doesn't return it
+	m.UpdateProcessState("test", StateRunning, "healthy")
+
+	// The manager should still report ready state internally
+	// even though the file couldn't be created
+	// (error is logged, not propagated)
+}
+
+func TestManager_RemoveReadinessFile_WhileReady(t *testing.T) {
+	tmpDir := t.TempDir()
+	readinessPath := filepath.Join(tmpDir, "ready")
+
+	cfg := &config.ReadinessConfig{
+		Enabled: true,
+		Path:    readinessPath,
+		Mode:    "all_running",
+	}
+	logger := newTestLogger()
+	m := NewManager(cfg, logger)
+
+	_ = m.Start(context.Background())
+	m.SetTrackedProcesses([]string{"test"})
+
+	// Make it ready first (creates the file)
+	m.UpdateProcessState("test", StateRunning, "healthy")
+	if !m.IsReady() {
+		t.Fatal("Expected to be ready")
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(readinessPath); os.IsNotExist(err) {
+		t.Fatal("Expected readiness file to exist")
+	}
+
+	// Now update to make it not ready (removes the file while isReady is true)
+	// This exercises the "Container is not ready" log path in removeReadinessFile
+	m.UpdateProcessState("test", StateStopped, "unknown")
+
+	if m.IsReady() {
+		t.Error("Expected not ready")
+	}
+
+	// File should be removed
+	if _, err := os.Stat(readinessPath); !os.IsNotExist(err) {
+		t.Error("Expected readiness file to be removed")
+	}
+}
+
+func TestManager_RemoveReadinessFile_Error(t *testing.T) {
+	tmpDir := t.TempDir()
+	dirPath := filepath.Join(tmpDir, "protected_dir")
+	readinessPath := filepath.Join(dirPath, "ready")
+
+	// Create a directory
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	cfg := &config.ReadinessConfig{
+		Enabled: true,
+		Path:    readinessPath,
+		Mode:    "all_running",
+	}
+	logger := newTestLogger()
+	m := NewManager(cfg, logger)
+
+	_ = m.Start(context.Background())
+	m.SetTrackedProcesses([]string{"test"})
+
+	// Make it ready (creates the file)
+	m.UpdateProcessState("test", StateRunning, "healthy")
+
+	// Make directory read-only to prevent file removal
+	if err := os.Chmod(dirPath, 0555); err != nil {
+		t.Fatalf("Failed to make directory read-only: %v", err)
+	}
+	defer os.Chmod(dirPath, 0755) // Restore for cleanup
+
+	// Try to make it not ready - this will try to remove the file and fail
+	// The error is logged but not propagated
+	m.UpdateProcessState("test", StateStopped, "unknown")
+}
+
+func TestManager_TrackAllProcesses_NoFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	readinessPath := filepath.Join(tmpDir, "ready")
+
+	cfg := &config.ReadinessConfig{
+		Enabled:   true,
+		Path:      readinessPath,
+		Mode:      "all_running",
+		Processes: []string{}, // Empty = track all
+	}
+	logger := newTestLogger()
+	m := NewManager(cfg, logger)
+
+	_ = m.Start(context.Background())
+
+	// Start with empty tracked processes but no filter
+	// Any process should be added to tracking
+	m.UpdateProcessState("php-fpm", StateRunning, "healthy")
+	m.UpdateProcessState("nginx", StateRunning, "healthy")
+
+	status := m.GetStatus()
+	if len(status) != 2 {
+		t.Errorf("Expected 2 processes tracked, got %d", len(status))
+	}
+}

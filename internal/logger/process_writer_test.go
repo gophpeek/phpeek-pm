@@ -631,3 +631,229 @@ func TestProcessWriter_EmptyFlush(t *testing.T) {
 		t.Errorf("expected 0 logs after empty flush, got %d", len(logs))
 	}
 }
+
+func TestProcessWriter_AddEvent(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", nil)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Add an event
+	pw.AddEvent("Process started")
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	event := logs[0]
+	if event.Message != "Process started" {
+		t.Errorf("event message = %q, want %q", event.Message, "Process started")
+	}
+	if event.Level != "event" {
+		t.Errorf("event level = %q, want %q", event.Level, "event")
+	}
+	if event.Stream != "event" {
+		t.Errorf("event stream = %q, want %q", event.Stream, "event")
+	}
+	if event.ProcessName != "test-process" {
+		t.Errorf("event ProcessName = %q, want %q", event.ProcessName, "test-process")
+	}
+	if event.InstanceID != "test-0" {
+		t.Errorf("event InstanceID = %q, want %q", event.InstanceID, "test-0")
+	}
+}
+
+func TestProcessWriter_AddEvent_NilBuffer(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw := &ProcessWriter{
+		Logger:      logger,
+		ProcessName: "test",
+		InstanceID:  "test-0",
+		Stream:      "stdout",
+		logBuffer:   nil, // Explicitly nil
+	}
+
+	// Should not panic
+	pw.AddEvent("Test event")
+}
+
+func TestNewProcessWriter_InvalidMultiline(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		Multiline: &config.MultilineConfig{
+			Enabled: true,
+			Pattern: "[invalid(regex",
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid multiline pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create multiline buffer") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewProcessWriter_InvalidLevelDetector(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		LevelDetection: &config.LevelDetectionConfig{
+			Enabled: true,
+			Patterns: map[string]string{
+				"error": "[invalid(regex",
+			},
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid level detector pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create level detector") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewProcessWriter_InvalidFilters(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		Filters: &config.FilterConfig{
+			Include: []string{"[invalid(regex"},
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid filter pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create log filters") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestProcessWriter_FlushWithBufferedData(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", nil)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Manually add data to the internal buffer without newline
+	pw.buffer.WriteString("buffered content")
+
+	// Flush should process the buffered content
+	pw.Flush()
+
+	logs := pw.GetLogs()
+	if len(logs) == 0 {
+		t.Error("expected log entry after flushing buffered content")
+	}
+}
+
+func TestProcessWriter_Write_JSONWithLevel(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Test warn level (debug may get filtered)
+	pw.Write([]byte(`{"level":"warn","message":"Warning message"}` + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	if logs[0].Level != "warn" {
+		t.Errorf("expected level 'warn', got %q", logs[0].Level)
+	}
+}
+
+func TestProcessWriter_Write_JSONWithEmptyMessage(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// JSON without message field
+	jsonLog := `{"level":"info","user_id":123}`
+	pw.Write([]byte(jsonLog + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	// Message should fall back to original entry
+	if !strings.Contains(logs[0].Message, "user_id") {
+		t.Errorf("expected fallback to original JSON, got: %q", logs[0].Message)
+	}
+}
+
+func TestProcessWriter_Write_DefaultLevelSwitch(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Test unknown level (should fall through to default case)
+	pw.Write([]byte(`{"level":"trace","message":"Trace message"}` + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	// Unknown level should be treated as info
+	if logs[0].Level != "info" {
+		t.Errorf("expected 'info' for unknown level, got: %q", logs[0].Level)
+	}
+}

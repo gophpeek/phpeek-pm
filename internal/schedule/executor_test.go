@@ -289,3 +289,102 @@ func TestProcessExecutor_Execute_CustomEnvOverridesParent(t *testing.T) {
 		t.Errorf("exitCode = %d, want 0 (custom env should override parent)", exitCode)
 	}
 }
+
+func TestProcessExecutor_HasProcess(t *testing.T) {
+	logger := testLogger()
+	e := NewProcessExecutor(logger)
+
+	// Not registered
+	if e.HasProcess("test") {
+		t.Error("HasProcess() should return false for unregistered process")
+	}
+
+	// Register
+	e.RegisterProcess("test", ProcessConfig{Command: []string{"echo"}})
+
+	if !e.HasProcess("test") {
+		t.Error("HasProcess() should return true for registered process")
+	}
+
+	// Unregister
+	e.UnregisterProcess("test")
+
+	if e.HasProcess("test") {
+		t.Error("HasProcess() should return false after unregister")
+	}
+}
+
+func TestProcessExecutor_GetLogs_NonExistentProcess(t *testing.T) {
+	logger := testLogger()
+	e := NewProcessExecutor(logger)
+
+	logs := e.GetLogs("non-existent", 0)
+	if len(logs) != 0 {
+		t.Errorf("GetLogs() should return empty slice for non-existent process, got %d entries", len(logs))
+	}
+}
+
+func TestProcessExecutor_GetLogs_AfterExecution(t *testing.T) {
+	logger := testLogger()
+	e := NewProcessExecutor(logger)
+
+	e.RegisterProcess("test", ProcessConfig{
+		Command: []string{"echo", "test output"},
+	})
+
+	ctx := context.Background()
+	_, err := e.Execute(ctx, "test")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Get all logs
+	logs := e.GetLogs("test", 0)
+	if len(logs) == 0 {
+		t.Error("GetLogs() should return log entries after execution")
+	}
+
+	// Check logs are sorted by timestamp (newest first)
+	for i := 1; i < len(logs); i++ {
+		if logs[i].Timestamp.After(logs[i-1].Timestamp) {
+			t.Error("logs should be sorted newest first")
+		}
+	}
+}
+
+func TestProcessExecutor_GetLogs_WithLimit(t *testing.T) {
+	logger := testLogger()
+	e := NewProcessExecutor(logger)
+
+	e.RegisterProcess("test", ProcessConfig{
+		Command: []string{"sh", "-c", "echo line1; echo line2; echo line3"},
+	})
+
+	ctx := context.Background()
+	_, err := e.Execute(ctx, "test")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	// Get limited logs
+	logs := e.GetLogs("test", 2)
+	if len(logs) > 2 {
+		t.Errorf("GetLogs() with limit 2 should return at most 2 entries, got %d", len(logs))
+	}
+}
+
+func TestProcessExecutor_GetLogs_NoLogs(t *testing.T) {
+	logger := testLogger()
+	e := NewProcessExecutor(logger)
+
+	// Register but don't execute
+	e.RegisterProcess("test", ProcessConfig{
+		Command: []string{"echo"},
+	})
+
+	logs := e.GetLogs("test", 0)
+	// Should return empty logs (no execution yet)
+	if logs == nil {
+		t.Error("GetLogs() should return empty slice, not nil")
+	}
+}

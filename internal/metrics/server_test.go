@@ -444,6 +444,62 @@ func TestServer_ConcurrentRequests(t *testing.T) {
 	}
 }
 
+// TestNewServer_InvalidACL tests server creation with invalid ACL config
+func TestNewServer_InvalidACL(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Create ACL config with invalid allow list entry (will cause error)
+	aclConfig := &config.ACLConfig{
+		Enabled:   true,
+		Mode:      "allow",
+		AllowList: []string{"invalid-ip-address"}, // Invalid entry
+	}
+
+	// Server should still be created even if ACL fails
+	server := NewServer(19097, "/metrics", aclConfig, nil, logger)
+	if server == nil {
+		t.Fatal("Expected non-nil server even with invalid ACL config")
+	}
+
+	// ACL checker should be nil since creation failed
+	if server.aclChecker != nil {
+		t.Error("Expected ACL checker to be nil when ACL creation fails")
+	}
+}
+
+// TestServer_StopWithTimeoutContext tests stopping with a context that times out
+func TestServer_StopWithTimeoutContext(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	port := 19098
+	server := NewServer(port, "/metrics", nil, nil, logger)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start server
+	go server.Start(ctx)
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server is running
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	if err != nil {
+		t.Fatalf("Failed to connect to server: %v", err)
+	}
+	resp.Body.Close()
+
+	// Stop with a very short context that may already be cancelled
+	cancelledCtx, cancelImmediately := context.WithCancel(context.Background())
+	cancelImmediately()
+
+	// Stop should handle cancelled context gracefully
+	err = server.Stop(cancelledCtx)
+	if err != nil {
+		// This is expected behavior - context was cancelled
+		t.Logf("Stop with cancelled context returned: %v (expected)", err)
+	}
+}
+
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr)))

@@ -555,3 +555,173 @@ func TestSave(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_ProcessSchedule(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *Config
+		wantErr bool
+	}{
+		{
+			name: "valid schedule expression",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"cron-job": {
+						Enabled:  true,
+						Type:     "oneshot",
+						Command:  []string{"echo", "hello"},
+						Schedule: "*/5 * * * *",
+						Restart:  "never",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid schedule expression",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"bad-cron": {
+						Enabled:  true,
+						Type:     "oneshot",
+						Command:  []string{"echo", "hello"},
+						Schedule: "invalid cron",
+						Restart:  "never",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid schedule with UTC timezone",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"utc-job": {
+						Enabled:          true,
+						Type:             "oneshot",
+						Command:          []string{"echo", "hello"},
+						Schedule:         "0 * * * *",
+						ScheduleTimezone: "UTC",
+						Restart:          "never",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid schedule with Local timezone",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"local-job": {
+						Enabled:          true,
+						Type:             "oneshot",
+						Command:          []string{"echo", "hello"},
+						Schedule:         "0 * * * *",
+						ScheduleTimezone: "Local",
+						Restart:          "never",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid schedule timezone",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"bad-tz-job": {
+						Enabled:          true,
+						Type:             "oneshot",
+						Command:          []string{"echo", "hello"},
+						Schedule:         "0 * * * *",
+						ScheduleTimezone: "America/New_York", // Not UTC or Local
+						Restart:          "never",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid schedule timeout",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"timeout-job": {
+						Enabled:         true,
+						Type:            "oneshot",
+						Command:         []string{"echo", "hello"},
+						Schedule:        "0 * * * *",
+						ScheduleTimeout: "5m",
+						Restart:         "never",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid schedule timeout",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"bad-timeout-job": {
+						Enabled:         true,
+						Type:            "oneshot",
+						Command:         []string{"echo", "hello"},
+						Schedule:        "0 * * * *",
+						ScheduleTimeout: "invalid",
+						Restart:         "never",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid negative max_concurrent",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"neg-concurrent-job": {
+						Enabled:               true,
+						Type:                  "oneshot",
+						Command:               []string{"echo", "hello"},
+						Schedule:              "0 * * * *",
+						ScheduleMaxConcurrent: -1,
+						Restart:               "never",
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid max_concurrent zero means unlimited",
+			config: &Config{
+				Version: "1.0",
+				Processes: map[string]*Process{
+					"unlimited-job": {
+						Enabled:               true,
+						Type:                  "oneshot",
+						Command:               []string{"echo", "hello"},
+						Schedule:              "0 * * * *",
+						ScheduleMaxConcurrent: 0,
+						Restart:               "never",
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.config.SetDefaults()
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -3,6 +3,8 @@ package deps
 import (
 	"strings"
 	"testing"
+
+	"github.com/gophpeek/phpeek-pm/internal/config"
 )
 
 func TestGraph_SimpleChain(t *testing.T) {
@@ -563,5 +565,316 @@ func TestGraph_HasCycle_NoCycle(t *testing.T) {
 	}
 	if len(cycle) > 0 {
 		t.Errorf("Expected empty cycle path for acyclic graph, got: %v", cycle)
+	}
+}
+
+// TestNewGraphFromConfig tests creating a dependency graph from config
+func TestNewGraphFromConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		processes map[string]*config.Process
+		wantError bool
+		wantNodes int
+		errMsg    string
+	}{
+		{
+			name: "simple valid config",
+			processes: map[string]*config.Process{
+				"php-fpm": {
+					Enabled:   true,
+					DependsOn: []string{},
+				},
+				"nginx": {
+					Enabled:   true,
+					DependsOn: []string{"php-fpm"},
+				},
+			},
+			wantError: false,
+			wantNodes: 2,
+		},
+		{
+			name: "with disabled process",
+			processes: map[string]*config.Process{
+				"php-fpm": {
+					Enabled:   true,
+					DependsOn: []string{},
+				},
+				"nginx": {
+					Enabled:   false, // Disabled
+					DependsOn: []string{"php-fpm"},
+				},
+			},
+			wantError: false,
+			wantNodes: 1, // Only php-fpm
+		},
+		// Note: circular dependency is not detected by NewGraphFromConfig
+		// It is detected by TopologicalSort() - see TestNewGraphFromConfig_WithTopologicalSort
+		{
+			name: "missing dependency",
+			processes: map[string]*config.Process{
+				"nginx": {
+					Enabled:   true,
+					DependsOn: []string{"php-fpm"}, // php-fpm doesn't exist
+				},
+			},
+			wantError: true,
+			errMsg:    "non-existent",
+		},
+		{
+			name: "self dependency",
+			processes: map[string]*config.Process{
+				"loop": {
+					Enabled:   true,
+					DependsOn: []string{"loop"},
+				},
+			},
+			wantError: true,
+			errMsg:    "self-dependency",
+		},
+		{
+			name:      "empty config",
+			processes: map[string]*config.Process{},
+			wantError: false,
+			wantNodes: 0,
+		},
+		{
+			name: "all disabled",
+			processes: map[string]*config.Process{
+				"php-fpm": {
+					Enabled:   false,
+					DependsOn: []string{},
+				},
+				"nginx": {
+					Enabled:   false,
+					DependsOn: []string{},
+				},
+			},
+			wantError: false,
+			wantNodes: 0,
+		},
+		{
+			name: "complex valid config",
+			processes: map[string]*config.Process{
+				"php-fpm": {
+					Enabled:   true,
+					DependsOn: []string{},
+				},
+				"nginx": {
+					Enabled:   true,
+					DependsOn: []string{"php-fpm"},
+				},
+				"horizon": {
+					Enabled:   true,
+					DependsOn: []string{"php-fpm"},
+				},
+				"scheduler": {
+					Enabled:   true,
+					DependsOn: []string{"php-fpm"},
+				},
+			},
+			wantError: false,
+			wantNodes: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			graph, err := NewGraphFromConfig(tt.processes)
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errMsg, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if graph == nil {
+				t.Fatal("Expected non-nil graph")
+			}
+
+			nodes := graph.Nodes()
+			if len(nodes) != tt.wantNodes {
+				t.Errorf("Expected %d nodes, got %d: %v", tt.wantNodes, len(nodes), nodes)
+			}
+		})
+	}
+}
+
+// TestGraph_Nodes tests the Nodes method
+func TestGraph_Nodes(t *testing.T) {
+	tests := []struct {
+		name       string
+		addNodes   map[string][]string
+		wantNodes  []string
+		checkCount int
+	}{
+		{
+			name:       "empty graph",
+			addNodes:   map[string][]string{},
+			wantNodes:  []string{},
+			checkCount: 0,
+		},
+		{
+			name: "single node",
+			addNodes: map[string][]string{
+				"A": {},
+			},
+			wantNodes:  []string{"A"},
+			checkCount: 1,
+		},
+		{
+			name: "multiple nodes",
+			addNodes: map[string][]string{
+				"A": {},
+				"B": {"A"},
+				"C": {"B"},
+			},
+			wantNodes:  []string{"A", "B", "C"},
+			checkCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGraph()
+			for name, deps := range tt.addNodes {
+				g.AddNode(name, deps)
+			}
+
+			nodes := g.Nodes()
+
+			if len(nodes) != tt.checkCount {
+				t.Errorf("Expected %d nodes, got %d", tt.checkCount, len(nodes))
+			}
+
+			// Check all expected nodes are present
+			for _, expected := range tt.wantNodes {
+				found := false
+				for _, actual := range nodes {
+					if actual == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected node %q not found in %v", expected, nodes)
+				}
+			}
+		})
+	}
+}
+
+// TestGraph_Dependencies tests the Dependencies method
+func TestGraph_Dependencies(t *testing.T) {
+	g := NewGraph()
+	g.AddNode("A", []string{})
+	g.AddNode("B", []string{"A"})
+	g.AddNode("C", []string{"A", "B"})
+
+	tests := []struct {
+		name     string
+		nodeName string
+		wantDeps []string
+		wantNil  bool
+	}{
+		{
+			name:     "node with no dependencies",
+			nodeName: "A",
+			wantDeps: []string{},
+			wantNil:  false,
+		},
+		{
+			name:     "node with one dependency",
+			nodeName: "B",
+			wantDeps: []string{"A"},
+			wantNil:  false,
+		},
+		{
+			name:     "node with multiple dependencies",
+			nodeName: "C",
+			wantDeps: []string{"A", "B"},
+			wantNil:  false,
+		},
+		{
+			name:     "non-existent node",
+			nodeName: "NonExistent",
+			wantDeps: nil,
+			wantNil:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := g.Dependencies(tt.nodeName)
+
+			if tt.wantNil {
+				if deps != nil {
+					t.Errorf("Expected nil for non-existent node, got: %v", deps)
+				}
+				return
+			}
+
+			if len(deps) != len(tt.wantDeps) {
+				t.Errorf("Expected %d dependencies, got %d: %v", len(tt.wantDeps), len(deps), deps)
+			}
+
+			for _, expected := range tt.wantDeps {
+				found := false
+				for _, actual := range deps {
+					if actual == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected dependency %q not found in %v", expected, deps)
+				}
+			}
+		})
+	}
+}
+
+// TestNewGraphFromConfig_WithTopologicalSort tests end-to-end graph usage
+func TestNewGraphFromConfig_WithTopologicalSort(t *testing.T) {
+	processes := map[string]*config.Process{
+		"php-fpm": {
+			Enabled:   true,
+			DependsOn: []string{},
+		},
+		"nginx": {
+			Enabled:   true,
+			DependsOn: []string{"php-fpm"},
+		},
+		"horizon": {
+			Enabled:   true,
+			DependsOn: []string{"php-fpm"},
+		},
+	}
+
+	graph, err := NewGraphFromConfig(processes)
+	if err != nil {
+		t.Fatalf("NewGraphFromConfig failed: %v", err)
+	}
+
+	order, err := graph.TopologicalSort()
+	if err != nil {
+		t.Fatalf("TopologicalSort failed: %v", err)
+	}
+
+	// php-fpm should be first
+	if order[0] != "php-fpm" {
+		t.Errorf("Expected php-fpm first, got %s", order[0])
+	}
+
+	// Verify all nodes are present
+	if len(order) != 3 {
+		t.Errorf("Expected 3 nodes in order, got %d: %v", len(order), order)
 	}
 }
