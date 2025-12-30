@@ -17,9 +17,6 @@ func TestDetectCgroupV2Resources_WithMockedFiles(t *testing.T) {
 		t.Skip("Linux-only test")
 	}
 
-	// Save original cgroup paths
-	origCgroupBase := "/sys/fs/cgroup"
-
 	tests := []struct {
 		name           string
 		memoryMax      string
@@ -334,20 +331,7 @@ Cached:          2048000 kB`,
 			var memory int64
 			found := false
 
-			for _, line := range []string{} {
-				if len(lines) > 0 {
-					// Simple parsing simulation
-					var kb int64
-					n, _ := fmt.Sscanf(lines, "MemTotal: %d kB", &kb)
-					if n == 1 {
-						memory = kb * 1024
-						found = true
-						break
-					}
-				}
-			}
-
-			// Better simulation using the actual lines
+			// Parse memory from simulated meminfo content
 			for _, line := range []string{
 				"MemTotal:       16384000 kB",
 				"MemTotal:        8192000 kB",
