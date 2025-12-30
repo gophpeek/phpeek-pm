@@ -327,7 +327,7 @@ Cached:          2048000 kB`,
 				return
 			}
 
-			lines := string(content)
+			_ = content // Content read successfully
 			var memory int64
 			found := false
 
