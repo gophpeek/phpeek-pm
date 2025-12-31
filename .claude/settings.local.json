@@ -19,7 +19,14 @@
       "Bash(git push:*)",
       "Bash(golangci-lint run:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(jq:*)",
+      "Bash(gh api:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []
