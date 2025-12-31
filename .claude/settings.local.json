@@ -8,7 +8,18 @@
       "mcp__serena__list_dir",
       "Bash(go test:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(go build:*)",
+      "Bash(go tool cover:*)",
+      "Bash(sort:*)",
+      "Bash(wc:*)",
+      "Bash(cat:*)",
+      "Bash(git checkout:*)",
+      "Bash(go vet:*)",
+      "Bash(git push:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

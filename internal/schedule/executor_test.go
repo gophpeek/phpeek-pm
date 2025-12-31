@@ -30,7 +30,7 @@ func TestProcessExecutor_RegisterProcess(t *testing.T) {
 		Timeout:    10 * time.Second,
 	}
 
-	e.RegisterProcess("test", cfg)
+	_ = e.RegisterProcess("test", cfg)
 
 	// Verify registration
 	stored, exists := e.configs["test"]
@@ -49,7 +49,7 @@ func TestProcessExecutor_UnregisterProcess(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{Command: []string{"echo"}})
+	_ = e.RegisterProcess("test", ProcessConfig{Command: []string{"echo"}})
 	e.UnregisterProcess("test")
 
 	_, exists := e.configs["test"]
@@ -65,7 +65,7 @@ func TestProcessExecutor_Execute_Success(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"echo", "hello"},
 	})
 
@@ -96,7 +96,7 @@ func TestProcessExecutor_Execute_EmptyCommand(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{},
 	})
 
@@ -112,7 +112,7 @@ func TestProcessExecutor_Execute_NonZeroExit(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "exit 42"},
 	})
 
@@ -131,7 +131,7 @@ func TestProcessExecutor_Execute_WithWorkingDir(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command:    []string{"pwd"},
 		WorkingDir: "/tmp",
 	})
@@ -151,7 +151,7 @@ func TestProcessExecutor_Execute_WithEnv(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "test $TEST_VAR = hello"},
 		Env:     map[string]string{"TEST_VAR": "hello"},
 	})
@@ -171,7 +171,7 @@ func TestProcessExecutor_Execute_WithTimeout(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sleep", "5"},
 		Timeout: 100 * time.Millisecond,
 	})
@@ -193,7 +193,7 @@ func TestProcessExecutor_Execute_ContextCanceled(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sleep", "5"},
 	})
 
@@ -212,7 +212,7 @@ func TestProcessExecutor_Execute_ProcessEnvVars(t *testing.T) {
 	e := NewProcessExecutor(logger)
 
 	// Test that PHPEEK_PM_PROCESS and PHPEEK_PM_SCHEDULED are set
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "test $PHPEEK_PM_PROCESS = test && test $PHPEEK_PM_SCHEDULED = true"},
 	})
 
@@ -231,7 +231,7 @@ func TestProcessExecutor_Execute_CommandNotFound(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"nonexistent-command-12345"},
 	})
 
@@ -251,7 +251,7 @@ func TestProcessExecutor_Execute_PreservesParentEnv(t *testing.T) {
 	os.Setenv("TEST_PARENT_VAR", "inherited")
 	defer os.Unsetenv("TEST_PARENT_VAR")
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "test $TEST_PARENT_VAR = inherited"},
 	})
 
@@ -274,7 +274,7 @@ func TestProcessExecutor_Execute_CustomEnvOverridesParent(t *testing.T) {
 	os.Setenv("OVERRIDE_VAR", "original")
 	defer os.Unsetenv("OVERRIDE_VAR")
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "test $OVERRIDE_VAR = overridden"},
 		Env:     map[string]string{"OVERRIDE_VAR": "overridden"},
 	})
@@ -300,7 +300,7 @@ func TestProcessExecutor_HasProcess(t *testing.T) {
 	}
 
 	// Register
-	e.RegisterProcess("test", ProcessConfig{Command: []string{"echo"}})
+	_ = e.RegisterProcess("test", ProcessConfig{Command: []string{"echo"}})
 
 	if !e.HasProcess("test") {
 		t.Error("HasProcess() should return true for registered process")
@@ -328,7 +328,7 @@ func TestProcessExecutor_GetLogs_AfterExecution(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"echo", "test output"},
 	})
 
@@ -356,7 +356,7 @@ func TestProcessExecutor_GetLogs_WithLimit(t *testing.T) {
 	logger := testLogger()
 	e := NewProcessExecutor(logger)
 
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"sh", "-c", "echo line1; echo line2; echo line3"},
 	})
 
@@ -378,7 +378,7 @@ func TestProcessExecutor_GetLogs_NoLogs(t *testing.T) {
 	e := NewProcessExecutor(logger)
 
 	// Register but don't execute
-	e.RegisterProcess("test", ProcessConfig{
+	_ = e.RegisterProcess("test", ProcessConfig{
 		Command: []string{"echo"},
 	})
 

@@ -221,7 +221,7 @@ func runServe(cmd *cobra.Command, args []string) {
 			slog.Error("Failed to start config watcher", "error", err)
 			os.Exit(1)
 		}
-		defer configWatcher.Stop()
+		defer func() { _ = configWatcher.Stop() }()
 	}
 
 	// Main event loop - handles shutdown signals and config reloads

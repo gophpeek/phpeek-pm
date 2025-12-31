@@ -269,7 +269,7 @@ func TestMiddleware_Allowed(t *testing.T) {
 
 	handler := checker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -320,7 +320,7 @@ func TestMiddleware_Disabled(t *testing.T) {
 
 	handler := checker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)

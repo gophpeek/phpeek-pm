@@ -59,7 +59,7 @@ func TestManager_ProcessDeathNotification(t *testing.T) {
 	// Cleanup
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	manager.Shutdown(shutdownCtx)
+	_ = manager.Shutdown(shutdownCtx)
 }
 
 // TestManager_NotifyProcessDeath_DirectCall tests direct NotifyProcessDeath calls
@@ -95,7 +95,7 @@ func TestManager_NotifyProcessDeath_DirectCall(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -154,7 +154,7 @@ func TestManager_CheckAllProcessesDead_WithRunningProcesses(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -218,7 +218,7 @@ func TestManager_MonitorProcessHealth_ContextCancellation(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -285,7 +285,7 @@ func TestManager_ListProcesses_MultipleProcesses(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to start
@@ -366,7 +366,7 @@ func TestManager_AllDeadChannel_NotSignaledWithoutProcesses(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Trigger NotifyProcessDeath to call checkAllProcessesDead
@@ -426,7 +426,7 @@ func TestManager_MultipleProcessesDying(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for all-dead signal (both processes should exit quickly)
@@ -476,7 +476,7 @@ func TestManager_AllDeadChannel_DoubleClose(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for all-dead signal
@@ -575,6 +575,6 @@ func TestManager_ProcessLifecycle_StartStopRestart(t *testing.T) {
 	// Cleanup
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	manager.Shutdown(shutdownCtx)
+	_ = manager.Shutdown(shutdownCtx)
 }
 

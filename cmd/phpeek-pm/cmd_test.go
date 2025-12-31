@@ -40,14 +40,14 @@ func captureOutput(f func()) (string, string) {
 	go func() {
 		defer wg.Done()
 		var buf bytes.Buffer
-		io.Copy(&buf, rOut)
+		_, _ = io.Copy(&buf, rOut)
 		stdout = buf.String()
 	}()
 
 	go func() {
 		defer wg.Done()
 		var buf bytes.Buffer
-		io.Copy(&buf, rErr)
+		_, _ = io.Copy(&buf, rErr)
 		stderr = buf.String()
 	}()
 
@@ -1553,8 +1553,9 @@ processes:
 		t.Run(level, func(t *testing.T) {
 			// Just verify flag accepts the level
 			output := executeCommand(t, rootCmd, "logs", "--help")
-			if !strings.Contains(output, level) || !strings.Contains(output, "--level") {
-				// Level help is in the command
+			// Verify the help output contains level flag documentation
+			if strings.Contains(output, "--level") {
+				t.Logf("Level flag documented in help output")
 			}
 		})
 	}
@@ -2728,8 +2729,8 @@ func TestCheckConfigDefaultPath(t *testing.T) {
 	// Change to temp dir where phpeek-pm.yaml doesn't exist
 	tmpDir := t.TempDir()
 	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tmpDir)
+	defer func() { _ = os.Chdir(oldWd) }()
+	_ = os.Chdir(tmpDir)
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestCheckConfigDefaultPathSubprocess")
 	cmd.Env = append(os.Environ(), "BE_CHECK_DEFAULT=1")
@@ -5174,7 +5175,7 @@ func TestPromptForPresetSubprocess(t *testing.T) {
 
 	// Create a pipe and write the choice to stdin
 	r, w, _ := os.Pipe()
-	w.WriteString(choice + "\n")
+	_, _ = w.WriteString(choice + "\n")
 	w.Close()
 	origStdin := os.Stdin
 	os.Stdin = r
@@ -5216,7 +5217,7 @@ func TestPromptYesNoSubprocess(t *testing.T) {
 
 	// Create a pipe and write the input to stdin
 	r, w, _ := os.Pipe()
-	w.WriteString(input + "\n")
+	_, _ = w.WriteString(input + "\n")
 	w.Close()
 	origStdin := os.Stdin
 	os.Stdin = r
@@ -5274,15 +5275,15 @@ func TestConfigureInteractiveSubprocess(t *testing.T) {
 	// Provide minimal input via stdin
 	r, w, _ := os.Pipe()
 	// Simulate entering app name, log level, and answering feature questions
-	w.WriteString("test-app\n")  // app name
-	w.WriteString("debug\n")     // log level
-	w.WriteString("3\n")         // queue workers
-	w.WriteString("redis\n")     // queue connection
-	w.WriteString("n\n")         // metrics
-	w.WriteString("n\n")         // api
-	w.WriteString("n\n")         // tracing
-	w.WriteString("n\n")         // docker-compose
-	w.WriteString("n\n")         // dockerfile
+	_, _ = w.WriteString("test-app\n") // app name
+	_, _ = w.WriteString("debug\n")    // log level
+	_, _ = w.WriteString("3\n")        // queue workers
+	_, _ = w.WriteString("redis\n")    // queue connection
+	_, _ = w.WriteString("n\n")        // metrics
+	_, _ = w.WriteString("n\n")        // api
+	_, _ = w.WriteString("n\n")        // tracing
+	_, _ = w.WriteString("n\n")        // docker-compose
+	_, _ = w.WriteString("n\n")        // dockerfile
 	w.Close()
 	origStdin := os.Stdin
 	os.Stdin = r
@@ -5491,7 +5492,7 @@ func TestPromptForPresetDirect(t *testing.T) {
 
 			// Create pipe with test input
 			r, w, _ := os.Pipe()
-			w.WriteString(tt.input)
+			_, _ = w.WriteString(tt.input)
 			w.Close()
 			os.Stdin = r
 
@@ -5539,7 +5540,7 @@ func TestPromptYesNoDirect(t *testing.T) {
 
 			// Create pipe with test input
 			r, w, _ := os.Pipe()
-			w.WriteString(tt.input)
+			_, _ = w.WriteString(tt.input)
 			w.Close()
 			os.Stdin = r
 
@@ -5606,7 +5607,7 @@ func TestConfigureInteractiveDirect(t *testing.T) {
 
 			// Create pipe with test input
 			r, w, _ := os.Pipe()
-			w.WriteString(tt.input)
+			_, _ = w.WriteString(tt.input)
 			w.Close()
 			os.Stdin = r
 
@@ -5904,7 +5905,7 @@ func TestStartMetricsServerWithConfig(t *testing.T) {
 	// but it exercises the code path
 	server := startMetricsServer(ctx, cfg, log)
 	if server != nil {
-		defer server.Stop(ctx)
+		defer func() { _ = server.Stop(ctx) }()
 	}
 }
 
@@ -5928,7 +5929,7 @@ func TestStartAPIServerWithConfig(t *testing.T) {
 	// but it exercises the code path
 	server := startAPIServer(ctx, cfg, pm, log)
 	if server != nil {
-		defer server.Stop(ctx)
+		defer func() { _ = server.Stop(ctx) }()
 	}
 }
 
@@ -6013,7 +6014,7 @@ func TestConfirmOverwriteWithExisting(t *testing.T) {
 
 	// Provide "n" answer via stdin pipe
 	r, w, _ := os.Pipe()
-	w.WriteString("n\n")
+	_, _ = w.WriteString("n\n")
 	w.Close()
 	os.Stdin = r
 
@@ -6047,7 +6048,7 @@ func TestConfirmOverwriteAccept(t *testing.T) {
 
 	// Provide "y" answer via stdin pipe
 	r, w, _ := os.Pipe()
-	w.WriteString("y\n")
+	_, _ = w.WriteString("y\n")
 	w.Close()
 	os.Stdin = r
 
@@ -7483,7 +7484,7 @@ func TestPerformGracefulShutdownDirect(t *testing.T) {
 		w.Close()
 		os.Stderr = origStderr
 		if r := recover(); r != nil {
-			// Expected - performGracefulShutdown may call os.Exit
+			_ = r // Expected - performGracefulShutdown may call os.Exit
 		}
 	}()
 
@@ -7494,7 +7495,7 @@ func TestPerformGracefulShutdownDirect(t *testing.T) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// Catch any panic
+				_ = r // Catch any panic
 			}
 			done <- true
 		}()
@@ -7663,7 +7664,7 @@ func TestRunScaffoldWithDockerFiles(t *testing.T) {
 		w.Close()
 		os.Stderr = origStderr
 		if r := recover(); r != nil {
-			// Expected
+			_ = r // Expected
 		}
 	}()
 
@@ -7719,7 +7720,7 @@ func TestRunScaffoldAllPresetsDirect(t *testing.T) {
 				w.Close()
 				os.Stderr = origStderr
 				if r := recover(); r != nil {
-					// Expected for some paths
+					_ = r // Expected for some paths
 				}
 			}()
 
@@ -7751,7 +7752,7 @@ func TestStartMetricsServerDirect(t *testing.T) {
 	// startMetricsServer handles errors gracefully
 	server := startMetricsServer(ctx, cfg, log)
 	if server != nil {
-		defer server.Stop(context.Background())
+		defer func() { _ = server.Stop(context.Background()) }()
 		t.Log("Metrics server started successfully")
 	}
 }
@@ -7779,7 +7780,7 @@ func TestStartAPIServerDirect(t *testing.T) {
 	// startAPIServer handles errors gracefully
 	server := startAPIServer(ctx, cfg, pm, log)
 	if server != nil {
-		defer server.Stop(context.Background())
+		defer func() { _ = server.Stop(context.Background()) }()
 		t.Log("API server started successfully")
 	}
 }
@@ -7928,7 +7929,7 @@ func TestConfirmOverwriteWithFilesNoInput(t *testing.T) {
 	os.Stdin = r
 
 	go func() {
-		w.WriteString("n\n")
+		_, _ = w.WriteString("n\n")
 		w.Close()
 	}()
 
@@ -7974,7 +7975,7 @@ func TestPromptYesNoWithInput(t *testing.T) {
 			os.Stdin = r
 
 			go func() {
-				w.WriteString(tt.input)
+				_, _ = w.WriteString(tt.input)
 				w.Close()
 			}()
 
@@ -8022,7 +8023,7 @@ func TestPromptForPresetWithInput(t *testing.T) {
 			os.Stdin = r
 
 			go func() {
-				w.WriteString(tt.input)
+				_, _ = w.WriteString(tt.input)
 				w.Close()
 			}()
 
@@ -8058,23 +8059,23 @@ func TestConfigureInteractiveFull(t *testing.T) {
 
 	go func() {
 		// App name
-		w.WriteString("my-test-app\n")
+		_, _ = w.WriteString("my-test-app\n")
 		// Log level
-		w.WriteString("debug\n")
+		_, _ = w.WriteString("debug\n")
 		// Queue workers (laravel specific)
-		w.WriteString("5\n")
+		_, _ = w.WriteString("5\n")
 		// Queue connection
-		w.WriteString("database\n")
+		_, _ = w.WriteString("database\n")
 		// Enable metrics
-		w.WriteString("y\n")
+		_, _ = w.WriteString("y\n")
 		// Enable API
-		w.WriteString("y\n")
+		_, _ = w.WriteString("y\n")
 		// Enable tracing
-		w.WriteString("n\n")
+		_, _ = w.WriteString("n\n")
 		// Docker compose
-		w.WriteString("n\n")
+		_, _ = w.WriteString("n\n")
 		// Dockerfile
-		w.WriteString("n\n")
+		_, _ = w.WriteString("n\n")
 		w.Close()
 	}()
 
@@ -8236,7 +8237,7 @@ func TestPerformGracefulShutdownWithServers(t *testing.T) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// Catch any panic
+				_ = r // Catch any panic
 			}
 			done <- true
 		}()
@@ -8265,7 +8266,7 @@ func TestWaitForShutdownAllDeadDirect(t *testing.T) {
 	// Close the AllDeadChannel immediately by starting and stopping (no processes)
 	// Since there are no processes, AllDeadChannel should trigger
 	ctx, cancel := context.WithCancel(context.Background())
-	pm.Start(ctx)
+	_ = pm.Start(ctx)
 	cancel()
 
 	// Send signal to avoid blocking
@@ -8386,7 +8387,7 @@ func TestStartMetricsServerWithDefaults(t *testing.T) {
 
 	server := startMetricsServer(ctx, cfg, log)
 	if server != nil {
-		defer server.Stop(context.Background())
+		defer func() { _ = server.Stop(context.Background()) }()
 	}
 	// Server may be nil if port already in use, but code path is exercised
 }
@@ -8409,7 +8410,7 @@ func TestStartAPIServerWithDefaults(t *testing.T) {
 
 	server := startAPIServer(ctx, cfg, pm, log)
 	if server != nil {
-		defer server.Stop(context.Background())
+		defer func() { _ = server.Stop(context.Background()) }()
 	}
 	// Server may be nil if port already in use, but code path is exercised
 }
@@ -8430,7 +8431,7 @@ func TestConfirmOverwriteWithYes(t *testing.T) {
 	os.Stdin = r
 
 	go func() {
-		w.WriteString("y\n")
+		_, _ = w.WriteString("y\n")
 		w.Close()
 	}()
 

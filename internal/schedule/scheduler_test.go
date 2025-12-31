@@ -67,7 +67,7 @@ func TestScheduler_RemoveJob(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Remove existing job
 	err := s.RemoveJob("test-job")
@@ -93,7 +93,7 @@ func TestScheduler_GetJob(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Get existing job
 	job, exists := s.GetJob("test-job")
@@ -116,9 +116,9 @@ func TestScheduler_GetAllJobs(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("job1", "*/5 * * * *", "")
-	s.AddJob("job2", "0 * * * *", "")
-	s.AddJob("job3", "0 9 * * *", "")
+	_ = s.AddJob("job1", "*/5 * * * *", "")
+	_ = s.AddJob("job2", "0 * * * *", "")
+	_ = s.AddJob("job3", "0 9 * * *", "")
 
 	jobs := s.GetAllJobs()
 	if len(jobs) != 3 {
@@ -138,7 +138,7 @@ func TestScheduler_StartStop(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Start scheduler
 	s.Start()
@@ -171,7 +171,7 @@ func TestScheduler_PauseResumeJob(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Pause job
 	err := s.PauseJob("test-job")
@@ -212,7 +212,7 @@ func TestScheduler_TriggerJob(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	ctx := context.Background()
 
@@ -241,7 +241,7 @@ func TestScheduler_TriggerJobSync(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	ctx := context.Background()
 
@@ -266,7 +266,7 @@ func TestScheduler_GetJobStatus(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "UTC")
+	_ = s.AddJob("test-job", "*/5 * * * *", "UTC")
 
 	// Get status
 	status, err := s.GetJobStatus("test-job")
@@ -292,8 +292,8 @@ func TestScheduler_GetAllJobStatuses(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("job1", "*/5 * * * *", "")
-	s.AddJob("job2", "0 * * * *", "")
+	_ = s.AddJob("job1", "*/5 * * * *", "")
+	_ = s.AddJob("job2", "0 * * * *", "")
 
 	statuses := s.GetAllJobStatuses()
 	if len(statuses) != 2 {
@@ -313,13 +313,13 @@ func TestScheduler_GetJobHistory(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Execute a few times
 	ctx := context.Background()
-	s.TriggerJobSync(ctx, "test-job")
-	s.TriggerJobSync(ctx, "test-job")
-	s.TriggerJobSync(ctx, "test-job")
+	_, _ = s.TriggerJobSync(ctx, "test-job")
+	_, _ = s.TriggerJobSync(ctx, "test-job")
+	_, _ = s.TriggerJobSync(ctx, "test-job")
 
 	// Get all history
 	history, err := s.GetJobHistory("test-job", 0)
@@ -351,7 +351,7 @@ func TestScheduler_UpdateNextRunTimes(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 	s.Start()
 	defer s.Stop()
 
@@ -370,15 +370,15 @@ func TestScheduler_Stats(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("job1", "*/5 * * * *", "")
-	s.AddJob("job2", "0 * * * *", "")
-	s.AddJob("job3", "0 9 * * *", "")
+	_ = s.AddJob("job1", "*/5 * * * *", "")
+	_ = s.AddJob("job2", "0 * * * *", "")
+	_ = s.AddJob("job3", "0 9 * * *", "")
 
 	// Pause one job
-	s.PauseJob("job2")
+	_ = s.PauseJob("job2")
 
 	// Start execution of one job
-	go s.TriggerJob(context.Background(), "job1")
+	go func() { _ = s.TriggerJob(context.Background(), "job1") }()
 	time.Sleep(10 * time.Millisecond)
 
 	stats := s.Stats()
@@ -405,7 +405,7 @@ func TestScheduler_NextRunUpdatedOnStart(t *testing.T) {
 	logger := testLogger()
 	s := NewScheduler(executor, 50, logger)
 
-	s.AddJob("test-job", "*/5 * * * *", "")
+	_ = s.AddJob("test-job", "*/5 * * * *", "")
 
 	// Before start, next run may be set from AddJob
 	s.Start()
@@ -432,7 +432,7 @@ func TestScheduler_Concurrent(t *testing.T) {
 
 	// Add jobs
 	for i := 0; i < 5; i++ {
-		s.AddJob("job"+string(rune('a'+i)), "*/5 * * * *", "")
+		_ = s.AddJob("job"+string(rune('a'+i)), "*/5 * * * *", "")
 	}
 
 	s.Start()
@@ -450,9 +450,9 @@ func TestScheduler_Concurrent(t *testing.T) {
 
 			switch n % 4 {
 			case 0:
-				s.TriggerJob(ctx, jobName)
+				_ = s.TriggerJob(ctx, jobName)
 			case 1:
-				s.GetJobStatus(jobName)
+				_, _ = s.GetJobStatus(jobName)
 			case 2:
 				s.GetAllJobStatuses()
 			case 3:
@@ -476,7 +476,7 @@ func TestScheduler_CronTriggers(t *testing.T) {
 	// Add job that runs every minute
 	// Note: This test would need to wait ~1 minute to see the trigger
 	// For now, we just verify the job is added and can be triggered manually
-	s.AddJob("minutely", "* * * * *", "")
+	_ = s.AddJob("minutely", "* * * * *", "")
 
 	s.Start()
 	defer s.Stop()

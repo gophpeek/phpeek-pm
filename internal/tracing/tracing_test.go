@@ -72,7 +72,7 @@ func TestNewProvider_Stdout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider failed: %v", err)
 	}
-	defer provider.Shutdown(context.Background())
+	defer func() { _ = provider.Shutdown(context.Background()) }()
 
 	if !provider.Enabled() {
 		t.Error("Provider should be enabled with stdout exporter")
@@ -111,7 +111,7 @@ func TestProvider_Tracer_Enabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider failed: %v", err)
 	}
-	defer provider.Shutdown(context.Background())
+	defer func() { _ = provider.Shutdown(context.Background()) }()
 
 	tracer := provider.Tracer("test-component")
 	if tracer == nil {
@@ -173,7 +173,7 @@ func TestSamplerRates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewProvider failed: %v", err)
 			}
-			defer provider.Shutdown(context.Background())
+			defer func() { _ = provider.Shutdown(context.Background()) }()
 
 			if !provider.Enabled() {
 				t.Error("Provider should be enabled")
@@ -331,7 +331,7 @@ func TestTracerConfig_ServiceVersion(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewProvider failed: %v", err)
 			}
-			defer provider.Shutdown(context.Background())
+			defer func() { _ = provider.Shutdown(context.Background()) }()
 		})
 	}
 }
@@ -353,7 +353,7 @@ func TestNewProvider_OTLPGrpc_Insecure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider failed: %v", err)
 	}
-	defer provider.Shutdown(context.Background())
+	defer func() { _ = provider.Shutdown(context.Background()) }()
 
 	if !provider.Enabled() {
 		t.Error("Provider should be enabled with otlp-grpc exporter")
@@ -377,7 +377,7 @@ func TestNewProvider_OTLPGrpc_WithTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProvider failed: %v", err)
 	}
-	defer provider.Shutdown(context.Background())
+	defer func() { _ = provider.Shutdown(context.Background()) }()
 
 	if !provider.Enabled() {
 		t.Error("Provider should be enabled with otlp-grpc exporter")
@@ -396,7 +396,7 @@ func TestCreateOTLPGRPCExporter_Insecure(t *testing.T) {
 	}
 	// Cleanup
 	if exporter != nil {
-		exporter.Shutdown(context.Background())
+		_ = exporter.Shutdown(context.Background())
 	}
 }
 
@@ -412,7 +412,7 @@ func TestCreateOTLPGRPCExporter_WithTLS(t *testing.T) {
 	}
 	// Cleanup
 	if exporter != nil {
-		exporter.Shutdown(context.Background())
+		_ = exporter.Shutdown(context.Background())
 	}
 }
 
@@ -433,7 +433,7 @@ func TestCreateExporter_OTLPGrpc(t *testing.T) {
 	}
 	// Cleanup
 	if exporter != nil {
-		exporter.Shutdown(context.Background())
+		_ = exporter.Shutdown(context.Background())
 	}
 }
 

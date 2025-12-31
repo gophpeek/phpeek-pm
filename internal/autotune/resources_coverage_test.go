@@ -101,7 +101,7 @@ func TestDetectCgroupV2Resources_EdgeCases(t *testing.T) {
 		{
 			name: "malformed cpu.max (single value)",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1073741824\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1073741824\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "cpu.max"), []byte("200000\n"), 0644)
 			},
 			expectError: false,
@@ -110,7 +110,7 @@ func TestDetectCgroupV2Resources_EdgeCases(t *testing.T) {
 		{
 			name: "cpu.max with zero period",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1073741824\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "memory.max"), []byte("1073741824\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "cpu.max"), []byte("200000 0\n"), 0644)
 			},
 			expectError: false,
@@ -165,8 +165,8 @@ func TestDetectCgroupV1Resources_EdgeCases(t *testing.T) {
 		{
 			name: "negative cpu quota (unlimited)",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
-				os.WriteFile(filepath.Join(dir, "cpu.cfs_quota_us"), []byte("-1\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "cpu.cfs_quota_us"), []byte("-1\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "cpu.cfs_period_us"), []byte("100000\n"), 0644)
 			},
 			expectError: false,
@@ -175,8 +175,8 @@ func TestDetectCgroupV1Resources_EdgeCases(t *testing.T) {
 		{
 			name: "zero cpu quota",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
-				os.WriteFile(filepath.Join(dir, "cpu.cfs_quota_us"), []byte("0\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "cpu.cfs_quota_us"), []byte("0\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "cpu.cfs_period_us"), []byte("100000\n"), 0644)
 			},
 			expectError: false,
@@ -185,7 +185,7 @@ func TestDetectCgroupV1Resources_EdgeCases(t *testing.T) {
 		{
 			name: "missing cpu period file",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "memory.limit_in_bytes"), []byte("1073741824\n"), 0644)
 				return os.WriteFile(filepath.Join(dir, "cpu.cfs_quota_us"), []byte("200000\n"), 0644)
 			},
 			expectError: false,

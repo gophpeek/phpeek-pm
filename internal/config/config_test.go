@@ -30,7 +30,7 @@ processes:
     enabled: true
     command: ["sleep", "1"]
 `
-				os.WriteFile(configPath, []byte(content), 0644)
+				_ = os.WriteFile(configPath, []byte(content), 0644)
 				os.Setenv("PHPEEK_PM_CONFIG", configPath)
 			},
 			wantErr: false,
@@ -50,7 +50,7 @@ processes:
     enabled: true
     command: ["sleep", "1"]
 `
-				os.WriteFile("phpeek-pm.yaml", []byte(content), 0644)
+				_ = os.WriteFile("phpeek-pm.yaml", []byte(content), 0644)
 			},
 			wantErr: false,
 		},

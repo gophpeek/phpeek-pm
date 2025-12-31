@@ -155,7 +155,7 @@ func TestProcessWriter_Write_MultipleLines(t *testing.T) {
 	}
 
 	input := "Line 1\nLine 2\nLine 3\n"
-	pw.Write([]byte(input))
+	_, _ = pw.Write([]byte(input))
 
 	logs := pw.GetLogs()
 	if len(logs) != 3 {
@@ -176,7 +176,7 @@ func TestProcessWriter_Write_PartialLine(t *testing.T) {
 
 	// bufio.Scanner treats data without newline as complete line when scanner finishes
 	// So "Partial" without \n gets processed immediately by scanner.Scan()
-	pw.Write([]byte("Partial"))
+	_, _ = pw.Write([]byte("Partial"))
 
 	// Scanner processes it as complete line (EOF condition)
 	logs := pw.GetLogs()
@@ -229,7 +229,7 @@ func TestProcessWriter_Flush(t *testing.T) {
 	initialCount := len(pw.GetLogs())
 
 	// Write line without newline - scanner processes it as EOF
-	pw.Write([]byte("Incomplete"))
+	_, _ = pw.Write([]byte("Incomplete"))
 
 	// Scanner processes it immediately (EOF condition)
 	logs := pw.GetLogs()
@@ -269,7 +269,7 @@ func TestProcessWriter_WithRedaction(t *testing.T) {
 		t.Fatalf("NewProcessWriter() error = %v", err)
 	}
 
-	pw.Write([]byte("User: user@example.com\n"))
+	_, _ = pw.Write([]byte("User: user@example.com\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -302,7 +302,7 @@ func TestProcessWriter_WithJSONParsing(t *testing.T) {
 	}
 
 	jsonLog := `{"level":"error","message":"Database error","user_id":123}`
-	pw.Write([]byte(jsonLog + "\n"))
+	_, _ = pw.Write([]byte(jsonLog + "\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -350,7 +350,7 @@ func TestProcessWriter_WithLevelDetection(t *testing.T) {
 			// Clear buffer
 			pw.logBuffer.Clear()
 
-			pw.Write([]byte(tt.input + "\n"))
+			_, _ = pw.Write([]byte(tt.input + "\n"))
 
 			logs := pw.GetLogs()
 			if len(logs) != 1 {
@@ -380,7 +380,7 @@ func TestProcessWriter_WithFilters(t *testing.T) {
 	}
 
 	// Should be filtered out
-	pw.Write([]byte("debug message\n"))
+	_, _ = pw.Write([]byte("debug message\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 0 {
@@ -388,7 +388,7 @@ func TestProcessWriter_WithFilters(t *testing.T) {
 	}
 
 	// Should pass through
-	pw.Write([]byte("info message\n"))
+	_, _ = pw.Write([]byte("info message\n"))
 
 	logs = pw.GetLogs()
 	if len(logs) != 1 {
@@ -415,9 +415,9 @@ func TestProcessWriter_WithMultiline(t *testing.T) {
 	}
 
 	// Write multiline log entry
-	pw.Write([]byte("[ERROR] Exception\n"))
-	pw.Write([]byte("  at line 1\n"))
-	pw.Write([]byte("  at line 2\n"))
+	_, _ = pw.Write([]byte("[ERROR] Exception\n"))
+	_, _ = pw.Write([]byte("  at line 1\n"))
+	_, _ = pw.Write([]byte("  at line 2\n"))
 
 	// Should be buffered, not logged yet
 	logs := pw.GetLogs()
@@ -426,7 +426,7 @@ func TestProcessWriter_WithMultiline(t *testing.T) {
 	}
 
 	// Start new entry, should flush previous
-	pw.Write([]byte("[ERROR] Another error\n"))
+	_, _ = pw.Write([]byte("[ERROR] Another error\n"))
 
 	logs = pw.GetLogs()
 	if len(logs) != 1 {
@@ -471,7 +471,7 @@ func TestProcessWriter_GetRecentLogs(t *testing.T) {
 
 	// Write 10 log lines
 	for i := 1; i <= 10; i++ {
-		pw.Write([]byte("Log line " + string(rune('0'+i)) + "\n"))
+		_, _ = pw.Write([]byte("Log line " + string(rune('0'+i)) + "\n"))
 	}
 
 	// Get recent 3 logs
@@ -520,7 +520,7 @@ func TestProcessWriter_LogEntryMetadata(t *testing.T) {
 	}
 
 	before := time.Now()
-	pw.Write([]byte("Test message\n"))
+	_, _ = pw.Write([]byte("Test message\n"))
 	after := time.Now()
 
 	logs := pw.GetLogs()
@@ -562,14 +562,14 @@ func TestProcessWriter_MultilineTimeout(t *testing.T) {
 	}
 
 	// Write lines to multiline buffer
-	pw.Write([]byte("[ERROR] Exception\n"))
-	pw.Write([]byte("  stack line 1\n"))
+	_, _ = pw.Write([]byte("[ERROR] Exception\n"))
+	_, _ = pw.Write([]byte("  stack line 1\n"))
 
 	// Wait for timeout
 	time.Sleep(1100 * time.Millisecond)
 
 	// Write trigger to check timeout flush
-	pw.Write([]byte(""))
+	_, _ = pw.Write([]byte(""))
 
 	// Flush should have happened due to timeout
 	logs := pw.GetLogs()
@@ -597,8 +597,8 @@ func TestProcessWriter_FlushMultilineBuffer(t *testing.T) {
 	}
 
 	// Add to multiline buffer
-	pw.Write([]byte("[ERROR] Test\n"))
-	pw.Write([]byte("  stack\n"))
+	_, _ = pw.Write([]byte("[ERROR] Test\n"))
+	_, _ = pw.Write([]byte("  stack\n"))
 
 	// Flush should flush multiline buffer
 	pw.Flush()
@@ -783,7 +783,7 @@ func TestProcessWriter_Write_JSONWithLevel(t *testing.T) {
 	}
 
 	// Test warn level (debug may get filtered)
-	pw.Write([]byte(`{"level":"warn","message":"Warning message"}` + "\n"))
+	_, _ = pw.Write([]byte(`{"level":"warn","message":"Warning message"}` + "\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -814,7 +814,7 @@ func TestProcessWriter_Write_JSONWithEmptyMessage(t *testing.T) {
 
 	// JSON without message field
 	jsonLog := `{"level":"info","user_id":123}`
-	pw.Write([]byte(jsonLog + "\n"))
+	_, _ = pw.Write([]byte(jsonLog + "\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -845,7 +845,7 @@ func TestProcessWriter_Write_DefaultLevelSwitch(t *testing.T) {
 	}
 
 	// Test unknown level (should fall through to default case)
-	pw.Write([]byte(`{"level":"trace","message":"Trace message"}` + "\n"))
+	_, _ = pw.Write([]byte(`{"level":"trace","message":"Trace message"}` + "\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {

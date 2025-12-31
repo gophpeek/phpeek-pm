@@ -1245,7 +1245,7 @@ func (m Model) handleWizardScaleInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.wizardScaleInput == "" {
 				m.wizardScale = 1
 			} else {
-				fmt.Sscanf(m.wizardScaleInput, "%d", &m.wizardScale)
+				_, _ = fmt.Sscanf(m.wizardScaleInput, "%d", &m.wizardScale)
 			}
 		}
 
@@ -1253,7 +1253,7 @@ func (m Model) handleWizardScaleInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Add digit
 		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
 			m.wizardScaleInput += key
-			fmt.Sscanf(m.wizardScaleInput, "%d", &m.wizardScale)
+			_, _ = fmt.Sscanf(m.wizardScaleInput, "%d", &m.wizardScale)
 		}
 	}
 

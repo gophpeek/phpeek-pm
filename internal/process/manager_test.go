@@ -462,7 +462,7 @@ func TestManager_ListProcesses(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to start with polling
@@ -535,7 +535,7 @@ func TestManager_StartStopProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Process should be stopped initially
@@ -605,7 +605,7 @@ func TestManager_RestartProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start with polling
@@ -673,7 +673,7 @@ func TestManager_ScaleProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for initial process to start with polling
@@ -764,7 +764,7 @@ func TestManager_InputValidation(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Test empty process name

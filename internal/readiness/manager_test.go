@@ -619,7 +619,7 @@ func TestManager_CreateReadinessFile_Error(t *testing.T) {
 	if err := os.Mkdir(dirPath, 0555); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
-	defer os.Chmod(dirPath, 0755) // Restore permissions for cleanup
+	defer func() { _ = os.Chmod(dirPath, 0755) }() // Restore permissions for cleanup
 
 	readinessPath := filepath.Join(dirPath, "ready")
 
@@ -712,7 +712,7 @@ func TestManager_RemoveReadinessFile_Error(t *testing.T) {
 	if err := os.Chmod(dirPath, 0555); err != nil {
 		t.Fatalf("Failed to make directory read-only: %v", err)
 	}
-	defer os.Chmod(dirPath, 0755) // Restore for cleanup
+	defer func() { _ = os.Chmod(dirPath, 0755) }() // Restore for cleanup
 
 	// Try to make it not ready - this will try to remove the file and fail
 	// The error is logged but not propagated

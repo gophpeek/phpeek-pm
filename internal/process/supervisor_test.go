@@ -294,7 +294,7 @@ func TestSupervisor_GetState(t *testing.T) {
 			if tt.startProcess && !tt.stopProcess {
 				stopCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 				defer cancel()
-				sup.Stop(stopCtx)
+				_ = sup.Stop(stopCtx)
 			}
 		})
 	}
@@ -356,7 +356,7 @@ func TestSupervisor_GetInstances(t *testing.T) {
 				defer func() {
 					stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 					defer cancel()
-					sup.Stop(stopCtx)
+					_ = sup.Stop(stopCtx)
 				}()
 
 				// Wait for instances to start
@@ -469,7 +469,7 @@ func TestSupervisor_GetLogs(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		sup.Stop(stopCtx)
+		_ = sup.Stop(stopCtx)
 	}()
 
 	// Wait for process to produce logs
@@ -560,7 +560,7 @@ func TestSupervisor_MonitorInstance_Lifecycle(t *testing.T) {
 			defer func() {
 				stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				sup.Stop(stopCtx)
+				_ = sup.Stop(stopCtx)
 			}()
 
 			// Wait for monitoring to kick in

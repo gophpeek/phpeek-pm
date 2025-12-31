@@ -192,7 +192,7 @@ func TestServer_ScaleProcess(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -221,7 +221,7 @@ func TestServer_ScaleProcessDelta(t *testing.T) {
 	}
 
 	var resp map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if status, ok := resp["status"].(string); !ok || status != "scaled" {
 		t.Fatalf("expected scaled status, got %v", resp["status"])
 	}
@@ -274,7 +274,7 @@ func TestAuthMiddleware(t *testing.T) {
 			// Create a test handler that returns 200 OK if auth passes
 			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
+				_, _ = w.Write([]byte("OK"))
 			})
 
 			// Wrap with auth middleware
@@ -425,7 +425,7 @@ func TestServer_HandleRestart(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -472,7 +472,7 @@ func TestServer_HandleStop(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -519,7 +519,7 @@ func TestServer_HandleStart(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -544,7 +544,7 @@ func TestServer_ConfigSave(t *testing.T) {
 	if w.Code == http.StatusOK {
 		// OK response is also acceptable if SaveConfig succeeds
 		var response map[string]interface{}
-		json.NewDecoder(w.Body).Decode(&response)
+		_ = json.NewDecoder(w.Body).Decode(&response)
 		if status, ok := response["status"].(string); !ok || status != "saved" {
 			t.Errorf("Expected status 'saved', got %v", response["status"])
 		}
@@ -567,7 +567,7 @@ func TestServer_ConfigReload(t *testing.T) {
 	if w.Code == http.StatusOK {
 		// OK response is also acceptable if ReloadConfig succeeds
 		var response map[string]interface{}
-		json.NewDecoder(w.Body).Decode(&response)
+		_ = json.NewDecoder(w.Body).Decode(&response)
 		if status, ok := response["status"].(string); !ok || status != "reloaded" {
 			t.Errorf("Expected status 'reloaded', got %v", response["status"])
 		}
@@ -582,7 +582,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	handler := server.rateLimitMiddleware(testHandler)
@@ -678,7 +678,7 @@ func TestACLMiddleware(t *testing.T) {
 
 			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
+				_, _ = w.Write([]byte("OK"))
 			})
 
 			handler := server.aclMiddleware(testHandler)
@@ -714,7 +714,7 @@ func TestServer_InvalidJSON(t *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&response)
+	_ = json.NewDecoder(w.Body).Decode(&response)
 
 	if _, hasError := response["error"]; !hasError {
 		t.Error("Expected error in response for invalid JSON")
@@ -1001,7 +1001,7 @@ func TestServer_StartSocketListener(t *testing.T) {
 				// Clean up server
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				server.Stop(ctx)
+				_ = server.Stop(ctx)
 			}
 		})
 	}
@@ -1061,7 +1061,7 @@ func TestServer_HandleGetLogs(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -1119,7 +1119,7 @@ func TestServer_HandleGetProcess(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -1192,7 +1192,7 @@ func TestServer_HandleStackLogs(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			_ = json.NewDecoder(w.Body).Decode(&response)
 
 			if tt.expectError {
 				if _, hasError := response["error"]; !hasError {
@@ -1285,7 +1285,7 @@ func TestServer_HandleGetLogs_LimitParsing(t *testing.T) {
 
 			if w.Code == http.StatusOK {
 				var response map[string]interface{}
-				json.NewDecoder(w.Body).Decode(&response)
+				_ = json.NewDecoder(w.Body).Decode(&response)
 
 				if limit, ok := response["limit"].(float64); ok {
 					if int(limit) != tt.expectedLimit {
@@ -1323,7 +1323,7 @@ func TestServer_HandleStackLogs_LimitParsing(t *testing.T) {
 
 			if w.Code == http.StatusOK {
 				var response map[string]interface{}
-				json.NewDecoder(w.Body).Decode(&response)
+				_ = json.NewDecoder(w.Body).Decode(&response)
 
 				if limit, ok := response["limit"].(float64); ok {
 					if int(limit) != tt.expectedLimit {
@@ -1355,7 +1355,7 @@ func TestServer_PanicRecoveryMiddleware(t *testing.T) {
 	}
 
 	var response map[string]interface{}
-	json.NewDecoder(w.Body).Decode(&response)
+	_ = json.NewDecoder(w.Body).Decode(&response)
 
 	if _, hasError := response["error"]; !hasError {
 		t.Error("Expected error in response after panic")
@@ -1719,7 +1719,7 @@ func TestServer_Start_WithInvalidTLS(t *testing.T) {
 	err := server.Start(ctx)
 	if err == nil {
 		t.Error("Expected error starting server with invalid TLS files")
-		server.Stop(ctx)
+		_ = server.Stop(ctx)
 	}
 }
 
@@ -1888,7 +1888,7 @@ func TestSecurityStack_Integration(t *testing.T) {
 			// Create a test handler that returns 200
 			testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"ok"}`))
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
 			})
 
 			// Apply full middleware stack: ACL -> panic recovery -> body limit -> rate limit -> auth
@@ -3229,7 +3229,7 @@ func TestServer_StartSocketListener_ErrorPaths(t *testing.T) {
 		t.Logf("Start returned error: %v", err)
 	}
 
-	server.Stop(ctx)
+	_ = server.Stop(ctx)
 }
 
 // TestServer_Stop_WithRateLimiter tests stopping server with active rate limiter
@@ -4153,7 +4153,7 @@ func TestServer_Stop_ForceShutdownError(t *testing.T) {
 
 	// Start the http server manually to have something to shutdown
 	go func() {
-		server.server.ListenAndServe()
+		_ = server.server.ListenAndServe()
 	}()
 	time.Sleep(50 * time.Millisecond)
 
@@ -4232,7 +4232,7 @@ func TestServer_Start_WithInvalidTLSCert(t *testing.T) {
 	err := server.Start(ctx)
 	if err == nil {
 		t.Error("Expected error with invalid TLS cert paths")
-		server.Stop(context.Background())
+		_ = server.Stop(context.Background())
 	}
 }
 
@@ -4269,7 +4269,7 @@ func TestServer_Start_WithInvalidCipherSuites(t *testing.T) {
 	err = server.Start(ctx)
 	if err == nil {
 		t.Error("Expected error with invalid cipher suites")
-		server.Stop(context.Background())
+		_ = server.Stop(context.Background())
 	} else {
 		t.Logf("Got expected cipher suite error: %v", err)
 	}
@@ -4459,7 +4459,7 @@ func TestServer_Stop_SocketRemoveError(t *testing.T) {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer func() {
-		os.Chmod(tmpDir, 0755) // Restore permissions for cleanup
+		_ = os.Chmod(tmpDir, 0755) // Restore permissions for cleanup
 		os.RemoveAll(tmpDir)
 	}()
 
@@ -4475,7 +4475,7 @@ func TestServer_Stop_SocketRemoveError(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Make directory read-only to prevent socket removal
-	os.Chmod(tmpDir, 0444)
+	_ = os.Chmod(tmpDir, 0444)
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -4646,7 +4646,7 @@ func TestServer_Stop_ErrorAggregation(t *testing.T) {
 		defer tcpConn.Close()
 		go func() {
 			// Send partial HTTP request to keep connection active
-			tcpConn.Write([]byte("GET /api/v1/health HTTP/1.1\r\n"))
+			_, _ = tcpConn.Write([]byte("GET /api/v1/health HTTP/1.1\r\n"))
 			time.Sleep(3 * time.Second)
 		}()
 	}
@@ -4655,7 +4655,7 @@ func TestServer_Stop_ErrorAggregation(t *testing.T) {
 	if err == nil {
 		defer sockConn.Close()
 		go func() {
-			sockConn.Write([]byte("GET /api/v1/health HTTP/1.1\r\n"))
+			_, _ = sockConn.Write([]byte("GET /api/v1/health HTTP/1.1\r\n"))
 			time.Sleep(3 * time.Second)
 		}()
 	}
@@ -4710,7 +4710,7 @@ func generateTestCertificate(certFile, keyFile string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create cert file: %w", err)
 	}
-	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	_ = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 	certOut.Close()
 
 	// Write key file
@@ -4718,7 +4718,7 @@ func generateTestCertificate(certFile, keyFile string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create key file: %w", err)
 	}
-	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	_ = pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
 	keyOut.Close()
 
 	return nil

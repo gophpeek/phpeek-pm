@@ -182,8 +182,8 @@ func TestServer_HealthEndpoint(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
-	defer server.Stop(context.Background())
+	go func() { _ = server.Start(ctx) }()
+	defer func() { _ = server.Stop(context.Background()) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -219,8 +219,8 @@ func TestServer_MetricsEndpoint(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
-	defer server.Stop(context.Background())
+	go func() { _ = server.Start(ctx) }()
+	defer func() { _ = server.Stop(context.Background()) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -265,8 +265,8 @@ func TestServer_CustomPath(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
-	defer server.Stop(context.Background())
+	go func() { _ = server.Start(ctx) }()
+	defer func() { _ = server.Stop(context.Background()) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -329,8 +329,8 @@ func TestServer_ACLMiddleware(t *testing.T) {
 			defer cancel()
 
 			// Start server
-			go server.Start(ctx)
-			defer server.Stop(context.Background())
+			go func() { _ = server.Start(ctx) }()
+			defer func() { _ = server.Stop(context.Background()) }()
 
 			time.Sleep(100 * time.Millisecond)
 
@@ -383,7 +383,7 @@ func TestServer_MultipleStopCalls(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
+	go func() { _ = server.Start(ctx) }()
 	time.Sleep(100 * time.Millisecond)
 
 	stopCtx := context.Background()
@@ -410,8 +410,8 @@ func TestServer_ConcurrentRequests(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
-	defer server.Stop(context.Background())
+	go func() { _ = server.Start(ctx) }()
+	defer func() { _ = server.Stop(context.Background()) }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -478,7 +478,7 @@ func TestServer_StopWithTimeoutContext(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go server.Start(ctx)
+	go func() { _ = server.Start(ctx) }()
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify server is running

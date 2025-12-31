@@ -54,7 +54,7 @@ func TestManager_ReloadConfig_AddNewProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for initial process to start
@@ -169,7 +169,7 @@ func TestManager_ReloadConfig_RemoveProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for both processes to start
@@ -263,7 +263,7 @@ func TestManager_ReloadConfig_UpdateProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -357,7 +357,7 @@ func TestManager_ReloadConfig_DisableProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -446,7 +446,7 @@ func TestManager_ReloadConfig_EnablePreviouslyDisabled(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// No processes should be running initially
@@ -711,7 +711,7 @@ func TestManager_ReloadConfig_MultipleChanges(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to start
@@ -819,7 +819,7 @@ func TestManager_Start_WithHooks(t *testing.T) {
 
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	data, _ := yaml.Marshal(cfg)
-	os.WriteFile(cfgPath, data, 0644)
+	_ = os.WriteFile(cfgPath, data, 0644)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	auditLogger := audit.NewLogger(logger, false)
@@ -833,7 +833,7 @@ func TestManager_Start_WithHooks(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Verify process started
@@ -879,7 +879,7 @@ func TestManager_Start_PreStartHookFailure(t *testing.T) {
 	err := manager.Start(ctx)
 	if err == nil {
 		t.Error("Expected error when pre-start hook fails")
-		manager.Shutdown(ctx)
+		_ = manager.Shutdown(ctx)
 	}
 }
 
@@ -973,7 +973,7 @@ func TestManager_StartProcess_Disabled(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Try to start disabled process (should fail - not in running processes)
@@ -1014,7 +1014,7 @@ func TestManager_StartProcess_AlreadyRunning(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -1061,7 +1061,7 @@ func TestManager_RestartProcess_AlreadyStopped(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -1182,7 +1182,7 @@ func TestManager_StopProcess_AlreadyStopped(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -1248,7 +1248,7 @@ func TestManager_Start_WithScheduledProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Verify scheduler is running
@@ -1289,7 +1289,7 @@ func TestManager_Start_WithScheduledProcessTimeout(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -1328,7 +1328,7 @@ func TestManager_Start_WithScheduledProcessMaxConcurrent(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -1364,7 +1364,7 @@ func TestManager_Start_InvalidScheduleTimeout(t *testing.T) {
 	err := manager.Start(ctx)
 	if err == nil {
 		t.Error("Expected error for invalid schedule timeout")
-		manager.Shutdown(ctx)
+		_ = manager.Shutdown(ctx)
 	}
 }
 
@@ -1392,7 +1392,7 @@ func TestManager_UpdateProcess_RunningToStopped(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(cfg)
-	os.WriteFile(cfgPath, data, 0644)
+	_ = os.WriteFile(cfgPath, data, 0644)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	auditLogger := audit.NewLogger(logger, false)
@@ -1406,7 +1406,7 @@ func TestManager_UpdateProcess_RunningToStopped(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -1457,7 +1457,7 @@ func TestManager_UpdateProcess_StoppedToRunning(t *testing.T) {
 	}
 
 	data, _ := yaml.Marshal(cfg)
-	os.WriteFile(cfgPath, data, 0644)
+	_ = os.WriteFile(cfgPath, data, 0644)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	auditLogger := audit.NewLogger(logger, false)
@@ -1471,7 +1471,7 @@ func TestManager_UpdateProcess_StoppedToRunning(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
@@ -1531,7 +1531,7 @@ func TestManager_ListProcesses_ScaleAndState(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to start
@@ -1591,7 +1591,7 @@ func TestManager_ListProcesses_WithScheduledProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to be set up
@@ -1658,7 +1658,7 @@ func TestManager_ListProcesses_WithTypeAttribute(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait briefly for process to start
@@ -1719,7 +1719,7 @@ func TestManager_UpdateChangedProcesses_DisableRunning(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start
@@ -1805,7 +1805,7 @@ func TestManager_UpdateChangedProcesses_EnablePreviouslyDisabled(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Verify process is not running
@@ -1884,7 +1884,7 @@ func TestManager_UpdateProcess_ValidationErrors(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Test updating non-existent process
@@ -1949,7 +1949,7 @@ func TestManager_ListProcesses_InstanceInfo(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to start
@@ -2017,7 +2017,7 @@ func TestManager_ListProcesses_WithDesiredAndMaxScale(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to start

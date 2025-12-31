@@ -2440,7 +2440,7 @@ func TestHandleProcessActionKeys(t *testing.T) {
 			if !handled {
 				// Check if it was handled by handleUtilityKeys (for 'a')
 				if tt.key == "a" {
-					handled, resultModel, cmd = m.handleUtilityKeys(tt.key)
+					_, resultModel, cmd = m.handleUtilityKeys(tt.key)
 				}
 			}
 
