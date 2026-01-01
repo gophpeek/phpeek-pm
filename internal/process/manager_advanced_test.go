@@ -42,7 +42,7 @@ func TestManager_AdjustScale(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for initial processes to start
@@ -215,7 +215,7 @@ func TestManager_ScaleProcess_EdgeCases(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -331,7 +331,7 @@ func TestSupervisor_CollectResourceMetrics(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for resource metrics collection to run
@@ -386,7 +386,7 @@ func TestSupervisor_HandleHealthStatus(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for health checks to run
@@ -458,7 +458,7 @@ processes:
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Write invalid config

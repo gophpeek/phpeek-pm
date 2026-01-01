@@ -183,3 +183,148 @@ func TestLookupUser_ByID(t *testing.T) {
 		t.Errorf("Expected UID %q, got: %q", currentUser.Uid, u.Uid)
 	}
 }
+
+func TestResolveGroup_ByName(t *testing.T) {
+	// Get current user's primary group for testing
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Could not get current user: %v", err)
+	}
+
+	// Lookup group by GID to get group name
+	g, err := user.LookupGroupId(currentUser.Gid)
+	if err != nil {
+		t.Skipf("Could not lookup group: %v", err)
+	}
+
+	gid, err := resolveGroup(g.Name)
+	if err != nil {
+		t.Errorf("Expected no error resolving group %q, got: %v", g.Name, err)
+	}
+
+	expectedGID, _ := strconv.ParseUint(currentUser.Gid, 10, 32)
+	if gid != uint32(expectedGID) {
+		t.Errorf("Expected GID %d, got: %d", expectedGID, gid)
+	}
+}
+
+func TestResolveGroup_Invalid(t *testing.T) {
+	_, err := resolveGroup("nonexistent_group_xyz123")
+	if err == nil {
+		t.Error("Expected error for nonexistent group, got nil")
+	}
+}
+
+func TestResolveUser_ByName(t *testing.T) {
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Could not get current user: %v", err)
+	}
+
+	uid, err := resolveUser(currentUser.Username)
+	if err != nil {
+		t.Errorf("Expected no error resolving user %q, got: %v", currentUser.Username, err)
+	}
+
+	expectedUID, _ := strconv.ParseUint(currentUser.Uid, 10, 32)
+	if uid != uint32(expectedUID) {
+		t.Errorf("Expected UID %d, got: %d", expectedUID, uid)
+	}
+}
+
+func TestResolveUser_Invalid(t *testing.T) {
+	_, err := resolveUser("nonexistent_user_xyz123")
+	if err == nil {
+		t.Error("Expected error for nonexistent user, got nil")
+	}
+}
+
+func TestResolveCredentials_UserAndGroup(t *testing.T) {
+	// Get current user for testing with real lookups
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Could not get current user: %v", err)
+	}
+
+	// Get group name
+	g, err := user.LookupGroupId(currentUser.Gid)
+	if err != nil {
+		t.Skipf("Could not lookup group: %v", err)
+	}
+
+	// Test with both user name and group name
+	creds, err := ResolveCredentials(currentUser.Username, g.Name)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	if creds == nil {
+		t.Fatal("Expected credentials, got nil")
+	}
+
+	expectedUID, _ := strconv.ParseUint(currentUser.Uid, 10, 32)
+	expectedGID, _ := strconv.ParseUint(currentUser.Gid, 10, 32)
+
+	if creds.Uid != uint32(expectedUID) {
+		t.Errorf("Expected UID %d, got: %d", expectedUID, creds.Uid)
+	}
+	if creds.Gid != uint32(expectedGID) {
+		t.Errorf("Expected GID %d, got: %d", expectedGID, creds.Gid)
+	}
+}
+
+func TestResolveCredentials_UserWithDifferentGroup(t *testing.T) {
+	// Get current user
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Could not get current user: %v", err)
+	}
+
+	// Test with user and numeric group (different from primary)
+	creds, err := ResolveCredentials(currentUser.Username, "1234")
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	if creds == nil {
+		t.Fatal("Expected credentials, got nil")
+	}
+
+	expectedUID, _ := strconv.ParseUint(currentUser.Uid, 10, 32)
+	if creds.Uid != uint32(expectedUID) {
+		t.Errorf("Expected UID %d, got: %d", expectedUID, creds.Uid)
+	}
+	// Group should be overridden to 1234
+	if creds.Gid != 1234 {
+		t.Errorf("Expected GID 1234, got: %d", creds.Gid)
+	}
+}
+
+func TestResolveCredentials_OnlyGroup(t *testing.T) {
+	// Get current user's group for testing
+	currentUser, err := user.Current()
+	if err != nil {
+		t.Skipf("Could not get current user: %v", err)
+	}
+
+	g, err := user.LookupGroupId(currentUser.Gid)
+	if err != nil {
+		t.Skipf("Could not lookup group: %v", err)
+	}
+
+	// Test with only group name
+	creds, err := ResolveCredentials("", g.Name)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	if creds == nil {
+		t.Fatal("Expected credentials, got nil")
+	}
+
+	expectedGID, _ := strconv.ParseUint(currentUser.Gid, 10, 32)
+	if creds.Gid != uint32(expectedGID) {
+		t.Errorf("Expected GID %d, got: %d", expectedGID, creds.Gid)
+	}
+	// UID should be 0 (not set)
+	if creds.Uid != 0 {
+		t.Errorf("Expected UID 0, got: %d", creds.Uid)
+	}
+}

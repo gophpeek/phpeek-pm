@@ -155,7 +155,7 @@ func TestProcessWriter_Write_MultipleLines(t *testing.T) {
 	}
 
 	input := "Line 1\nLine 2\nLine 3\n"
-	pw.Write([]byte(input))
+	_, _ = pw.Write([]byte(input))
 
 	logs := pw.GetLogs()
 	if len(logs) != 3 {
@@ -176,7 +176,7 @@ func TestProcessWriter_Write_PartialLine(t *testing.T) {
 
 	// bufio.Scanner treats data without newline as complete line when scanner finishes
 	// So "Partial" without \n gets processed immediately by scanner.Scan()
-	pw.Write([]byte("Partial"))
+	_, _ = pw.Write([]byte("Partial"))
 
 	// Scanner processes it as complete line (EOF condition)
 	logs := pw.GetLogs()
@@ -229,7 +229,7 @@ func TestProcessWriter_Flush(t *testing.T) {
 	initialCount := len(pw.GetLogs())
 
 	// Write line without newline - scanner processes it as EOF
-	pw.Write([]byte("Incomplete"))
+	_, _ = pw.Write([]byte("Incomplete"))
 
 	// Scanner processes it immediately (EOF condition)
 	logs := pw.GetLogs()
@@ -269,7 +269,7 @@ func TestProcessWriter_WithRedaction(t *testing.T) {
 		t.Fatalf("NewProcessWriter() error = %v", err)
 	}
 
-	pw.Write([]byte("User: user@example.com\n"))
+	_, _ = pw.Write([]byte("User: user@example.com\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -302,7 +302,7 @@ func TestProcessWriter_WithJSONParsing(t *testing.T) {
 	}
 
 	jsonLog := `{"level":"error","message":"Database error","user_id":123}`
-	pw.Write([]byte(jsonLog + "\n"))
+	_, _ = pw.Write([]byte(jsonLog + "\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 1 {
@@ -350,7 +350,7 @@ func TestProcessWriter_WithLevelDetection(t *testing.T) {
 			// Clear buffer
 			pw.logBuffer.Clear()
 
-			pw.Write([]byte(tt.input + "\n"))
+			_, _ = pw.Write([]byte(tt.input + "\n"))
 
 			logs := pw.GetLogs()
 			if len(logs) != 1 {
@@ -380,7 +380,7 @@ func TestProcessWriter_WithFilters(t *testing.T) {
 	}
 
 	// Should be filtered out
-	pw.Write([]byte("debug message\n"))
+	_, _ = pw.Write([]byte("debug message\n"))
 
 	logs := pw.GetLogs()
 	if len(logs) != 0 {
@@ -388,7 +388,7 @@ func TestProcessWriter_WithFilters(t *testing.T) {
 	}
 
 	// Should pass through
-	pw.Write([]byte("info message\n"))
+	_, _ = pw.Write([]byte("info message\n"))
 
 	logs = pw.GetLogs()
 	if len(logs) != 1 {
@@ -415,9 +415,9 @@ func TestProcessWriter_WithMultiline(t *testing.T) {
 	}
 
 	// Write multiline log entry
-	pw.Write([]byte("[ERROR] Exception\n"))
-	pw.Write([]byte("  at line 1\n"))
-	pw.Write([]byte("  at line 2\n"))
+	_, _ = pw.Write([]byte("[ERROR] Exception\n"))
+	_, _ = pw.Write([]byte("  at line 1\n"))
+	_, _ = pw.Write([]byte("  at line 2\n"))
 
 	// Should be buffered, not logged yet
 	logs := pw.GetLogs()
@@ -426,7 +426,7 @@ func TestProcessWriter_WithMultiline(t *testing.T) {
 	}
 
 	// Start new entry, should flush previous
-	pw.Write([]byte("[ERROR] Another error\n"))
+	_, _ = pw.Write([]byte("[ERROR] Another error\n"))
 
 	logs = pw.GetLogs()
 	if len(logs) != 1 {
@@ -471,7 +471,7 @@ func TestProcessWriter_GetRecentLogs(t *testing.T) {
 
 	// Write 10 log lines
 	for i := 1; i <= 10; i++ {
-		pw.Write([]byte("Log line " + string(rune('0'+i)) + "\n"))
+		_, _ = pw.Write([]byte("Log line " + string(rune('0'+i)) + "\n"))
 	}
 
 	// Get recent 3 logs
@@ -520,7 +520,7 @@ func TestProcessWriter_LogEntryMetadata(t *testing.T) {
 	}
 
 	before := time.Now()
-	pw.Write([]byte("Test message\n"))
+	_, _ = pw.Write([]byte("Test message\n"))
 	after := time.Now()
 
 	logs := pw.GetLogs()
@@ -562,14 +562,14 @@ func TestProcessWriter_MultilineTimeout(t *testing.T) {
 	}
 
 	// Write lines to multiline buffer
-	pw.Write([]byte("[ERROR] Exception\n"))
-	pw.Write([]byte("  stack line 1\n"))
+	_, _ = pw.Write([]byte("[ERROR] Exception\n"))
+	_, _ = pw.Write([]byte("  stack line 1\n"))
 
 	// Wait for timeout
 	time.Sleep(1100 * time.Millisecond)
 
 	// Write trigger to check timeout flush
-	pw.Write([]byte(""))
+	_, _ = pw.Write([]byte(""))
 
 	// Flush should have happened due to timeout
 	logs := pw.GetLogs()
@@ -597,8 +597,8 @@ func TestProcessWriter_FlushMultilineBuffer(t *testing.T) {
 	}
 
 	// Add to multiline buffer
-	pw.Write([]byte("[ERROR] Test\n"))
-	pw.Write([]byte("  stack\n"))
+	_, _ = pw.Write([]byte("[ERROR] Test\n"))
+	_, _ = pw.Write([]byte("  stack\n"))
 
 	// Flush should flush multiline buffer
 	pw.Flush()
@@ -629,5 +629,231 @@ func TestProcessWriter_EmptyFlush(t *testing.T) {
 	logs := pw.GetLogs()
 	if len(logs) != 0 {
 		t.Errorf("expected 0 logs after empty flush, got %d", len(logs))
+	}
+}
+
+func TestProcessWriter_AddEvent(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", nil)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Add an event
+	pw.AddEvent("Process started")
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	event := logs[0]
+	if event.Message != "Process started" {
+		t.Errorf("event message = %q, want %q", event.Message, "Process started")
+	}
+	if event.Level != "event" {
+		t.Errorf("event level = %q, want %q", event.Level, "event")
+	}
+	if event.Stream != "event" {
+		t.Errorf("event stream = %q, want %q", event.Stream, "event")
+	}
+	if event.ProcessName != "test-process" {
+		t.Errorf("event ProcessName = %q, want %q", event.ProcessName, "test-process")
+	}
+	if event.InstanceID != "test-0" {
+		t.Errorf("event InstanceID = %q, want %q", event.InstanceID, "test-0")
+	}
+}
+
+func TestProcessWriter_AddEvent_NilBuffer(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw := &ProcessWriter{
+		Logger:      logger,
+		ProcessName: "test",
+		InstanceID:  "test-0",
+		Stream:      "stdout",
+		logBuffer:   nil, // Explicitly nil
+	}
+
+	// Should not panic
+	pw.AddEvent("Test event")
+}
+
+func TestNewProcessWriter_InvalidMultiline(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		Multiline: &config.MultilineConfig{
+			Enabled: true,
+			Pattern: "[invalid(regex",
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid multiline pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create multiline buffer") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewProcessWriter_InvalidLevelDetector(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		LevelDetection: &config.LevelDetectionConfig{
+			Enabled: true,
+			Patterns: map[string]string{
+				"error": "[invalid(regex",
+			},
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid level detector pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create level detector") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestNewProcessWriter_InvalidFilters(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		Filters: &config.FilterConfig{
+			Include: []string{"[invalid(regex"},
+		},
+	}
+
+	_, err := NewProcessWriter(logger, "test", "test-0", "stdout", cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid filter pattern")
+	}
+	if !strings.Contains(err.Error(), "failed to create log filters") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestProcessWriter_FlushWithBufferedData(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", nil)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Manually add data to the internal buffer without newline
+	pw.buffer.WriteString("buffered content")
+
+	// Flush should process the buffered content
+	pw.Flush()
+
+	logs := pw.GetLogs()
+	if len(logs) == 0 {
+		t.Error("expected log entry after flushing buffered content")
+	}
+}
+
+func TestProcessWriter_Write_JSONWithLevel(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Test warn level (debug may get filtered)
+	_, _ = pw.Write([]byte(`{"level":"warn","message":"Warning message"}` + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	if logs[0].Level != "warn" {
+		t.Errorf("expected level 'warn', got %q", logs[0].Level)
+	}
+}
+
+func TestProcessWriter_Write_JSONWithEmptyMessage(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// JSON without message field
+	jsonLog := `{"level":"info","user_id":123}`
+	_, _ = pw.Write([]byte(jsonLog + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	// Message should fall back to original entry
+	if !strings.Contains(logs[0].Message, "user_id") {
+		t.Errorf("expected fallback to original JSON, got: %q", logs[0].Message)
+	}
+}
+
+func TestProcessWriter_Write_DefaultLevelSwitch(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cfg := &config.LoggingConfig{
+		JSON: &config.JSONConfig{
+			Enabled:        true,
+			ExtractLevel:   true,
+			ExtractMessage: true,
+		},
+	}
+
+	pw, err := NewProcessWriter(logger, "test-process", "test-0", "stdout", cfg)
+	if err != nil {
+		t.Fatalf("NewProcessWriter() error = %v", err)
+	}
+
+	// Test unknown level (should fall through to default case)
+	_, _ = pw.Write([]byte(`{"level":"trace","message":"Trace message"}` + "\n"))
+
+	logs := pw.GetLogs()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logs))
+	}
+
+	// Unknown level should be treated as info
+	if logs[0].Level != "info" {
+		t.Errorf("expected 'info' for unknown level, got: %q", logs[0].Level)
 	}
 }

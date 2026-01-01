@@ -269,7 +269,7 @@ func TestMiddleware_Allowed(t *testing.T) {
 
 	handler := checker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -320,7 +320,7 @@ func TestMiddleware_Disabled(t *testing.T) {
 
 	handler := checker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -369,5 +369,136 @@ func TestIPv6Support(t *testing.T) {
 				t.Errorf("IsAllowed(%s) = %v, want %v", tt.ip, allowed, tt.allowed)
 			}
 		})
+	}
+}
+
+// TestNewChecker_InvalidDenyListEntry tests that invalid deny list entries return error
+func TestNewChecker_InvalidDenyListEntry(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:  true,
+		Mode:     "deny",
+		DenyList: []string{"invalid-ip"},
+	}
+
+	_, err := NewChecker(cfg)
+	if err == nil {
+		t.Error("Expected error for invalid deny list entry")
+	}
+}
+
+// TestNewChecker_InvalidDenyListCIDR tests that invalid deny list CIDR returns error
+func TestNewChecker_InvalidDenyListCIDR(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:  true,
+		Mode:     "deny",
+		DenyList: []string{"192.168.1.0/99"},
+	}
+
+	_, err := NewChecker(cfg)
+	if err == nil {
+		t.Error("Expected error for invalid deny list CIDR")
+	}
+}
+
+// TestIsAllowed_NilChecker tests that nil checker allows all IPs
+func TestIsAllowed_NilChecker(t *testing.T) {
+	var checker *Checker // nil checker
+
+	ip := net.ParseIP("192.168.1.100")
+	if !checker.IsAllowed(ip) {
+		t.Error("Nil checker should allow all IPs")
+	}
+}
+
+// TestMiddleware_InvalidIP tests middleware with invalid IP in RemoteAddr
+func TestMiddleware_InvalidIP(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:   true,
+		Mode:      "allow",
+		AllowList: []string{"192.168.1.100"},
+	}
+
+	checker, err := NewChecker(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create checker: %v", err)
+	}
+
+	handler := checker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "invalid-ip-address" // Invalid IP
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid IP, got %d", rec.Code)
+	}
+}
+
+// TestParseAndAddEntry_EmptyEntry tests that empty entries are skipped
+func TestParseAndAddEntry_EmptyEntry(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:   true,
+		Mode:      "allow",
+		AllowList: []string{"", "  ", "192.168.1.100"},
+	}
+
+	checker, err := NewChecker(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create checker: %v", err)
+	}
+
+	// Should only have one IP in allow list
+	if len(checker.allowIPs) != 1 {
+		t.Errorf("Expected 1 allowed IP, got %d", len(checker.allowIPs))
+	}
+}
+
+// TestExtractIP_InvalidXFFWithFallback tests XFF fallback when first IP is invalid
+func TestExtractIP_InvalidXFFWithFallback(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:    true,
+		Mode:       "allow",
+		TrustProxy: true,
+	}
+
+	checker, err := NewChecker(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create checker: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Forwarded-For", "invalid-ip")
+
+	ip, err := checker.ExtractIP(req)
+	if err != nil {
+		t.Fatalf("ExtractIP() error = %v", err)
+	}
+	// Should fallback to RemoteAddr
+	if ip.String() != "10.0.0.1" {
+		t.Errorf("ExtractIP() = %v, want 10.0.0.1 (fallback)", ip)
+	}
+}
+
+// TestParseAndAddEntry_DenyCIDR tests adding CIDR to deny list
+func TestParseAndAddEntry_DenyCIDR(t *testing.T) {
+	cfg := &config.ACLConfig{
+		Enabled:  true,
+		Mode:     "deny",
+		DenyList: []string{"192.168.0.0/16", "10.0.0.0/8"},
+	}
+
+	checker, err := NewChecker(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create checker: %v", err)
+	}
+
+	// Should have two deny networks
+	if len(checker.denyNets) != 2 {
+		t.Errorf("Expected 2 deny networks, got %d", len(checker.denyNets))
 	}
 }

@@ -17,9 +17,6 @@ func TestDetectCgroupV2Resources_WithMockedFiles(t *testing.T) {
 		t.Skip("Linux-only test")
 	}
 
-	// Save original cgroup paths
-	origCgroupBase := "/sys/fs/cgroup"
-
 	tests := []struct {
 		name           string
 		memoryMax      string
@@ -96,7 +93,7 @@ func TestDetectCgroupV2Resources_WithMockedFiles(t *testing.T) {
 
 			if memStr != "max" {
 				var memLimit int64
-				fmt.Sscanf(memStr, "%d", &memLimit)
+				_, _ = fmt.Sscanf(memStr, "%d", &memLimit)
 				r.MemoryLimitBytes = memLimit
 				r.MemoryLimitMB = int(memLimit / (1024 * 1024))
 			}
@@ -216,7 +213,7 @@ func TestDetectCgroupV1Resources_WithMockedFiles(t *testing.T) {
 			// Parse memory limit
 			memContent, _ := os.ReadFile(memLimitPath)
 			var limit int64
-			fmt.Sscanf(string(memContent), "%d", &limit)
+			_, _ = fmt.Sscanf(string(memContent), "%d", &limit)
 
 			// Check for unlimited (very large value > 1PB)
 			if limit < (1 << 50) {
@@ -227,12 +224,12 @@ func TestDetectCgroupV1Resources_WithMockedFiles(t *testing.T) {
 			// Parse CPU quota
 			quotaContent, _ := os.ReadFile(cpuQuotaPath)
 			var quotaVal int64
-			fmt.Sscanf(string(quotaContent), "%d", &quotaVal)
+			_, _ = fmt.Sscanf(string(quotaContent), "%d", &quotaVal)
 
 			if quotaVal > 0 {
 				periodContent, _ := os.ReadFile(cpuPeriodPath)
 				var periodVal int64
-				fmt.Sscanf(string(periodContent), "%d", &periodVal)
+				_, _ = fmt.Sscanf(string(periodContent), "%d", &periodVal)
 
 				if periodVal > 0 {
 					cpus := int((quotaVal + periodVal - 1) / periodVal)
@@ -330,24 +327,11 @@ Cached:          2048000 kB`,
 				return
 			}
 
-			lines := string(content)
+			_ = content // Content read successfully
 			var memory int64
 			found := false
 
-			for _, line := range []string{} {
-				if len(lines) > 0 {
-					// Simple parsing simulation
-					var kb int64
-					n, _ := fmt.Sscanf(lines, "MemTotal: %d kB", &kb)
-					if n == 1 {
-						memory = kb * 1024
-						found = true
-						break
-					}
-				}
-			}
-
-			// Better simulation using the actual lines
+			// Parse memory from simulated meminfo content
 			for _, line := range []string{
 				"MemTotal:       16384000 kB",
 				"MemTotal:        8192000 kB",
@@ -355,7 +339,7 @@ Cached:          2048000 kB`,
 			} {
 				if tt.meminfoContent[:20] == line[:20] {
 					var kb int64
-					fmt.Sscanf(line, "MemTotal: %d kB", &kb)
+					_, _ = fmt.Sscanf(line, "MemTotal: %d kB", &kb)
 					memory = kb * 1024
 					found = true
 					break

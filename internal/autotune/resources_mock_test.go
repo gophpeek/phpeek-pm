@@ -20,7 +20,7 @@ func TestDetectCgroupV2Resources_WithMockFiles(t *testing.T) {
 	// Save original working directory
 	originalWd, _ := os.Getwd()
 	defer func() {
-		os.Chdir(originalWd)
+		_ = os.Chdir(originalWd)
 	}()
 
 	tests := []struct {
@@ -244,8 +244,8 @@ func TestDetectCgroupV1Resources_WithMockFiles(t *testing.T) {
 			periodData, _ := os.ReadFile(periodPath)
 
 			var quota, period int64
-			fmt.Sscanf(string(quotaData), "%d", &quota)
-			fmt.Sscanf(string(periodData), "%d", &period)
+			_, _ = fmt.Sscanf(string(quotaData), "%d", &quota)
+			_, _ = fmt.Sscanf(string(periodData), "%d", &period)
 
 			if quota > 0 && period > 0 {
 				cpus := int((quota + period - 1) / period)

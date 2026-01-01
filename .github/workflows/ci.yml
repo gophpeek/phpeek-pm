@@ -132,11 +132,27 @@ jobs:
             -p 9180:9180 \
             phpeek-pm-test-${{ matrix.distro }}
 
-          # Wait for startup
-          sleep 5
+          # Wait for startup with retries
+          echo "Waiting for services to be ready..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:9090/metrics > /dev/null 2>&1; then
+              echo "Metrics endpoint ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
 
           # Test metrics endpoint
           curl -f http://localhost:9090/metrics || exit 1
+
+          # Wait for API with retries
+          for i in {1..30}; do
+            if curl -sf http://localhost:9180/api/v1/health > /dev/null 2>&1; then
+              echo "API endpoint ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
 
           # Test API endpoint
           curl -f http://localhost:9180/api/v1/health || exit 1

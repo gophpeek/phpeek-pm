@@ -601,3 +601,215 @@ func TestLogger_JSONMarshaling(t *testing.T) {
 		t.Error("Expected context to be set")
 	}
 }
+
+// TestLogger_SystemError tests system error audit logging
+func TestLogger_SystemError(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogSystemError("scheduler", "failed to execute cron job")
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type
+	if logEntry["event_type"] != string(EventSystemError) {
+		t.Errorf("Expected event_type='%s', got: %v", EventSystemError, logEntry["event_type"])
+	}
+
+	// Verify status is error
+	if logEntry["status"] != string(StatusError) {
+		t.Errorf("Expected status='%s', got: %v", StatusError, logEntry["status"])
+	}
+
+	// Verify embedded event contains error message
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "failed to execute cron job") {
+		t.Errorf("Expected event_json to contain error message, got: %s", eventJSON)
+	}
+	if !strings.Contains(eventJSON, "scheduler") {
+		t.Errorf("Expected event_json to contain component 'scheduler', got: %s", eventJSON)
+	}
+}
+
+// TestLogger_ProcessAdded tests process added audit logging
+func TestLogger_ProcessAdded(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogProcessAdded("new-worker", []string{"php", "artisan", "queue:work"}, 3)
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type (uses EventProcessStart)
+	if logEntry["event_type"] != string(EventProcessStart) {
+		t.Errorf("Expected event_type='%s', got: %v", EventProcessStart, logEntry["event_type"])
+	}
+
+	// Verify resource is the process name
+	if logEntry["resource"] != "new-worker" {
+		t.Errorf("Expected resource='new-worker', got: %v", logEntry["resource"])
+	}
+
+	// Verify status is success
+	if logEntry["status"] != string(StatusSuccess) {
+		t.Errorf("Expected status='%s', got: %v", StatusSuccess, logEntry["status"])
+	}
+
+	// Verify embedded event contains command and scale
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "queue:work") {
+		t.Errorf("Expected event_json to contain command 'queue:work', got: %s", eventJSON)
+	}
+	if !strings.Contains(eventJSON, `"scale":3`) {
+		t.Errorf("Expected event_json to contain scale '3', got: %s", eventJSON)
+	}
+}
+
+// TestLogger_ProcessRemoved tests process removed audit logging
+func TestLogger_ProcessRemoved(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogProcessRemoved("old-worker")
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type (uses EventProcessStop)
+	if logEntry["event_type"] != string(EventProcessStop) {
+		t.Errorf("Expected event_type='%s', got: %v", EventProcessStop, logEntry["event_type"])
+	}
+
+	// Verify resource is the process name
+	if logEntry["resource"] != "old-worker" {
+		t.Errorf("Expected resource='old-worker', got: %v", logEntry["resource"])
+	}
+
+	// Verify embedded event contains removal message
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "removed") {
+		t.Errorf("Expected event_json to contain 'removed', got: %s", eventJSON)
+	}
+}
+
+// TestLogger_ProcessUpdated tests process updated audit logging
+func TestLogger_ProcessUpdated(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogProcessUpdated("horizon", []string{"php", "artisan", "horizon"}, 5)
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type (uses EventProcessRestart)
+	if logEntry["event_type"] != string(EventProcessRestart) {
+		t.Errorf("Expected event_type='%s', got: %v", EventProcessRestart, logEntry["event_type"])
+	}
+
+	// Verify resource is the process name
+	if logEntry["resource"] != "horizon" {
+		t.Errorf("Expected resource='horizon', got: %v", logEntry["resource"])
+	}
+
+	// Verify embedded event contains updated message
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "updated") {
+		t.Errorf("Expected event_json to contain 'updated', got: %s", eventJSON)
+	}
+	if !strings.Contains(eventJSON, `"scale":5`) {
+		t.Errorf("Expected event_json to contain scale '5', got: %s", eventJSON)
+	}
+}
+
+// TestLogger_ConfigSaved tests config saved audit logging
+func TestLogger_ConfigSaved(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogConfigSaved("/etc/phpeek-pm/config.yaml")
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type (uses EventSystemStart)
+	if logEntry["event_type"] != string(EventSystemStart) {
+		t.Errorf("Expected event_type='%s', got: %v", EventSystemStart, logEntry["event_type"])
+	}
+
+	// Verify status is success
+	if logEntry["status"] != string(StatusSuccess) {
+		t.Errorf("Expected status='%s', got: %v", StatusSuccess, logEntry["status"])
+	}
+
+	// Verify embedded event contains path
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "/etc/phpeek-pm/config.yaml") {
+		t.Errorf("Expected event_json to contain config path, got: %s", eventJSON)
+	}
+	if !strings.Contains(eventJSON, "saved") {
+		t.Errorf("Expected event_json to contain 'saved', got: %s", eventJSON)
+	}
+}
+
+// TestLogger_ConfigReloaded tests config reloaded audit logging
+func TestLogger_ConfigReloaded(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(handler)
+
+	auditLogger := NewLogger(logger, true)
+	auditLogger.LogConfigReloaded("/etc/phpeek-pm/config.yaml")
+
+	// Parse output
+	var logEntry map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &logEntry); err != nil {
+		t.Fatalf("Failed to parse log output: %v", err)
+	}
+
+	// Verify event type (uses EventSystemStart)
+	if logEntry["event_type"] != string(EventSystemStart) {
+		t.Errorf("Expected event_type='%s', got: %v", EventSystemStart, logEntry["event_type"])
+	}
+
+	// Verify status is success
+	if logEntry["status"] != string(StatusSuccess) {
+		t.Errorf("Expected status='%s', got: %v", StatusSuccess, logEntry["status"])
+	}
+
+	// Verify embedded event contains path
+	eventJSON := logEntry["event_json"].(string)
+	if !strings.Contains(eventJSON, "/etc/phpeek-pm/config.yaml") {
+		t.Errorf("Expected event_json to contain config path, got: %s", eventJSON)
+	}
+	if !strings.Contains(eventJSON, "reloaded") {
+		t.Errorf("Expected event_json to contain 'reloaded', got: %s", eventJSON)
+	}
+}

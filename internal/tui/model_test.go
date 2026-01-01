@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/process"
 )
 
 // TestShowToast tests toast notification display
@@ -1141,5 +1142,261 @@ func TestStartEditWizard_NilConfig(t *testing.T) {
 
 	if m.wizardRestart != "always" {
 		t.Errorf("Expected default wizardRestart 'always', got %q", m.wizardRestart)
+	}
+}
+
+// TestDispatchAction tests action dispatch routing
+func TestDispatchAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		action         actionType
+		target         string
+		isRemote       bool
+		expectMessage  string
+		expectNonEmpty bool
+	}{
+		{
+			name:           "restart action message",
+			action:         actionRestart,
+			target:         "php-fpm",
+			isRemote:       true,
+			expectMessage:  "✓ Restarted php-fpm",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "stop action message",
+			action:         actionStop,
+			target:         "nginx",
+			isRemote:       true,
+			expectMessage:  "✓ Stopped nginx",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "start action message",
+			action:         actionStart,
+			target:         "worker",
+			isRemote:       true,
+			expectMessage:  "✓ Started worker",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "delete action message",
+			action:         actionDelete,
+			target:         "old-process",
+			isRemote:       true,
+			expectMessage:  "✓ Removed old-process",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "scale action returns empty",
+			action:         actionScale,
+			target:         "php-fpm",
+			isRemote:       true,
+			expectMessage:  "",
+			expectNonEmpty: false,
+		},
+		{
+			name:           "schedule pause message",
+			action:         actionSchedulePause,
+			target:         "cron-job",
+			isRemote:       true,
+			expectMessage:  "✓ Paused schedule cron-job",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "schedule resume message",
+			action:         actionScheduleResume,
+			target:         "cron-job",
+			isRemote:       true,
+			expectMessage:  "✓ Resumed schedule cron-job",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "schedule trigger message",
+			action:         actionScheduleTrigger,
+			target:         "cron-job",
+			isRemote:       true,
+			expectMessage:  "✓ Triggered cron-job",
+			expectNonEmpty: true,
+		},
+		{
+			name:           "none action returns empty",
+			action:         actionNone,
+			target:         "test",
+			isRemote:       true,
+			expectMessage:  "",
+			expectNonEmpty: false,
+		},
+		{
+			name:           "unknown action returns empty",
+			action:         actionType(99),
+			target:         "test",
+			isRemote:       true,
+			expectMessage:  "",
+			expectNonEmpty: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+				client:   NewAPIClient("http://localhost:9999", ""),
+			}
+
+			msg, _ := m.dispatchAction(tt.action, tt.target)
+
+			if tt.expectNonEmpty {
+				if msg != tt.expectMessage {
+					t.Errorf("dispatchAction() message = %q, expected %q", msg, tt.expectMessage)
+				}
+			} else {
+				if msg != "" {
+					t.Errorf("dispatchAction() expected empty message, got %q", msg)
+				}
+			}
+		})
+	}
+}
+
+// TestExecuteRestart tests process restart execution
+func TestExecuteRestart(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeRestart("php-fpm")
+
+	expectedMessage := "✓ Restarted php-fpm"
+	if msg != expectedMessage {
+		t.Errorf("executeRestart() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteStop tests process stop execution
+func TestExecuteStop(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeStop("nginx")
+
+	expectedMessage := "✓ Stopped nginx"
+	if msg != expectedMessage {
+		t.Errorf("executeStop() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteStart tests process start execution
+func TestExecuteStart(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeStart("worker")
+
+	expectedMessage := "✓ Started worker"
+	if msg != expectedMessage {
+		t.Errorf("executeStart() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteDelete tests process delete execution
+func TestExecuteDelete(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeDelete("old-process")
+
+	expectedMessage := "✓ Removed old-process"
+	if msg != expectedMessage {
+		t.Errorf("executeDelete() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteSchedulePause tests schedule pause execution
+func TestExecuteSchedulePause(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeSchedulePause("cron-job")
+
+	expectedMessage := "✓ Paused schedule cron-job"
+	if msg != expectedMessage {
+		t.Errorf("executeSchedulePause() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteScheduleResume tests schedule resume execution
+func TestExecuteScheduleResume(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeScheduleResume("cron-job")
+
+	expectedMessage := "✓ Resumed schedule cron-job"
+	if msg != expectedMessage {
+		t.Errorf("executeScheduleResume() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestExecuteScheduleTrigger tests schedule trigger execution
+func TestExecuteScheduleTrigger(t *testing.T) {
+	// Test remote mode - returns message even if client request fails
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	msg, _ := m.executeScheduleTrigger("cron-job")
+
+	expectedMessage := "✓ Triggered cron-job"
+	if msg != expectedMessage {
+		t.Errorf("executeScheduleTrigger() message = %q, expected %q", msg, expectedMessage)
+	}
+}
+
+// TestTickCmd tests tick command generation
+func TestTickCmd(t *testing.T) {
+	cmd := tickCmd()
+	if cmd == nil {
+		t.Error("tickCmd() should return a non-nil command")
+	}
+}
+
+// TestTickLogRefreshCmd tests tick log refresh command generation
+func TestTickLogRefreshCmd(t *testing.T) {
+	cmd := tickLogRefreshCmd()
+	if cmd == nil {
+		t.Error("tickLogRefreshCmd() should return a non-nil command")
+	}
+}
+
+// TestInit tests model initialization
+func TestInit(t *testing.T) {
+	m := &Model{
+		processCache: make(map[string]process.ProcessInfo),
+		isRemote:     true,
+		client:       NewAPIClient("http://localhost:9999", ""),
+	}
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Error("Init() should return a non-nil command batch")
 	}
 }

@@ -53,7 +53,7 @@ func TestManager_AddProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	tests := []struct {
@@ -188,7 +188,7 @@ func TestManager_RemoveProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -283,7 +283,7 @@ func TestManager_UpdateProcess(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -410,7 +410,7 @@ func TestManager_SaveConfig(t *testing.T) {
 					Restart: "never",
 					Scale:   1,
 				}
-				manager.AddProcess(ctx, "new-process", newProc)
+				_ = manager.AddProcess(ctx, "new-process", newProc)
 			},
 			wantErr: false,
 		},
@@ -492,7 +492,7 @@ func TestManager_ReloadConfig(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Modify config file
@@ -703,7 +703,7 @@ func TestManager_MonitorProcessHealth(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
@@ -770,7 +770,7 @@ func TestManager_GetLogs(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for process to produce logs
@@ -859,7 +859,7 @@ func TestManager_GetStackLogs(t *testing.T) {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		manager.Shutdown(shutdownCtx)
+		_ = manager.Shutdown(shutdownCtx)
 	}()
 
 	// Wait for processes to produce logs

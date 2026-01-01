@@ -677,3 +677,303 @@ func TestProcess_Equal(t *testing.T) {
 		})
 	}
 }
+
+func TestStringMapEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b map[string]string
+		want bool
+	}{
+		{
+			name: "both nil",
+			a:    nil,
+			b:    nil,
+			want: true,
+		},
+		{
+			name: "both empty",
+			a:    map[string]string{},
+			b:    map[string]string{},
+			want: true,
+		},
+		{
+			name: "equal maps",
+			a:    map[string]string{"key1": "value1", "key2": "value2"},
+			b:    map[string]string{"key1": "value1", "key2": "value2"},
+			want: true,
+		},
+		{
+			name: "different lengths",
+			a:    map[string]string{"key1": "value1"},
+			b:    map[string]string{"key1": "value1", "key2": "value2"},
+			want: false,
+		},
+		{
+			name: "different values",
+			a:    map[string]string{"key1": "value1"},
+			b:    map[string]string{"key1": "value2"},
+			want: false,
+		},
+		{
+			name: "different keys",
+			a:    map[string]string{"key1": "value1"},
+			b:    map[string]string{"key2": "value1"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stringMapEqual(tt.a, tt.b)
+			if got != tt.want {
+				t.Errorf("stringMapEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHealthCheckEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b *HealthCheck
+		want bool
+	}{
+		{
+			name: "both nil",
+			a:    nil,
+			b:    nil,
+			want: true,
+		},
+		{
+			name: "a nil b not nil",
+			a:    nil,
+			b:    &HealthCheck{Type: "http"},
+			want: false,
+		},
+		{
+			name: "a not nil b nil",
+			a:    &HealthCheck{Type: "http"},
+			b:    nil,
+			want: false,
+		},
+		{
+			name: "equal health checks",
+			a: &HealthCheck{
+				Type:             "http",
+				URL:              "http://localhost/health",
+				Period:           30,
+				Timeout:          5,
+				FailureThreshold: 3,
+			},
+			b: &HealthCheck{
+				Type:             "http",
+				URL:              "http://localhost/health",
+				Period:           30,
+				Timeout:          5,
+				FailureThreshold: 3,
+			},
+			want: true,
+		},
+		{
+			name: "different type",
+			a:    &HealthCheck{Type: "http"},
+			b:    &HealthCheck{Type: "tcp"},
+			want: false,
+		},
+		{
+			name: "different command",
+			a:    &HealthCheck{Type: "exec", Command: []string{"check1"}},
+			b:    &HealthCheck{Type: "exec", Command: []string{"check2"}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := healthCheckEqual(tt.a, tt.b)
+			if got != tt.want {
+				t.Errorf("healthCheckEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShutdownConfigEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b *ShutdownConfig
+		want bool
+	}{
+		{
+			name: "both nil",
+			a:    nil,
+			b:    nil,
+			want: true,
+		},
+		{
+			name: "a nil b not nil",
+			a:    nil,
+			b:    &ShutdownConfig{Signal: "SIGTERM"},
+			want: false,
+		},
+		{
+			name: "a not nil b nil",
+			a:    &ShutdownConfig{Signal: "SIGTERM"},
+			b:    nil,
+			want: false,
+		},
+		{
+			name: "equal configs",
+			a: &ShutdownConfig{
+				Signal:     "SIGTERM",
+				Timeout:    30,
+				KillSignal: "SIGKILL",
+				Graceful:   true,
+			},
+			b: &ShutdownConfig{
+				Signal:     "SIGTERM",
+				Timeout:    30,
+				KillSignal: "SIGKILL",
+				Graceful:   true,
+			},
+			want: true,
+		},
+		{
+			name: "different signal",
+			a:    &ShutdownConfig{Signal: "SIGTERM"},
+			b:    &ShutdownConfig{Signal: "SIGINT"},
+			want: false,
+		},
+		{
+			name: "different timeout",
+			a:    &ShutdownConfig{Signal: "SIGTERM", Timeout: 30},
+			b:    &ShutdownConfig{Signal: "SIGTERM", Timeout: 60},
+			want: false,
+		},
+		{
+			name: "equal with pre-stop hook",
+			a: &ShutdownConfig{
+				Signal: "SIGTERM",
+				PreStopHook: &Hook{
+					Name:    "cleanup",
+					Command: []string{"cleanup.sh"},
+					Timeout: 10,
+				},
+			},
+			b: &ShutdownConfig{
+				Signal: "SIGTERM",
+				PreStopHook: &Hook{
+					Name:    "cleanup",
+					Command: []string{"cleanup.sh"},
+					Timeout: 10,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "different pre-stop hook",
+			a: &ShutdownConfig{
+				Signal:      "SIGTERM",
+				PreStopHook: &Hook{Name: "hook1"},
+			},
+			b: &ShutdownConfig{
+				Signal:      "SIGTERM",
+				PreStopHook: &Hook{Name: "hook2"},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shutdownConfigEqual(tt.a, tt.b)
+			if got != tt.want {
+				t.Errorf("shutdownConfigEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHookEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b *Hook
+		want bool
+	}{
+		{
+			name: "both nil",
+			a:    nil,
+			b:    nil,
+			want: true,
+		},
+		{
+			name: "a nil b not nil",
+			a:    nil,
+			b:    &Hook{Name: "test"},
+			want: false,
+		},
+		{
+			name: "a not nil b nil",
+			a:    &Hook{Name: "test"},
+			b:    nil,
+			want: false,
+		},
+		{
+			name: "equal hooks",
+			a: &Hook{
+				Name:            "pre-start",
+				Command:         []string{"/bin/sh", "-c", "echo hello"},
+				Timeout:         10,
+				Retry:           3,
+				RetryDelay:      5,
+				ContinueOnError: true,
+				WorkingDir:      "/app",
+				Env:             map[string]string{"FOO": "bar"},
+			},
+			b: &Hook{
+				Name:            "pre-start",
+				Command:         []string{"/bin/sh", "-c", "echo hello"},
+				Timeout:         10,
+				Retry:           3,
+				RetryDelay:      5,
+				ContinueOnError: true,
+				WorkingDir:      "/app",
+				Env:             map[string]string{"FOO": "bar"},
+			},
+			want: true,
+		},
+		{
+			name: "different name",
+			a:    &Hook{Name: "hook1"},
+			b:    &Hook{Name: "hook2"},
+			want: false,
+		},
+		{
+			name: "different command",
+			a:    &Hook{Name: "hook", Command: []string{"cmd1"}},
+			b:    &Hook{Name: "hook", Command: []string{"cmd2"}},
+			want: false,
+		},
+		{
+			name: "different timeout",
+			a:    &Hook{Name: "hook", Timeout: 10},
+			b:    &Hook{Name: "hook", Timeout: 20},
+			want: false,
+		},
+		{
+			name: "different env",
+			a:    &Hook{Name: "hook", Env: map[string]string{"A": "1"}},
+			b:    &Hook{Name: "hook", Env: map[string]string{"B": "2"}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hookEqual(tt.a, tt.b)
+			if got != tt.want {
+				t.Errorf("hookEqual() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

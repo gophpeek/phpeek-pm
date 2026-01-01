@@ -52,7 +52,7 @@ func TestNew_DefaultLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	if w.logger == nil {
 		t.Error("Logger should be set to default")
@@ -75,7 +75,7 @@ func TestNew_DefaultDebounce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	expected := 1 * time.Second
 	if w.debounce != expected {
@@ -101,7 +101,7 @@ func TestNew_CustomDebounce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	if w.debounce != customDebounce {
 		t.Errorf("Expected debounce %v, got %v", customDebounce, w.debounce)
@@ -124,7 +124,7 @@ func TestNew_AbsolutePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	// Verify the path is absolute
 	if !filepath.IsAbs(w.configPath) {
@@ -149,7 +149,7 @@ func TestWatcher_Start(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -178,7 +178,7 @@ func TestWatcher_StartNonExistentFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error creating watcher: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -244,7 +244,7 @@ func TestWatcher_FileChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -297,7 +297,7 @@ func TestWatcher_Debounce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -346,7 +346,7 @@ func TestWatcher_ContextCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -389,7 +389,7 @@ func TestWatcher_HandlerError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	defer w.Stop()
+	defer func() { _ = w.Stop() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

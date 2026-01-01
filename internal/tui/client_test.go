@@ -193,7 +193,7 @@ func TestAPIClient_ListProcesses(t *testing.T) {
 				}
 
 				w.WriteHeader(tt.serverStatus)
-				json.NewEncoder(w).Encode(tt.serverResponse)
+				_ = json.NewEncoder(w).Encode(tt.serverResponse)
 			}))
 			defer server.Close()
 
@@ -236,7 +236,7 @@ func TestAPIClient_GetLogs(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer token" {
 			t.Fatalf("expected auth header")
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"process": "app",
 			"logs":    expectedLogs,
 		})
@@ -269,7 +269,7 @@ func TestAPIClient_GetStackLogs(t *testing.T) {
 		if r.URL.Path != "/api/v1/logs" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"scope": "stack",
 			"logs":  expectedLogs,
 		})
@@ -344,7 +344,7 @@ func TestAPIClient_GetProcessConfig(t *testing.T) {
 		if r.URL.Path != "/api/v1/processes/app" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"process": "app",
 			"config": map[string]interface{}{
 				"enabled": true,
@@ -414,7 +414,7 @@ func TestAPIClient_StartProcess(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
 				}
 			}))
 			defer server.Close()
@@ -557,7 +557,7 @@ func TestAPIClient_ScaleProcess(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "scale failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "scale failed"})
 				}
 			}))
 			defer server.Close()
@@ -705,9 +705,9 @@ func TestAPIClient_AddProcess(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
 				} else {
-					json.NewEncoder(w).Encode(map[string]string{"message": "success"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"message": "success"})
 				}
 			}))
 			defer server.Close()
@@ -734,12 +734,12 @@ func TestAPIClient_ListProcesses_WithAuth(t *testing.T) {
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer "+expectedAuth {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"processes": []process.ProcessInfo{},
 		})
 	}))
@@ -798,7 +798,7 @@ func TestAPIClient_ScaleProcessDelta(t *testing.T) {
 				if r.URL.Path == "/api/v1/processes" && r.Method == "GET" {
 					// Mock ListProcesses
 					w.WriteHeader(http.StatusOK)
-					json.NewEncoder(w).Encode(map[string]interface{}{
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
 						"processes": []interface{}{
 							map[string]interface{}{
 								"name":     tt.processName,
@@ -816,7 +816,7 @@ func TestAPIClient_ScaleProcessDelta(t *testing.T) {
 					newScale := tt.currentScale + tt.delta
 					if newScale < 1 {
 						w.WriteHeader(http.StatusBadRequest)
-						json.NewEncoder(w).Encode(map[string]string{"error": "scale must be >= 1"})
+						_ = json.NewEncoder(w).Encode(map[string]string{"error": "scale must be >= 1"})
 					} else {
 						w.WriteHeader(http.StatusOK)
 					}
@@ -925,10 +925,10 @@ func TestAPIClient_createSocketClient(t *testing.T) {
 		server := &http.Server{
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 			}),
 		}
-		go server.Serve(listener)
+		go func() { _ = server.Serve(listener) }()
 		defer server.Close()
 
 		// Create client with socket
@@ -989,7 +989,7 @@ func TestAPIClient_DeleteProcess_ErrorPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.serverStatus)
-				w.Write([]byte(tt.serverResponse))
+				_, _ = w.Write([]byte(tt.serverResponse))
 			}))
 			defer server.Close()
 
@@ -1084,7 +1084,7 @@ func TestAPIClient_UpdateProcess_ErrorPaths(t *testing.T) {
 			if tt.processConfig != nil {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(tt.serverStatus)
-					w.Write([]byte(tt.serverResponse))
+					_, _ = w.Write([]byte(tt.serverResponse))
 				}))
 				defer server.Close()
 			}
@@ -1196,7 +1196,7 @@ func TestAPIClient_fetchLogs_ErrorPaths(t *testing.T) {
 			} else {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(tt.serverStatus)
-					w.Write([]byte(tt.serverResponse))
+					_, _ = w.Write([]byte(tt.serverResponse))
 				}))
 				defer server.Close()
 				client = NewAPIClient(server.URL, "")
@@ -1302,7 +1302,7 @@ func TestAPIClient_GetProcessConfig_ErrorPaths(t *testing.T) {
 			if tt.processName != "" {
 				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(tt.serverStatus)
-					w.Write([]byte(tt.serverResponse))
+					_, _ = w.Write([]byte(tt.serverResponse))
 				}))
 				defer server.Close()
 			}
@@ -1348,7 +1348,7 @@ func TestAPIClient_GetProcessConfig_NetworkError(t *testing.T) {
 func TestAPIClient_ListProcesses_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`invalid json{`))
+		_, _ = w.Write([]byte(`invalid json{`))
 	}))
 	defer server.Close()
 
@@ -1396,7 +1396,7 @@ func TestAPIClient_ReloadConfig(t *testing.T) {
 					t.Errorf("Expected /api/v1/config/reload, got %s", r.URL.Path)
 				}
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.response))
+				_, _ = w.Write([]byte(tt.response))
 			}))
 			defer server.Close()
 
@@ -1442,7 +1442,7 @@ func TestAPIClient_SaveConfig(t *testing.T) {
 					t.Errorf("Expected /api/v1/config/save, got %s", r.URL.Path)
 				}
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.response))
+				_, _ = w.Write([]byte(tt.response))
 			}))
 			defer server.Close()
 
@@ -1504,7 +1504,7 @@ func TestAPIClient_PauseSchedule(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
 				}
 			}))
 			defer server.Close()
@@ -1567,7 +1567,7 @@ func TestAPIClient_ResumeSchedule(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
 				}
 			}))
 			defer server.Close()
@@ -1630,7 +1630,7 @@ func TestAPIClient_TriggerSchedule(t *testing.T) {
 
 				w.WriteHeader(tt.serverStatus)
 				if tt.wantErr {
-					json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "operation failed"})
 				}
 			}))
 			defer server.Close()
@@ -1679,7 +1679,7 @@ func TestAPIClient_ScheduleActions_WithAuth(t *testing.T) {
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer "+expectedAuth {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -1772,7 +1772,7 @@ func TestAPIClient_GetOneshotHistory(t *testing.T) {
 					}
 				}
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.response))
+				_, _ = w.Write([]byte(tt.response))
 			}))
 			defer server.Close()
 

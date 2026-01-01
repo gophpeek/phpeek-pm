@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gophpeek/phpeek-pm/internal/config"
+	"github.com/gophpeek/phpeek-pm/internal/logger"
 	"github.com/gophpeek/phpeek-pm/internal/process"
 )
 
@@ -742,6 +743,16 @@ func createKeyMsg(key string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	case "home":
+		return tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
+	case "delete":
+		return tea.KeyMsg{Type: tea.KeyDelete}
 	case " ":
 		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	default:
@@ -1521,5 +1532,2625 @@ func TestGetSelectedProcessEdgeCases(t *testing.T) {
 	name = m.getSelectedProcess()
 	if name != "another-process" {
 		t.Errorf("getSelectedProcess should return selected process name, got %q", name)
+	}
+}
+
+// TestHandleTabNavigation tests tab switching via key handlers
+func TestHandleTabNavigation(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		initialTab  tabType
+		expectedTab tabType
+		handled     bool
+	}{
+		{
+			name:        "press 1 switches to processes tab",
+			key:         "1",
+			initialTab:  tabScheduled,
+			expectedTab: tabProcesses,
+			handled:     true,
+		},
+		{
+			name:        "press 2 switches to scheduled tab",
+			key:         "2",
+			initialTab:  tabProcesses,
+			expectedTab: tabScheduled,
+			handled:     true,
+		},
+		{
+			name:        "press 3 switches to oneshot tab",
+			key:         "3",
+			initialTab:  tabProcesses,
+			expectedTab: tabOneshot,
+			handled:     true,
+		},
+		{
+			name:        "press 4 switches to system tab",
+			key:         "4",
+			initialTab:  tabProcesses,
+			expectedTab: tabSystem,
+			handled:     true,
+		},
+		{
+			name:        "press other key is not handled",
+			key:         "x",
+			initialTab:  tabProcesses,
+			expectedTab: tabProcesses,
+			handled:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab: tt.initialTab,
+			}
+
+			handled, resultM := m.handleTabNavigation(tt.key)
+
+			if handled != tt.handled {
+				t.Errorf("handleTabNavigation() handled = %v, expected %v", handled, tt.handled)
+			}
+
+			if resultM.activeTab != tt.expectedTab {
+				t.Errorf("activeTab = %v, expected %v", resultM.activeTab, tt.expectedTab)
+			}
+		})
+	}
+}
+
+// TestHandleSelectionNavigation tests cursor navigation keys
+func TestHandleSelectionNavigation(t *testing.T) {
+	tests := []struct {
+		name          string
+		key           string
+		initialIndex  int
+		dataLength    int
+		expectedIndex int
+		handled       bool
+	}{
+		{
+			name:          "k moves up",
+			key:           "k",
+			initialIndex:  2,
+			dataLength:    5,
+			expectedIndex: 1,
+			handled:       true,
+		},
+		{
+			name:          "up arrow moves up",
+			key:           "up",
+			initialIndex:  2,
+			dataLength:    5,
+			expectedIndex: 1,
+			handled:       true,
+		},
+		{
+			name:          "j moves down",
+			key:           "j",
+			initialIndex:  1,
+			dataLength:    5,
+			expectedIndex: 2,
+			handled:       true,
+		},
+		{
+			name:          "down arrow moves down",
+			key:           "down",
+			initialIndex:  1,
+			dataLength:    5,
+			expectedIndex: 2,
+			handled:       true,
+		},
+		{
+			name:          "g goes to start",
+			key:           "g",
+			initialIndex:  3,
+			dataLength:    5,
+			expectedIndex: 0,
+			handled:       true,
+		},
+		{
+			name:          "G goes to end",
+			key:           "G",
+			initialIndex:  0,
+			dataLength:    5,
+			expectedIndex: 4,
+			handled:       true,
+		},
+		{
+			name:          "other key not handled",
+			key:           "x",
+			initialIndex:  2,
+			dataLength:    5,
+			expectedIndex: 2,
+			handled:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := make([]processDisplayRow, tt.dataLength)
+			for i := 0; i < tt.dataLength; i++ {
+				data[i] = processDisplayRow{name: "proc-" + string(rune('a'+i))}
+			}
+
+			m := Model{
+				activeTab:     tabProcesses,
+				tableData:     data,
+				selectedIndex: tt.initialIndex,
+			}
+			m.setupProcessTable()
+
+			handled, resultM := m.handleSelectionNavigation(tt.key)
+
+			if handled != tt.handled {
+				t.Errorf("handleSelectionNavigation() handled = %v, expected %v", handled, tt.handled)
+			}
+
+			if resultM.selectedIndex != tt.expectedIndex {
+				t.Errorf("selectedIndex = %d, expected %d", resultM.selectedIndex, tt.expectedIndex)
+			}
+		})
+	}
+}
+
+// TestFilterLogsByInstance tests log filtering by instance ID
+func TestFilterLogsByInstance(t *testing.T) {
+	m := &Model{
+		logInstance: "worker-0",
+	}
+
+	logs := []logger.LogEntry{
+		{InstanceID: "worker-0", Message: "first"},
+		{InstanceID: "worker-1", Message: "second"},
+		{InstanceID: "worker-0", Message: "third"},
+		{InstanceID: "worker-2", Message: "fourth"},
+	}
+
+	result := m.filterLogsByInstance(logs)
+
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 filtered logs, got %d", len(result))
+	}
+
+	if result[0].Message != "first" {
+		t.Errorf("Expected first log message 'first', got %q", result[0].Message)
+	}
+
+	if result[1].Message != "third" {
+		t.Errorf("Expected second log message 'third', got %q", result[1].Message)
+	}
+}
+
+// TestFormatLogEntry tests log entry formatting
+func TestFormatLogEntry(t *testing.T) {
+	m := &Model{}
+	now := time.Now()
+
+	tests := []struct {
+		name        string
+		entry       logger.LogEntry
+		shouldMatch []string
+	}{
+		{
+			name: "regular log entry",
+			entry: logger.LogEntry{
+				Timestamp:   now,
+				Level:       "info",
+				Stream:      "stdout",
+				ProcessName: "php-fpm",
+				InstanceID:  "php-fpm-0",
+				Message:     "Started processing",
+			},
+			shouldMatch: []string{"INFO", "stdout", "php-fpm/php-fpm-0", "Started processing"},
+		},
+		{
+			name: "error log entry",
+			entry: logger.LogEntry{
+				Timestamp:   now,
+				Level:       "error",
+				Stream:      "stderr",
+				ProcessName: "worker",
+				InstanceID:  "worker-1",
+				Message:     "Connection failed",
+			},
+			shouldMatch: []string{"ERROR", "stderr", "worker/worker-1", "Connection failed"},
+		},
+		{
+			name: "event entry",
+			entry: logger.LogEntry{
+				Timestamp: now,
+				Level:     "event",
+				Message:   "Process started",
+			},
+			shouldMatch: []string{"Process started"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.formatLogEntry(tt.entry)
+
+			for _, expected := range tt.shouldMatch {
+				if !containsText(result, expected) {
+					t.Errorf("formatLogEntry() result should contain %q, got %q", expected, result)
+				}
+			}
+		})
+	}
+}
+
+// TestExecuteSystemAction tests system action execution
+func TestExecuteSystemAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		menuIndex      int
+		isRemote       bool
+		expectNilCmd   bool
+	}{
+		{
+			name:         "reload config action",
+			menuIndex:    0,
+			isRemote:     true,
+			expectNilCmd: false,
+		},
+		{
+			name:         "save config action",
+			menuIndex:    1,
+			isRemote:     true,
+			expectNilCmd: false,
+		},
+		{
+			name:         "invalid menu index",
+			menuIndex:    99,
+			isRemote:     true,
+			expectNilCmd: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				systemMenuIndex: tt.menuIndex,
+				isRemote:        tt.isRemote,
+				client:          NewAPIClient("http://localhost:9999", ""),
+			}
+
+			cmd := m.executeSystemAction()
+
+			if tt.expectNilCmd && cmd != nil {
+				t.Error("Expected nil cmd")
+			}
+
+			if !tt.expectNilCmd && cmd == nil {
+				t.Error("Expected non-nil cmd")
+			}
+		})
+	}
+}
+
+// TestSetLogError tests log error setting
+func TestSetLogError(t *testing.T) {
+	m := &Model{}
+	errorMsg := "Failed to fetch logs"
+
+	m.setLogError(errorMsg)
+
+	if len(m.logBuffer) != 1 {
+		t.Fatalf("Expected 1 log buffer entry, got %d", len(m.logBuffer))
+	}
+
+	if m.logBuffer[0] != errorMsg {
+		t.Errorf("Expected log buffer to contain %q, got %q", errorMsg, m.logBuffer[0])
+	}
+}
+
+// TestFormatAndDisplayLogs tests log formatting and display
+func TestFormatAndDisplayLogs(t *testing.T) {
+	m := &Model{}
+	now := time.Now()
+
+	tests := []struct {
+		name           string
+		logs           []logger.LogEntry
+		expectedBuffer int
+	}{
+		{
+			name:           "empty logs shows placeholder",
+			logs:           []logger.LogEntry{},
+			expectedBuffer: 1, // "No logs available yet..."
+		},
+		{
+			name: "multiple logs",
+			logs: []logger.LogEntry{
+				{Timestamp: now, Level: "info", Message: "first"},
+				{Timestamp: now, Level: "error", Message: "second"},
+			},
+			expectedBuffer: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.logBuffer = nil
+			m.formatAndDisplayLogs(tt.logs)
+
+			if len(m.logBuffer) != tt.expectedBuffer {
+				t.Errorf("Expected %d buffer entries, got %d", tt.expectedBuffer, len(m.logBuffer))
+			}
+		})
+	}
+}
+
+// TestEnsureScheduledCursorVisible tests scheduled table cursor visibility
+func TestEnsureScheduledCursorVisible(t *testing.T) {
+	m := &Model{
+		width:          100,
+		height:         30,
+		scheduledIndex: 5,
+		scheduledData:  make([]scheduledDisplayRow, 20),
+	}
+
+	// Should not panic
+	m.ensureScheduledCursorVisible()
+}
+
+// TestEnsureOneshotCursorVisible tests oneshot table cursor visibility
+func TestEnsureOneshotCursorVisible(t *testing.T) {
+	m := &Model{
+		width:        100,
+		height:       30,
+		oneshotIndex: 5,
+		oneshotData:  make([]oneshotDisplayRow, 20),
+	}
+
+	// Should not panic
+	m.ensureOneshotCursorVisible()
+}
+
+// TestHandleWizardNameInputCursor tests cursor navigation in name input
+func TestHandleWizardNameInputCursor(t *testing.T) {
+	tests := []struct {
+		name           string
+		initialName    string
+		initialCursor  int
+		key            string
+		expectedName   string
+		expectedCursor int
+	}{
+		{
+			name:           "left arrow moves cursor left",
+			initialName:    "test",
+			initialCursor:  3,
+			key:            "left",
+			expectedName:   "test",
+			expectedCursor: 2,
+		},
+		{
+			name:           "right arrow moves cursor right",
+			initialName:    "test",
+			initialCursor:  2,
+			key:            "right",
+			expectedName:   "test",
+			expectedCursor: 3,
+		},
+		{
+			name:           "home moves cursor to start",
+			initialName:    "test",
+			initialCursor:  3,
+			key:            "home",
+			expectedName:   "test",
+			expectedCursor: 0,
+		},
+		{
+			name:           "end moves cursor to end",
+			initialName:    "test",
+			initialCursor:  1,
+			key:            "end",
+			expectedName:   "test",
+			expectedCursor: 4,
+		},
+		{
+			name:           "delete removes character at cursor",
+			initialName:    "test",
+			initialCursor:  2,
+			key:            "delete",
+			expectedName:   "tet",
+			expectedCursor: 2,
+		},
+		{
+			name:           "insert in middle",
+			initialName:    "test",
+			initialCursor:  2,
+			key:            "X",
+			expectedName:   "teXst",
+			expectedCursor: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				wizardName:   tt.initialName,
+				wizardCursor: tt.initialCursor,
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleWizardNameInput(msg)
+			resultModel := result.(Model)
+
+			if resultModel.wizardName != tt.expectedName {
+				t.Errorf("wizardName = %q, expected %q", resultModel.wizardName, tt.expectedName)
+			}
+
+			if resultModel.wizardCursor != tt.expectedCursor {
+				t.Errorf("wizardCursor = %d, expected %d", resultModel.wizardCursor, tt.expectedCursor)
+			}
+		})
+	}
+}
+
+// TestRefreshOneshotData tests oneshot data refresh
+func TestRefreshOneshotData(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(m *Model)
+		expectData  bool
+	}{
+		{
+			name: "remote mode with nil client",
+			setupFunc: func(m *Model) {
+				m.isRemote = true
+				m.client = nil
+			},
+			expectData: false,
+		},
+		{
+			name: "embedded mode with nil manager",
+			setupFunc: func(m *Model) {
+				m.isRemote = false
+				m.manager = nil
+			},
+			expectData: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				oneshotData: []oneshotDisplayRow{{id: 1}}, // pre-populate
+			}
+			tt.setupFunc(m)
+
+			m.refreshOneshotData()
+
+			// In nil client/manager case, data should remain unchanged
+			// (function returns early)
+			if tt.expectData && len(m.oneshotData) == 0 {
+				t.Error("Expected oneshotData to be populated")
+			}
+		})
+	}
+}
+
+// TestGetSelectedProcess_ScheduledTab tests getSelectedProcess for scheduled tab
+func TestGetSelectedProcess_ScheduledTab(t *testing.T) {
+	m := &Model{
+		activeTab: tabScheduled,
+		scheduledData: []scheduledDisplayRow{
+			{name: "cron-job-1"},
+			{name: "cron-job-2"},
+		},
+		scheduledIndex: 1,
+	}
+
+	name := m.getSelectedProcess()
+	if name != "cron-job-2" {
+		t.Errorf("Expected 'cron-job-2', got %q", name)
+	}
+}
+
+// TestHandleConfirmationKeys tests confirmation dialog key handling
+func TestHandleConfirmationKeys(t *testing.T) {
+	tests := []struct {
+		name              string
+		key               string
+		expectConfirmShow bool
+	}{
+		{
+			name:              "y confirms action",
+			key:               "y",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "Y confirms action",
+			key:               "Y",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "enter confirms action",
+			key:               "enter",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "n cancels action",
+			key:               "n",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "N cancels action",
+			key:               "N",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "esc cancels action",
+			key:               "esc",
+			expectConfirmShow: false,
+		},
+		{
+			name:              "other key does nothing",
+			key:               "x",
+			expectConfirmShow: true, // remains shown
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				showConfirmation: true,
+				pendingAction:    actionRestart,
+				pendingTarget:    "php-fpm",
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleConfirmationKeys(msg)
+			resultModel := result.(Model)
+
+			if resultModel.showConfirmation != tt.expectConfirmShow {
+				t.Errorf("showConfirmation = %v, expected %v", resultModel.showConfirmation, tt.expectConfirmShow)
+			}
+		})
+	}
+}
+
+// TestHandleScaleDialogKeys tests scale dialog key handling
+func TestHandleScaleDialogKeys(t *testing.T) {
+	tests := []struct {
+		name              string
+		initialInput      string
+		key               string
+		expectInput       string
+		expectDialogClose bool
+	}{
+		{
+			name:              "add digit",
+			initialInput:      "1",
+			key:               "5",
+			expectInput:       "15",
+			expectDialogClose: false,
+		},
+		{
+			name:              "backspace removes digit",
+			initialInput:      "12",
+			key:               "backspace",
+			expectInput:       "1",
+			expectDialogClose: false,
+		},
+		{
+			name:              "backspace on empty stays empty",
+			initialInput:      "",
+			key:               "backspace",
+			expectInput:       "",
+			expectDialogClose: false,
+		},
+		{
+			name:              "non-digit ignored",
+			initialInput:      "5",
+			key:               "a",
+			expectInput:       "5",
+			expectDialogClose: false,
+		},
+		{
+			name:              "esc closes dialog",
+			initialInput:      "5",
+			key:               "esc",
+			expectInput:       "",
+			expectDialogClose: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				showScaleDialog: true,
+				pendingTarget:   "php-fpm",
+				scaleInput:      tt.initialInput,
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleScaleDialogKeys(msg)
+			resultModel := result.(Model)
+
+			if tt.expectDialogClose {
+				if resultModel.showScaleDialog {
+					t.Error("Expected dialog to be closed")
+				}
+			} else {
+				if resultModel.scaleInput != tt.expectInput {
+					t.Errorf("scaleInput = %q, expected %q", resultModel.scaleInput, tt.expectInput)
+				}
+			}
+		})
+	}
+}
+
+// TestHandleLogsKeys tests log viewer key handling
+func TestHandleLogsKeys(t *testing.T) {
+	tests := []struct {
+		name           string
+		key            string
+		initialPaused  bool
+		expectedPaused bool
+	}{
+		{
+			name:           "space toggles pause on",
+			key:            " ",
+			initialPaused:  false,
+			expectedPaused: true,
+		},
+		{
+			name:           "space toggles pause off",
+			key:            " ",
+			initialPaused:  true,
+			expectedPaused: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				logsPaused:  tt.initialPaused,
+				currentView: viewLogs,
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleLogsKeys(msg)
+			resultModel := result.(Model)
+
+			if resultModel.logsPaused != tt.expectedPaused {
+				t.Errorf("logsPaused = %v, expected %v", resultModel.logsPaused, tt.expectedPaused)
+			}
+		})
+	}
+}
+
+// TestHandleLogsKeysNavigation tests log viewer navigation keys
+func TestHandleLogsKeysNavigation(t *testing.T) {
+	keys := []string{"up", "k", "down", "j", "g", "G", "ctrl+u", "ctrl+d"}
+
+	for _, key := range keys {
+		t.Run("key_"+key, func(t *testing.T) {
+			m := Model{
+				logsPaused:  false,
+				currentView: viewLogs,
+			}
+
+			msg := createKeyMsg(key)
+			result, cmd := m.handleLogsKeys(msg)
+			resultModel := result.(Model)
+
+			// All these keys should return the model and nil cmd
+			if cmd != nil {
+				t.Errorf("Expected nil cmd for key %s", key)
+			}
+			if resultModel.currentView != viewLogs {
+				t.Errorf("View should remain viewLogs")
+			}
+		})
+	}
+}
+
+// TestHandleHelpKeys tests help view key handling
+func TestHandleHelpKeys(t *testing.T) {
+	m := Model{
+		currentView: viewHelp,
+	}
+
+	msg := createKeyMsg("q")
+	result, _ := m.handleHelpKeys(msg)
+	resultModel := result.(Model)
+
+	if resultModel.currentView != viewProcessList {
+		t.Errorf("currentView = %v, expected %v", resultModel.currentView, viewProcessList)
+	}
+}
+
+// TestHandleProcessDetailKeys tests process detail view key handling
+func TestHandleProcessDetailKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		detailProc   string
+		key          string
+		expectToast  bool
+		expectCmd    bool
+	}{
+		{
+			name:        "l key with no process shows toast",
+			detailProc:  "",
+			key:         "l",
+			expectToast: true,
+			expectCmd:   false,
+		},
+		{
+			name:        "r key with no process shows toast",
+			detailProc:  "",
+			key:         "r",
+			expectToast: true,
+			expectCmd:   false,
+		},
+		{
+			name:        "s key with no process shows toast",
+			detailProc:  "",
+			key:         "s",
+			expectToast: true,
+			expectCmd:   false,
+		},
+		{
+			name:        "r key with process returns command",
+			detailProc:  "php-fpm",
+			key:         "r",
+			expectToast: false,
+			expectCmd:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				detailProc:   tt.detailProc,
+				currentView:  viewProcessDetail,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, cmd := m.handleProcessDetailKeys(msg)
+			resultModel := result.(Model)
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestHandleProcessListKeys tests process list view key handling
+func TestHandleProcessListKeys(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		initialTab  tabType
+		expectTab   tabType
+		handled     bool
+	}{
+		{
+			name:        "tab 1 switches to processes",
+			key:         "1",
+			initialTab:  tabScheduled,
+			expectTab:   tabProcesses,
+			handled:     true,
+		},
+		{
+			name:        "tab 2 switches to scheduled",
+			key:         "2",
+			initialTab:  tabProcesses,
+			expectTab:   tabScheduled,
+			handled:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tt.initialTab,
+				tableData:    []processDisplayRow{{name: "test"}},
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+			m.setupProcessTable()
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleProcessListKeys(msg)
+			resultModel := result.(Model)
+
+			if resultModel.activeTab != tt.expectTab {
+				t.Errorf("activeTab = %v, expected %v", resultModel.activeTab, tt.expectTab)
+			}
+		})
+	}
+}
+
+// TestHandleProcessActionKeys tests process action key handling
+func TestHandleProcessActionKeys(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		activeTab   tabType
+		hasData     bool
+		expectToast bool
+		expectCmd   bool
+	}{
+		{
+			name:        "enter on system tab executes action",
+			key:         "enter",
+			activeTab:   tabSystem,
+			hasData:     false,
+			expectToast: false,
+			expectCmd:   true,
+		},
+		{
+			name:        "enter with no process selected shows toast",
+			key:         "enter",
+			activeTab:   tabProcesses,
+			hasData:     false,
+			expectToast: true,
+			expectCmd:   false,
+		},
+		{
+			name:        "r with no process selected does nothing",
+			key:         "r",
+			activeTab:   tabProcesses,
+			hasData:     false,
+			expectToast: false,
+			expectCmd:   false,
+		},
+		{
+			name:        "a opens wizard",
+			key:         "a",
+			activeTab:   tabProcesses,
+			hasData:     false,
+			expectToast: false,
+			expectCmd:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tt.activeTab,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+
+			if tt.hasData {
+				m.tableData = []processDisplayRow{{name: "php-fpm"}}
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			handled, resultModel, cmd := m.handleProcessActionKeys(tt.key)
+
+			if !handled {
+				// Check if it was handled by handleUtilityKeys (for 'a')
+				if tt.key == "a" {
+					_, resultModel, cmd = m.handleUtilityKeys(tt.key)
+				}
+			}
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestHandleUtilityKeys tests utility key handling
+func TestHandleUtilityKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		key          string
+		hasSelection bool
+		expectToast  bool
+		expectView   viewMode
+	}{
+		{
+			name:         "l with no selection shows toast",
+			key:          "l",
+			hasSelection: false,
+			expectToast:  true,
+			expectView:   viewProcessList,
+		},
+		{
+			name:         "a opens wizard",
+			key:          "a",
+			hasSelection: false,
+			expectToast:  false,
+			expectView:   viewWizard,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+
+			if tt.hasSelection {
+				m.tableData = []processDisplayRow{{name: "php-fpm"}}
+				m.selectedIndex = 0
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			handled, resultModel, _ := m.handleUtilityKeys(tt.key)
+
+			if !handled {
+				t.Error("Expected key to be handled")
+			}
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("currentView = %v, expected %v", resultModel.currentView, tt.expectView)
+			}
+		})
+	}
+}
+
+// TestHandleSystemTabKeys tests system tab key handling
+func TestHandleSystemTabKeys(t *testing.T) {
+	tests := []struct {
+		name      string
+		key       string
+		activeTab tabType
+		expectCmd bool
+	}{
+		{
+			name:      "R on system tab returns command",
+			key:       "R",
+			activeTab: tabSystem,
+			expectCmd: true,
+		},
+		{
+			name:      "R on other tab returns no command",
+			key:       "R",
+			activeTab: tabProcesses,
+			expectCmd: false,
+		},
+		{
+			name:      "S on system tab returns command",
+			key:       "S",
+			activeTab: tabSystem,
+			expectCmd: true,
+		},
+		{
+			name:      "S on other tab returns no command",
+			key:       "S",
+			activeTab: tabProcesses,
+			expectCmd: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab: tt.activeTab,
+				isRemote:  true,
+				client:    NewAPIClient("http://localhost:9999", ""),
+			}
+
+			handled, _, cmd := m.handleSystemTabKeys(tt.key)
+
+			if !handled {
+				t.Error("Expected key to be handled")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+
+			if !tt.expectCmd && cmd != nil {
+				t.Error("Expected nil command")
+			}
+		})
+	}
+}
+
+// TestHandleScaleKeys tests scale operation key handling
+func TestHandleScaleKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		key          string
+		hasSelection bool
+		expectToast  bool
+		expectCmd    bool
+	}{
+		{
+			name:         "c with no selection shows toast",
+			key:          "c",
+			hasSelection: false,
+			expectToast:  true,
+			expectCmd:    false,
+		},
+		{
+			name:         "c with selection opens dialog",
+			key:          "c",
+			hasSelection: true,
+			expectToast:  false,
+			expectCmd:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+
+			if tt.hasSelection {
+				m.tableData = []processDisplayRow{{name: "php-fpm", rawState: "running"}}
+				m.selectedIndex = 0
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			handled, resultModel, cmd := m.handleScaleKeys(tt.key)
+
+			if !handled {
+				t.Error("Expected key to be handled")
+			}
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestHandleScheduleKeys tests schedule operation key handling
+func TestHandleScheduleKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		key          string
+		hasSelection bool
+		isScheduled  bool
+		expectToast  bool
+		expectCmd    bool
+	}{
+		{
+			name:         "p with no selection shows toast",
+			key:          "p",
+			hasSelection: false,
+			isScheduled:  false,
+			expectToast:  true,
+			expectCmd:    false,
+		},
+		{
+			name:         "p with non-scheduled shows toast",
+			key:          "p",
+			hasSelection: true,
+			isScheduled:  false,
+			expectToast:  true,
+			expectCmd:    false,
+		},
+		{
+			name:         "t with no selection shows toast",
+			key:          "t",
+			hasSelection: false,
+			isScheduled:  false,
+			expectToast:  true,
+			expectCmd:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+
+			if tt.hasSelection {
+				m.tableData = []processDisplayRow{{name: "php-fpm", isScheduled: tt.isScheduled}}
+				m.selectedIndex = 0
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			handled, resultModel, cmd := m.handleScheduleKeys(tt.key)
+
+			if !handled {
+				t.Error("Expected key to be handled")
+			}
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestExecuteScale tests scale execution
+func TestExecuteScale(t *testing.T) {
+	tests := []struct {
+		name        string
+		scaleInput  string
+		target      string
+		expectNil   bool
+		expectToast bool
+	}{
+		{
+			name:        "empty input closes dialog",
+			scaleInput:  "",
+			target:      "php-fpm",
+			expectNil:   true,
+			expectToast: false,
+		},
+		{
+			name:        "empty target closes dialog",
+			scaleInput:  "3",
+			target:      "",
+			expectNil:   true,
+			expectToast: false,
+		},
+		{
+			name:        "invalid scale value shows toast",
+			scaleInput:  "0",
+			target:      "php-fpm",
+			expectNil:   true,
+			expectToast: true,
+		},
+		{
+			name:        "non-numeric value shows toast",
+			scaleInput:  "abc",
+			target:      "php-fpm",
+			expectNil:   true,
+			expectToast: true,
+		},
+		{
+			name:        "valid scale returns command",
+			scaleInput:  "3",
+			target:      "php-fpm",
+			expectNil:   false,
+			expectToast: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				showScaleDialog: true,
+				scaleInput:      tt.scaleInput,
+				pendingTarget:   tt.target,
+				isRemote:        true,
+				client:          NewAPIClient("http://localhost:9999", ""),
+			}
+
+			cmd := m.executeScale()
+
+			if tt.expectNil && cmd != nil {
+				t.Error("Expected nil command")
+			}
+
+			if !tt.expectNil && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+
+			if tt.expectToast && m.toast == "" {
+				t.Error("Expected toast message")
+			}
+		})
+	}
+}
+
+// TestHandleWizardKeys tests wizard key handling
+func TestHandleWizardKeys(t *testing.T) {
+	tests := []struct {
+		name         string
+		key          string
+		wizardStep   int
+		expectView   viewMode
+		expectCancel bool
+	}{
+		{
+			name:         "esc cancels wizard",
+			key:          "esc",
+			wizardStep:   0,
+			expectView:   viewProcessList,
+			expectCancel: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				currentView: viewWizard,
+				wizardStep:  tt.wizardStep,
+				wizardName:  "test",
+			}
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleWizardKeys(msg)
+			resultModel := result.(Model)
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("currentView = %v, expected %v", resultModel.currentView, tt.expectView)
+			}
+
+			if tt.expectCancel && resultModel.wizardName != "" {
+				t.Error("Expected wizard to be reset")
+			}
+		})
+	}
+}
+
+// TestHandleKeyPress tests top-level key handling
+func TestHandleKeyPress(t *testing.T) {
+	tests := []struct {
+		name              string
+		currentView       viewMode
+		showConfirmation  bool
+		showScaleDialog   bool
+		key               string
+		expectConfirmCall bool
+		expectScaleCall   bool
+	}{
+		{
+			name:              "confirmation dialog takes priority",
+			currentView:       viewProcessList,
+			showConfirmation:  true,
+			showScaleDialog:   false,
+			key:               "y",
+			expectConfirmCall: true,
+			expectScaleCall:   false,
+		},
+		{
+			name:              "scale dialog takes priority over normal",
+			currentView:       viewProcessList,
+			showConfirmation:  false,
+			showScaleDialog:   true,
+			key:               "5",
+			expectConfirmCall: false,
+			expectScaleCall:   true,
+		},
+		{
+			name:              "? shows help",
+			currentView:       viewProcessList,
+			showConfirmation:  false,
+			showScaleDialog:   false,
+			key:               "?",
+			expectConfirmCall: false,
+			expectScaleCall:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				currentView:      tt.currentView,
+				showConfirmation: tt.showConfirmation,
+				showScaleDialog:  tt.showScaleDialog,
+				processCache:     make(map[string]process.ProcessInfo),
+			}
+			m.setupProcessTable()
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleKeyPress(msg)
+			resultModel := result.(Model)
+
+			if tt.key == "?" && !tt.showConfirmation && !tt.showScaleDialog {
+				if resultModel.currentView != viewHelp {
+					t.Errorf("Expected viewHelp, got %v", resultModel.currentView)
+				}
+			}
+		})
+	}
+}
+
+// TestUpdate tests the main Update function
+func TestUpdate(t *testing.T) {
+	tests := []struct {
+		name        string
+		msg         tea.Msg
+		expectView  viewMode
+	}{
+		{
+			name: "window size message updates dimensions",
+			msg: tea.WindowSizeMsg{
+				Width:  120,
+				Height: 40,
+			},
+			expectView: viewProcessList,
+		},
+		{
+			name: "action result success shows toast",
+			msg: actionResultMsg{
+				success: true,
+				message: "✓ Done",
+			},
+			expectView: viewProcessList,
+		},
+		{
+			name: "action result failure shows toast",
+			msg: actionResultMsg{
+				success: false,
+				message: "✗ Failed",
+			},
+			expectView: viewProcessList,
+		},
+		{
+			name:       "quit message sets quitting",
+			msg:        tea.QuitMsg{},
+			expectView: viewProcessList,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+			m.setupProcessTable()
+
+			result, _ := m.Update(tt.msg)
+			resultModel := result.(Model)
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("currentView = %v, expected %v", resultModel.currentView, tt.expectView)
+			}
+		})
+	}
+}
+
+// TestHandleQuickScale tests quick scale operation
+func TestHandleQuickScale(t *testing.T) {
+	tests := []struct {
+		name         string
+		hasSelection bool
+		delta        int
+		expectToast  bool
+		expectCmd    bool
+	}{
+		{
+			name:         "no selection shows toast",
+			hasSelection: false,
+			delta:        1,
+			expectToast:  true,
+			expectCmd:    false,
+		},
+		{
+			name:         "with selection returns command",
+			hasSelection: true,
+			delta:        1,
+			expectToast:  false,
+			expectCmd:    true,
+		},
+		{
+			name:         "scale down with selection",
+			hasSelection: true,
+			delta:        -1,
+			expectToast:  false,
+			expectCmd:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+
+			if tt.hasSelection {
+				m.tableData = []processDisplayRow{{name: "php-fpm", rawState: "running"}}
+				m.selectedIndex = 0
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			result, cmd := m.handleQuickScale(tt.delta)
+			resultModel := result.(Model)
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.expectCmd && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+
+			if !tt.expectCmd && cmd != nil {
+				t.Error("Expected nil command")
+			}
+		})
+	}
+}
+
+// TestOpenLogView tests log view opening
+func TestOpenLogView(t *testing.T) {
+	tests := []struct {
+		name         string
+		scope        logScope
+		processName  string
+		instance     string
+		expectedProc string
+	}{
+		{
+			name:         "stack scope",
+			scope:        logScopeStack,
+			processName:  "",
+			instance:     "",
+			expectedProc: "",
+		},
+		{
+			name:         "process scope",
+			scope:        logScopeProcess,
+			processName:  "php-fpm",
+			instance:     "php-fpm-0",
+			expectedProc: "php-fpm",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				currentView:  viewProcessList,
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+				processCache: make(map[string]process.ProcessInfo),
+			}
+
+			cmd := m.openLogView(tt.scope, tt.processName, tt.instance)
+
+			if m.currentView != viewLogs {
+				t.Errorf("currentView = %v, expected %v", m.currentView, viewLogs)
+			}
+
+			if m.logScope != tt.scope {
+				t.Errorf("logScope = %v, expected %v", m.logScope, tt.scope)
+			}
+
+			if m.selectedProc != tt.expectedProc {
+				t.Errorf("selectedProc = %q, expected %q", m.selectedProc, tt.expectedProc)
+			}
+
+			if cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestFetchLogs tests log fetching
+func TestFetchLogs(t *testing.T) {
+	tests := []struct {
+		name        string
+		scope       logScope
+		isRemote    bool
+		expectError bool
+	}{
+		{
+			name:        "stack scope remote with nil client",
+			scope:       logScopeStack,
+			isRemote:    true,
+			expectError: true,
+		},
+		{
+			name:        "stack scope embedded with nil manager",
+			scope:       logScopeStack,
+			isRemote:    false,
+			expectError: true,
+		},
+		{
+			name:        "process scope with no selected process",
+			scope:       logScopeProcess,
+			isRemote:    true,
+			expectError: true,
+		},
+		{
+			name:        "unknown scope returns nil",
+			scope:       logScope(99),
+			isRemote:    true,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				logScope: tt.scope,
+				isRemote: tt.isRemote,
+			}
+
+			_, err := m.fetchLogs(100)
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error")
+			}
+
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestFetchStackLogs tests stack log fetching
+func TestFetchStackLogs(t *testing.T) {
+	tests := []struct {
+		name        string
+		isRemote    bool
+		setupFunc   func(m *Model)
+		expectError bool
+	}{
+		{
+			name:     "remote with nil client",
+			isRemote: true,
+			setupFunc: func(m *Model) {
+				m.client = nil
+			},
+			expectError: true,
+		},
+		{
+			name:     "embedded with nil manager",
+			isRemote: false,
+			setupFunc: func(m *Model) {
+				m.manager = nil
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+			}
+			tt.setupFunc(m)
+
+			_, err := m.fetchStackLogs(100)
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error")
+			}
+		})
+	}
+}
+
+// TestFetchProcessLogs tests process log fetching
+func TestFetchProcessLogs(t *testing.T) {
+	tests := []struct {
+		name         string
+		selectedProc string
+		isRemote     bool
+		setupFunc    func(m *Model)
+		expectError  bool
+	}{
+		{
+			name:         "no process selected",
+			selectedProc: "",
+			isRemote:     true,
+			setupFunc:    func(m *Model) {},
+			expectError:  true,
+		},
+		{
+			name:         "remote with nil client",
+			selectedProc: "php-fpm",
+			isRemote:     true,
+			setupFunc: func(m *Model) {
+				m.client = nil
+			},
+			expectError: true,
+		},
+		{
+			name:         "embedded with nil manager",
+			selectedProc: "php-fpm",
+			isRemote:     false,
+			setupFunc: func(m *Model) {
+				m.manager = nil
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				selectedProc: tt.selectedProc,
+				isRemote:     tt.isRemote,
+			}
+			tt.setupFunc(m)
+
+			_, err := m.fetchProcessLogs(100)
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error")
+			}
+		})
+	}
+}
+
+// TestStartLogTailing tests log tailing start
+func TestStartLogTailing(t *testing.T) {
+	m := &Model{
+		logScope: logScopeStack,
+		isRemote: true,
+		client:   nil, // Will error, but that's OK
+	}
+
+	cmd := m.startLogTailing()
+
+	if cmd == nil {
+		t.Error("Expected non-nil command")
+	}
+}
+
+// TestRefreshLogs tests log refresh
+func TestRefreshLogs(t *testing.T) {
+	m := &Model{
+		logScope: logScopeStack,
+		isRemote: true,
+		client:   nil, // Will error
+	}
+
+	// Should not panic even with error
+	m.refreshLogs()
+
+	// Error should be in log buffer
+	if len(m.logBuffer) == 0 {
+		t.Error("Expected log buffer to have error message")
+	}
+}
+
+// TestFetchProcessConfigCmd tests process config fetching
+func TestFetchProcessConfigCmd(t *testing.T) {
+	tests := []struct {
+		name      string
+		procName  string
+		isRemote  bool
+		expectNil bool
+	}{
+		{
+			name:      "remote mode returns command",
+			procName:  "php-fpm",
+			isRemote:  true,
+			expectNil: false,
+		},
+		{
+			name:      "embedded mode returns command",
+			procName:  "nginx",
+			isRemote:  false,
+			expectNil: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+				client:   NewAPIClient("http://localhost:9999", ""),
+			}
+
+			cmd := m.fetchProcessConfigCmd(tt.procName)
+
+			if tt.expectNil && cmd != nil {
+				t.Error("Expected nil command")
+			}
+
+			if !tt.expectNil && cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestScaleProcess tests process scaling
+func TestScaleProcess(t *testing.T) {
+	m := &Model{
+		isRemote: true,
+		client:   NewAPIClient("http://localhost:9999", ""),
+	}
+
+	cmd := m.scaleProcess("php-fpm", 3)
+
+	if cmd == nil {
+		t.Error("Expected non-nil command")
+	}
+}
+
+// TestExecuteWizardSubmit tests wizard submission
+func TestExecuteWizardSubmit(t *testing.T) {
+	tests := []struct {
+		name        string
+		wizardMode  wizardMode
+		isRemote    bool
+		expectToast bool
+	}{
+		{
+			name:        "create mode remote with nil client",
+			wizardMode:  wizardModeCreate,
+			isRemote:    true,
+			expectToast: true, // Will fail due to nil client
+		},
+		{
+			name:        "edit mode remote with nil client",
+			wizardMode:  wizardModeEdit,
+			isRemote:    true,
+			expectToast: true, // Will fail due to nil client
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				wizardMode:        tt.wizardMode,
+				wizardName:        "test-proc",
+				wizardCommandLine: "php artisan queue:work",
+				wizardScale:       1,
+				wizardRestart:     "always",
+				wizardEnabled:     true,
+				isRemote:          tt.isRemote,
+				client:            nil, // Will cause error
+				currentView:       viewWizard,
+			}
+
+			cmd := m.executeWizardSubmit()
+
+			// Command should be returned (even if it will error when executed)
+			if cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestReloadConfigCmd tests the reload config command
+func TestReloadConfigCmd(t *testing.T) {
+	tests := []struct {
+		name         string
+		isRemote     bool
+		hasManager   bool
+		expectResult string
+	}{
+		{
+			name:         "no manager returns error",
+			isRemote:     false,
+			hasManager:   false,
+			expectResult: "No manager available",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+				manager:  nil,
+			}
+
+			cmd := m.reloadConfigCmd()
+			if cmd == nil {
+				t.Fatal("Expected non-nil command")
+			}
+
+			// Execute the command
+			result := cmd()
+			msg, ok := result.(actionResultMsg)
+			if !ok {
+				t.Fatalf("Expected actionResultMsg, got %T", result)
+			}
+
+			if !containsText(msg.message, tt.expectResult) {
+				t.Errorf("Expected message containing %q, got %q", tt.expectResult, msg.message)
+			}
+		})
+	}
+}
+
+// TestSaveConfigCmd tests the save config command
+func TestSaveConfigCmd(t *testing.T) {
+	tests := []struct {
+		name         string
+		isRemote     bool
+		hasManager   bool
+		expectResult string
+	}{
+		{
+			name:         "no manager returns error",
+			isRemote:     false,
+			hasManager:   false,
+			expectResult: "No manager available",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+				manager:  nil,
+			}
+
+			cmd := m.saveConfigCmd()
+			if cmd == nil {
+				t.Fatal("Expected non-nil command")
+			}
+
+			// Execute the command
+			result := cmd()
+			msg, ok := result.(actionResultMsg)
+			if !ok {
+				t.Fatalf("Expected actionResultMsg, got %T", result)
+			}
+
+			if !containsText(msg.message, tt.expectResult) {
+				t.Errorf("Expected message containing %q, got %q", tt.expectResult, msg.message)
+			}
+		})
+	}
+}
+
+// TestScaleProcessCmd tests the scale process command
+func TestScaleProcessCmd(t *testing.T) {
+	tests := []struct {
+		name         string
+		isRemote     bool
+		processName  string
+		desired      int
+		expectResult string
+	}{
+		{
+			name:         "remote scale with no client panics gracefully",
+			isRemote:     true,
+			processName:  "php-fpm",
+			desired:      3,
+			expectResult: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: tt.isRemote,
+				client:   nil,
+			}
+
+			cmd := m.scaleProcess(tt.processName, tt.desired)
+			if cmd == nil {
+				t.Fatal("Expected non-nil command")
+			}
+
+			// Note: execution would panic with nil client, so we just verify cmd is returned
+		})
+	}
+}
+
+// TestHandleProcessActionKeysWithData tests process action keys with actual data
+func TestHandleProcessActionKeysWithData(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		processData []processDisplayRow
+		expectToast bool
+		expectView  viewMode
+	}{
+		{
+			name:        "enter with process opens detail view",
+			key:         "enter",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: false,
+			expectView:  viewProcessDetail,
+		},
+		{
+			name:        "r with process triggers restart",
+			key:         "r",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: false,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "s with stopped process triggers start",
+			key:         "s",
+			processData: []processDisplayRow{{name: "php-fpm", state: "stopped", rawState: "stopped"}},
+			expectToast: false,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "s with running process shows toast",
+			key:         "s",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "x with running process triggers stop",
+			key:         "x",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: false,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "x with stopped process shows toast",
+			key:         "x",
+			processData: []processDisplayRow{{name: "php-fpm", state: "stopped", rawState: "stopped"}},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "d with process shows confirmation",
+			key:         "d",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: false,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "s with no process shows toast",
+			key:         "s",
+			processData: []processDisplayRow{},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "x with no process shows toast",
+			key:         "x",
+			processData: []processDisplayRow{},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "d with no process shows toast",
+			key:         "d",
+			processData: []processDisplayRow{},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "e with process fetches config",
+			key:         "e",
+			processData: []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}},
+			expectToast: false,
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "e with no process shows toast",
+			key:         "e",
+			processData: []processDisplayRow{},
+			expectToast: true,
+			expectView:  viewProcessList,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				tableData:    tt.processData,
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+			m.setupProcessTable()
+
+			// Select first row if data exists
+			if len(tt.processData) > 0 {
+				m.processTable.SetCursor(0)
+			}
+
+			handled, resultModel, _ := m.handleProcessActionKeys(tt.key)
+
+			if !handled {
+				t.Error("Expected key to be handled")
+			}
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("Expected view %v, got %v", tt.expectView, resultModel.currentView)
+			}
+		})
+	}
+}
+
+// TestHandleProcessListKeysIntegration tests process list keys calling sub-handlers
+func TestHandleProcessListKeysIntegration(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        string
+		initialTab tabType
+		expectTab  tabType
+		expectView viewMode
+	}{
+		{
+			name:       "3 switches to oneshot tab",
+			key:        "3",
+			initialTab: tabProcesses,
+			expectTab:  tabOneshot,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "4 switches to system tab",
+			key:        "4",
+			initialTab: tabProcesses,
+			expectTab:  tabSystem,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "j moves selection down",
+			key:        "j",
+			initialTab: tabProcesses,
+			expectTab:  tabProcesses,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "k moves selection up",
+			key:        "k",
+			initialTab: tabProcesses,
+			expectTab:  tabProcesses,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "g moves to top",
+			key:        "g",
+			initialTab: tabProcesses,
+			expectTab:  tabProcesses,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "G moves to bottom",
+			key:        "G",
+			initialTab: tabProcesses,
+			expectTab:  tabProcesses,
+			expectView: viewProcessList,
+		},
+		{
+			name:       "unhandled key returns model unchanged",
+			key:        "Z",
+			initialTab: tabProcesses,
+			expectTab:  tabProcesses,
+			expectView: viewProcessList,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tt.initialTab,
+				tableData:    []processDisplayRow{{name: "php-fpm"}, {name: "nginx"}},
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+			m.setupProcessTable()
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleProcessListKeys(msg)
+			resultModel := result.(Model)
+
+			if resultModel.activeTab != tt.expectTab {
+				t.Errorf("activeTab = %v, expected %v", resultModel.activeTab, tt.expectTab)
+			}
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("currentView = %v, expected %v", resultModel.currentView, tt.expectView)
+			}
+		})
+	}
+}
+
+// TestHandleKeyPressViewModes tests handleKeyPress for different view modes
+func TestHandleKeyPressViewModes(t *testing.T) {
+	tests := []struct {
+		name        string
+		currentView viewMode
+		key         string
+		expectView  viewMode
+	}{
+		{
+			name:        "q in process list quits",
+			currentView: viewProcessList,
+			key:         "q",
+			expectView:  viewProcessList, // quit is handled by tea.Quit
+		},
+		{
+			name:        "escape in logs returns to list",
+			currentView: viewLogs,
+			key:         "esc",
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "escape in help returns to list",
+			currentView: viewHelp,
+			key:         "esc",
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "q in help returns to list",
+			currentView: viewHelp,
+			key:         "q",
+			expectView:  viewProcessList,
+		},
+		{
+			name:        "escape in process detail returns to list",
+			currentView: viewProcessDetail,
+			key:         "esc",
+			expectView:  viewProcessList,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				currentView:  tt.currentView,
+				processCache: make(map[string]process.ProcessInfo),
+			}
+			m.setupProcessTable()
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleKeyPress(msg)
+			resultModel := result.(Model)
+
+			if resultModel.currentView != tt.expectView {
+				t.Errorf("currentView = %v, expected %v", resultModel.currentView, tt.expectView)
+			}
+		})
+	}
+}
+
+// TestHandleQuickScaleAdditional tests quick scale with delta (additional cases)
+func TestHandleQuickScaleAdditional(t *testing.T) {
+	tests := []struct {
+		name        string
+		delta       int
+		hasProcess  bool
+		isRemote    bool
+		expectToast bool
+	}{
+		{
+			name:        "no process selected shows toast",
+			delta:       1,
+			hasProcess:  false,
+			isRemote:    true,
+			expectToast: true,
+		},
+		{
+			name:        "with process returns command",
+			delta:       1,
+			hasProcess:  true,
+			isRemote:    true,
+			expectToast: false,
+		},
+		{
+			name:        "negative delta with process",
+			delta:       -1,
+			hasProcess:  true,
+			isRemote:    true,
+			expectToast: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tabProcesses,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     tt.isRemote,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+
+			if tt.hasProcess {
+				m.tableData = []processDisplayRow{{name: "php-fpm", state: "running", rawState: "running"}}
+			} else {
+				m.tableData = []processDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			result, cmd := m.handleQuickScale(tt.delta)
+			resultModel := result.(Model)
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+
+			if tt.hasProcess && cmd == nil {
+				t.Error("Expected non-nil command when process is selected")
+			}
+		})
+	}
+}
+
+// TestHandleProcessDetailKeysAdditional tests process detail view key handling
+func TestHandleProcessDetailKeysAdditional(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		detailProc  string
+		expectToast bool
+	}{
+		{
+			name:        "l opens logs when process selected",
+			key:         "l",
+			detailProc:  "php-fpm",
+			expectToast: false,
+		},
+		{
+			name:        "l with no process shows toast",
+			key:         "l",
+			detailProc:  "",
+			expectToast: true,
+		},
+		{
+			name:        "r restarts process",
+			key:         "r",
+			detailProc:  "php-fpm",
+			expectToast: false,
+		},
+		{
+			name:        "r with no process shows toast",
+			key:         "r",
+			detailProc:  "",
+			expectToast: true,
+		},
+		{
+			name:        "s stops process",
+			key:         "s",
+			detailProc:  "php-fpm",
+			expectToast: false,
+		},
+		{
+			name:        "s with no process shows toast",
+			key:         "s",
+			detailProc:  "",
+			expectToast: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				currentView:  viewProcessDetail,
+				detailProc:   tt.detailProc,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+			m.setupProcessTable()
+			m.setupInstanceTable()
+
+			msg := createKeyMsg(tt.key)
+			result, _ := m.handleProcessDetailKeys(msg)
+			resultModel := result.(Model)
+
+			if tt.expectToast && resultModel.toast == "" {
+				t.Error("Expected toast message")
+			}
+		})
+	}
+}
+
+// TestHandleScheduleKeysAdditional tests schedule-related key handling
+func TestHandleScheduleKeysAdditional(t *testing.T) {
+	tests := []struct {
+		name          string
+		key           string
+		activeTab     tabType
+		hasData       bool
+		expectHandled bool
+	}{
+		{
+			name:          "p on scheduled tab with data",
+			key:           "p",
+			activeTab:     tabScheduled,
+			hasData:       true,
+			expectHandled: true,
+		},
+		{
+			name:          "t on scheduled tab with data",
+			key:           "t",
+			activeTab:     tabScheduled,
+			hasData:       true,
+			expectHandled: true,
+		},
+		{
+			name:          "p on scheduled tab no data",
+			key:           "p",
+			activeTab:     tabScheduled,
+			hasData:       false,
+			expectHandled: true,
+		},
+		{
+			name:          "t on scheduled tab no data",
+			key:           "t",
+			activeTab:     tabScheduled,
+			hasData:       false,
+			expectHandled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				activeTab:    tt.activeTab,
+				currentView:  viewProcessList,
+				processCache: make(map[string]process.ProcessInfo),
+				isRemote:     true,
+				client:       NewAPIClient("http://localhost:9999", ""),
+			}
+
+			if tt.hasData {
+				m.scheduledData = []scheduledDisplayRow{{name: "cron-task"}}
+			} else {
+				m.scheduledData = []scheduledDisplayRow{}
+			}
+			m.setupProcessTable()
+
+			handled, _, _ := m.handleScheduleKeys(tt.key)
+
+			if handled != tt.expectHandled {
+				t.Errorf("handled = %v, expected %v", handled, tt.expectHandled)
+			}
+		})
+	}
+}
+
+// TestExecuteActions tests the various execute action functions
+func TestExecuteActions(t *testing.T) {
+	tests := []struct {
+		name     string
+		action   actionType
+		isRemote bool
+	}{
+		{
+			name:     "restart action",
+			action:   actionRestart,
+			isRemote: true,
+		},
+		{
+			name:     "stop action",
+			action:   actionStop,
+			isRemote: true,
+		},
+		{
+			name:     "start action",
+			action:   actionStart,
+			isRemote: true,
+		},
+		{
+			name:     "delete action",
+			action:   actionDelete,
+			isRemote: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				pendingAction: tt.action,
+				pendingTarget: "php-fpm",
+				isRemote:      tt.isRemote,
+				client:        NewAPIClient("http://localhost:9999", ""),
+			}
+
+			cmd := m.executeAction()
+			if cmd == nil {
+				t.Error("Expected non-nil command")
+			}
+		})
+	}
+}
+
+// TestUpdateAdditionalMessages tests additional Update message types
+func TestUpdateAdditionalMessages(t *testing.T) {
+	t.Run("tick message refreshes processes", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+			isRemote:     true,
+			client:       NewAPIClient("http://localhost:9999", ""),
+		}
+		m.setupProcessTable()
+
+		result, cmd := m.Update(tickMsg{})
+		resultModel := result.(Model)
+
+		if resultModel.currentView != viewProcessList {
+			t.Errorf("currentView changed unexpectedly")
+		}
+		if cmd == nil {
+			t.Error("Expected non-nil command from tickMsg")
+		}
+	})
+
+	t.Run("tickLogRefresh in log view triggers refresh", func(t *testing.T) {
+		m := Model{
+			currentView:  viewLogs,
+			processCache: make(map[string]process.ProcessInfo),
+			isRemote:     true,
+			client:       NewAPIClient("http://localhost:9999", ""),
+		}
+		m.setupProcessTable()
+
+		result, cmd := m.Update(tickLogRefreshMsg{})
+		resultModel := result.(Model)
+
+		if resultModel.currentView != viewLogs {
+			t.Errorf("currentView changed unexpectedly")
+		}
+		if cmd == nil {
+			t.Error("Expected non-nil command from tickLogRefreshMsg in log view")
+		}
+	})
+
+	t.Run("tickLogRefresh not in log view does nothing", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+		}
+		m.setupProcessTable()
+
+		_, cmd := m.Update(tickLogRefreshMsg{})
+
+		if cmd != nil {
+			t.Error("Expected nil command from tickLogRefreshMsg when not in log view")
+		}
+	})
+
+	t.Run("processListResult applies processes", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+		}
+		m.setupProcessTable()
+
+		msg := processListResultMsg{
+			processes: []process.ProcessInfo{
+				{Name: "php-fpm", State: "running"},
+				{Name: "nginx", State: "running"},
+			},
+		}
+
+		result, _ := m.Update(msg)
+		resultModel := result.(Model)
+
+		if len(resultModel.processCache) != 2 {
+			t.Errorf("Expected 2 processes in cache, got %d", len(resultModel.processCache))
+		}
+	})
+
+	t.Run("processConfigResult success starts edit wizard", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+		}
+		m.setupProcessTable()
+
+		msg := processConfigResultMsg{
+			name: "php-fpm",
+			cfg: &config.Process{
+				Command: []string{"php-fpm", "-F"},
+			},
+		}
+
+		result, _ := m.Update(msg)
+		resultModel := result.(Model)
+
+		if resultModel.currentView != viewWizard {
+			t.Errorf("Expected viewWizard, got %v", resultModel.currentView)
+		}
+	})
+
+	t.Run("processConfigResult error shows toast", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+		}
+		m.setupProcessTable()
+
+		msg := processConfigResultMsg{
+			name: "php-fpm",
+			err:  &mockError{"config not found"},
+		}
+
+		result, _ := m.Update(msg)
+		resultModel := result.(Model)
+
+		if resultModel.toast == "" {
+			t.Error("Expected toast message on error")
+		}
+	})
+
+	t.Run("unknown message type returns model unchanged", func(t *testing.T) {
+		m := Model{
+			currentView:  viewProcessList,
+			processCache: make(map[string]process.ProcessInfo),
+		}
+		m.setupProcessTable()
+
+		// Send an unknown message type
+		result, cmd := m.Update(struct{}{})
+		resultModel := result.(Model)
+
+		if resultModel.currentView != viewProcessList {
+			t.Errorf("currentView changed unexpectedly")
+		}
+		if cmd != nil {
+			t.Error("Expected nil command for unknown message")
+		}
+	})
+}
+
+// TestExecuteScheduleActions tests schedule action execution
+func TestExecuteScheduleActions(t *testing.T) {
+	tests := []struct {
+		name     string
+		testFunc func(m *Model) (string, error)
+	}{
+		{
+			name: "executeSchedulePause",
+			testFunc: func(m *Model) (string, error) {
+				return m.executeSchedulePause("cron-task")
+			},
+		},
+		{
+			name: "executeScheduleResume",
+			testFunc: func(m *Model) (string, error) {
+				return m.executeScheduleResume("cron-task")
+			},
+		},
+		{
+			name: "executeScheduleTrigger",
+			testFunc: func(m *Model) (string, error) {
+				return m.executeScheduleTrigger("cron-task")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Model{
+				isRemote: true,
+				client:   NewAPIClient("http://localhost:9999", ""),
+			}
+
+			// These functions will fail because they try to call a remote API
+			// but we're just testing that they don't panic and return properly
+			_, _ = tt.testFunc(m)
+		})
 	}
 }

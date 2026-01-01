@@ -215,7 +215,7 @@ func TestScheduledJob_TriggerWhilePaused(t *testing.T) {
 
 	job, _ := NewScheduledJob("test-job", "*/5 * * * *", "", 10, executor, logger)
 
-	job.Pause()
+	_ = job.Pause()
 
 	ctx := context.Background()
 	if err := job.Trigger(ctx); err == nil {
@@ -232,7 +232,7 @@ func TestScheduledJob_TriggerWhileExecuting(t *testing.T) {
 	ctx := context.Background()
 
 	// Start first execution
-	job.Trigger(ctx)
+	_ = job.Trigger(ctx)
 	time.Sleep(10 * time.Millisecond)
 
 	// Try to trigger again
@@ -308,6 +308,50 @@ func TestScheduledJob_TriggerSync_Canceled(t *testing.T) {
 	}
 }
 
+func TestScheduledJob_TriggerSync_WhenPaused(t *testing.T) {
+	executor := &mockExecutor{}
+	logger := testLogger()
+
+	job, _ := NewScheduledJob("test-job", "*/5 * * * *", "", 10, executor, logger)
+	_ = job.Pause()
+
+	ctx := context.Background()
+	_, err := job.TriggerSync(ctx)
+	if err == nil {
+		t.Error("TriggerSync() should error when job is paused")
+	}
+	if err.Error() != "cannot trigger paused job" {
+		t.Errorf("TriggerSync() error = %q, want 'cannot trigger paused job'", err.Error())
+	}
+	if executor.callCount() != 0 {
+		t.Errorf("executor called %d times, want 0 when paused", executor.callCount())
+	}
+}
+
+func TestScheduledJob_TriggerSync_WhenExecuting(t *testing.T) {
+	executor := &mockExecutor{delay: 500 * time.Millisecond}
+	logger := testLogger()
+
+	job, _ := NewScheduledJob("test-job", "*/5 * * * *", "", 10, executor, logger)
+
+	// Start first execution
+	go func() {
+		_, _ = job.TriggerSync(context.Background())
+	}()
+
+	// Wait for job to start executing
+	time.Sleep(50 * time.Millisecond)
+
+	ctx := context.Background()
+	_, err := job.TriggerSync(ctx)
+	if err == nil {
+		t.Error("TriggerSync() should error when job is already executing")
+	}
+	if err.Error() != "job is already executing" {
+		t.Errorf("TriggerSync() error = %q, want 'job is already executing'", err.Error())
+	}
+}
+
 func TestScheduledJob_Run(t *testing.T) {
 	executor := &mockExecutor{}
 	logger := testLogger()
@@ -327,7 +371,7 @@ func TestScheduledJob_Run_SkipsWhenPaused(t *testing.T) {
 	logger := testLogger()
 
 	job, _ := NewScheduledJob("test-job", "*/5 * * * *", "", 10, executor, logger)
-	job.Pause()
+	_ = job.Pause()
 
 	// Run should not execute
 	job.Run()
@@ -410,7 +454,7 @@ func TestScheduledJob_LastRun(t *testing.T) {
 	}
 
 	// Execute and check LastRun is updated
-	job.TriggerSync(context.Background())
+	_, _ = job.TriggerSync(context.Background())
 
 	lastRun := job.GetLastRun()
 	if lastRun.IsZero() {
@@ -457,7 +501,7 @@ func TestScheduledJob_CanExecute(t *testing.T) {
 	}
 
 	// Cannot execute when paused
-	job.Pause()
+	_ = job.Pause()
 	if job.CanExecute() {
 		t.Error("should not be able to execute when paused")
 	}
@@ -476,7 +520,7 @@ func TestScheduledJob_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			job.Trigger(context.Background())
+			_ = job.Trigger(context.Background())
 		}()
 	}
 
