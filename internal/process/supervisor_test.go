@@ -908,7 +908,7 @@ func TestSupervisor_MemoryLimitRestart(t *testing.T) {
 	// Stop the supervisor
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
-	sup.Stop(stopCtx)
+	_ = sup.Stop(stopCtx)
 }
 
 // TestSupervisor_MemoryLimitDisabled tests that max_memory_mb=0 disables the feature
@@ -984,5 +984,5 @@ func TestSupervisor_MemoryLimitDisabled(t *testing.T) {
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer stopCancel()
-	sup.Stop(stopCtx)
+	_ = sup.Stop(stopCtx)
 }
